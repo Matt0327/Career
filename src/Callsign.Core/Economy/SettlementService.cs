@@ -50,7 +50,10 @@ public sealed class SettlementService
             (decimal)baseCents * _cfg.LandingModifierPct(flight.TouchdownFpm), MidpointRounding.AwayFromZero);
 
         var type = await MatchAircraftAsync(flight.AircraftTitle, ct);
-        bool payloadMatched = type?.UsefulLoadLbs is int usefulLoad && usefulLoad >= a.WeightLbs;
+        // "Right aircraft" bonus: passenger charters need SEATS for everyone; cargo needs useful LOAD.
+        bool payloadMatched = a.Type.CarriesPassengers()
+            ? type?.Seats is int seats && seats >= a.Pax
+            : type?.UsefulLoadLbs is int usefulLoad && usefulLoad >= a.WeightLbs;
         int xp = a.XpQuote + (payloadMatched ? (int)Math.Round(a.XpQuote * _cfg.PayloadMatchXpBonusPct) : 0);
 
         var jobRef = a.JobId.ToString();

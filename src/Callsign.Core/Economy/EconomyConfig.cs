@@ -37,6 +37,21 @@ public sealed record EconomyConfig
     public int JobXp(double distanceNm)
         => XpBase + (int)Math.Round(distanceNm * XpPerNm);
 
+    // --- Passenger reward = base + pax * (per-seat-sold fee + per-passenger-mile fare) ---
+    public long PaxBaseFeeCents { get; init; } = 15_000;  // $150 dispatch
+    public long PaxPerPaxCents { get; init; } = 12_000;   // $120 per seat sold
+    public long PaxPerPaxNmCents { get; init; } = 150;    // $1.50 per passenger per nautical mile
+    public int MinPax { get; init; } = 1;
+    public int MaxPax { get; init; } = 6;                 // freelance charters stay GA-flyable
+    public int PaxWeightLbs { get; init; } = 210;         // body + bag, so useful-load still bites
+
+    public long PaxRewardCents(double distanceNm, int pax)
+        => PaxBaseFeeCents + pax * (PaxPerPaxCents + (long)Math.Round(distanceNm * PaxPerPaxNmCents));
+
+    // --- Board mix: relative shares each local source gets of a refresh (largest-remainder split) ---
+    public double CargoJobShare { get; init; } = 3;
+    public double PassengerJobShare { get; init; } = 2;
+
     // --- Settlement: landing quality (as a fraction of base reward) and payload bonus ---
     public double PayloadMatchXpBonusPct { get; init; } = 0.5;
 

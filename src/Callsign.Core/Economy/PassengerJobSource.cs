@@ -3,20 +3,22 @@ using Callsign.Core.Domain;
 namespace Callsign.Core.Economy;
 
 /// <summary>
-/// Local generator of freelance Cargo jobs. Deterministic given a seed so refreshes are reproducible
-/// and testable. Reward and XP come from <see cref="EconomyConfig"/> — never inline literals.
+/// Local generator of freelance passenger charters — a group of travellers to a nearby field. Mirrors
+/// the cargo generator's deterministic, near-biased draw, but the load is measured in SEATS: the
+/// reward scales with how many people and how far they fly. Weight is bodies + bags, so an airframe's
+/// useful load still bites (you can't cram six into a two-seater). Deterministic given a seed.
 /// </summary>
-public sealed class CargoJobSource : IJobSource
+public sealed class PassengerJobSource : IJobSource
 {
-    private static readonly string[] Commodities =
+    private static readonly string[] Groups =
     [
-        "General freight", "Machine parts", "Foodstuffs", "Medical supplies",
-        "Building materials", "Electronics", "Auto parts", "Mail",
+        "Business travellers", "Holiday charter", "Film crew", "Sports team",
+        "Corporate group", "Wedding party", "Survey team", "Tour group",
     ];
 
     private readonly EconomyConfig _cfg;
 
-    public CargoJobSource(EconomyConfig cfg) => _cfg = cfg;
+    public PassengerJobSource(EconomyConfig cfg) => _cfg = cfg;
 
     public IReadOnlyList<GeneratedJob> Generate(JobGenerationRequest request)
     {
@@ -37,18 +39,18 @@ public sealed class CargoJobSource : IJobSource
             int idx = JobRng.NearBiasedIndex(rng, available.Count, _cfg.JobDistanceBiasExponent);
             var dest = available[idx];
             available.RemoveAt(idx);
-            int weight = rng.Next(_cfg.MinCargoWeightLbs, _cfg.MaxCargoWeightLbs + 1);
-            var commodity = Commodities[rng.Next(Commodities.Length)];
+            int pax = rng.Next(_cfg.MinPax, _cfg.MaxPax + 1);
+            var group = Groups[rng.Next(Groups.Length)];
 
             jobs.Add(new GeneratedJob(
-                MissionType.Cargo,
+                MissionType.Passenger,
                 request.OriginIcao,
                 dest.DestIcao,
-                commodity,
-                weight,
-                Pax: 0,
+                group,
+                WeightLbs: pax * _cfg.PaxWeightLbs,
+                Pax: pax,
                 dest.DistanceNm,
-                _cfg.CargoRewardCents(dest.DistanceNm, weight),
+                _cfg.PaxRewardCents(dest.DistanceNm, pax),
                 _cfg.JobXp(dest.DistanceNm),
                 PilotRank.Trainee));
         }

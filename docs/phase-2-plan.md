@@ -24,17 +24,21 @@ Build order — each step independently playable, finish before the next:
 5. ✅ **2e — Bases.** A free home base at career start; open more for a setup fee + recurring rent
    (billed in the reconcile pass); landing fees are waived at your own bases. Nearby airports are
    offered as priced base candidates.
-6. **2f — More mission types.** Passengers first (manifest + seats), then express/tourist/etc.
+6. ✅ **2f — Passenger charters.** A `Passenger` mission type generated alongside cargo (a
+   `CompositeJobSource` mixes both on every board refresh); reward scales with heads × distance, the
+   load reads in seats, and settlement's "right aircraft" bonus gates on seats ≥ pax. (Express/
+   tourist/etc. remain future variants on the same rails.)
 7. **2g — Trade.** Buy low / sell high across airports; goods as assets with a cost basis.
 
 ## Pre-ship infrastructure (tracked, before any real save ships)
 
 These came out of the 2a adversarial review and are deliberately scheduled, not skipped:
 
-- **EF Core migrations.** The app builds its schema with `EnsureCreated`, so a *new* save gets new
-  tables/columns but an *existing* save does not. Replace with an `InitialCreate` baseline + a
-  `Database.Migrate()` on startup before we ship a save anyone keeps. (Pre-release, dev DBs are
-  disposable — delete `%LOCALAPPDATA%\Callsign\callsign.db` after a schema change.)
+- ✅ **EF Core migrations.** The app now creates/upgrades its schema through EF migrations
+  (`InitialCreate` baseline + `Database.Migrate()` on startup), so a shipped save survives a schema
+  change across updates instead of being wiped. Tests keep `EnsureCreated()` on throwaway DBs. New
+  migrations: `dotnet ef migrations add <Name> --project src/Callsign.Core` (design-time factory
+  included).
 - **Idempotent purchases.** Give money-committing endpoints a client idempotency token so a network
   retry replays instead of double-charging (the UI already debounces; the `Company.Version`
   concurrency token now stops the concurrent-race desync).

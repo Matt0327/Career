@@ -204,6 +204,80 @@ public class SettlementServiceTests
             Assert.Empty(await db.LedgerEntries.Where(e => e.AccountId == companyId).ToListAsync()); // no money moved
     }
 
+    // A passenger charter gates the "right aircraft" bonus on SEATS, not payload weight.
+    private static async Task<Guid> SeedPaxSettleAsync(CallsignDbContext db, FakeClock clock, int seats, int pax)
+    {
+        var company = new Company { Id = Guid.NewGuid(), Name = "Test Co" };
+        var pilot = new Pilot { Id = Guid.NewGuid(), CompanyId = company.Id, Name = "Amelia", HomeIcao = "EHAM", CurrentIcao = "EHAM" };
+        var type = new AircraftType
+        {
+            Id = Guid.NewGuid(),
+            Key = "PC12",
+            CanonicalName = "Pilatus PC-12",
+            Category = AircraftCategory.Turboprop,
+            Seats = seats,
+            UsefulLoadLbs = 50, // deliberately tiny: far below the passengers' weight, so only SEATS can match
+            Aliases = [new AircraftTitleAlias { Title = "Pilatus PC-12", TitleNormalized = AircraftTitle.Normalize("Pilatus PC-12") }],
+        };
+        var job = new Job
+        {
+            Id = Guid.NewGuid(),
+            Type = MissionType.Passenger,
+            OriginIcao = "EHAM",
+            DestIcao = "EHRD",
+            Commodity = "Corporate group",
+            WeightLbs = pax * EconomyConfig.Default.PaxWeightLbs,
+            Pax = pax,
+            RewardCents = 200_000,
+            Xp = 20,
+            DistanceNm = 120,
+            RequiredRank = PilotRank.Trainee,
+            GeneratedAt = T0,
+            ExpiresAt = T0.AddHours(6),
+        };
+        db.AddRange(company, pilot, type, job);
+        await db.SaveChangesAsync();
+        return (await new JobAssignmentService(db, clock).AcceptAsync(job.Id, company.Id, pilot.Id)).Id;
+    }
+
+    [Fact]
+    public async Task Settle_PassengerJob_EnoughSeats_AwardsBonus_EvenWithTinyUsefulLoad()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Guid assignmentId;
+        using (var db = tdb.NewContext())
+            assignmentId = await SeedPaxSettleAsync(db, clock, seats: 9, pax: 4);
+
+        using (var db = tdb.NewContext())
+        {
+            var svc = new SettlementService(db, new LedgerService(db, clock), clock, EconomyConfig.Default);
+            var r = await svc.SettleAsync(assignmentId,
+                new FlightRecord("Pilatus PC-12", T0.AddMinutes(5), T0.AddMinutes(55), -80, 9000, 52.3, 4.76, 51.95, 4.44, 120, 200, []));
+            Assert.True(r.PayloadMatched);     // 9 seats >= 4 pax (useful load of 50 lb is irrelevant for passengers)
+            Assert.Equal(30, r.XpAwarded);     // 20 + round(20 * 0.5)
+        }
+    }
+
+    [Fact]
+    public async Task Settle_PassengerJob_TooFewSeats_NoBonus()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Guid assignmentId;
+        using (var db = tdb.NewContext())
+            assignmentId = await SeedPaxSettleAsync(db, clock, seats: 2, pax: 4);
+
+        using (var db = tdb.NewContext())
+        {
+            var svc = new SettlementService(db, new LedgerService(db, clock), clock, EconomyConfig.Default);
+            var r = await svc.SettleAsync(assignmentId,
+                new FlightRecord("Pilatus PC-12", T0.AddMinutes(5), T0.AddMinutes(55), -80, 9000, 52.3, 4.76, 51.95, 4.44, 120, 200, []));
+            Assert.False(r.PayloadMatched);    // 2 seats < 4 pax
+            Assert.Equal(20, r.XpAwarded);     // base XP only, no capability bonus
+        }
+    }
+
     [Theory]
     [InlineData(-50, 0.10)]
     [InlineData(-150, 0.05)]

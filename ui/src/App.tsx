@@ -137,7 +137,7 @@ function Dashboard({ state, go }: { state: State; go: (t: Tab) => void }) {
                 <div className="leg"><b>{a.origin}</b> → <b>{a.dest}</b> <span className="muted">{a.destName} · {a.commodity}</span></div>
                 <div className="assign-meta">
                   <span>{Math.round(a.distanceNm)} nm</span>
-                  <span>{a.weightLbs.toLocaleString()} lb</span>
+                  <span>{loadText(a.type, a.weightLbs, a.pax)}</span>
                   <span className="pos">{money(a.rewardQuoteCents)}</span>
                 </div>
                 <button className="primary" onClick={() => go('flight')}>Go to flight →</button>
@@ -213,7 +213,7 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
                   <div className="commodity">{j.commodity}</div>
                   <div className="job-meta">
                     <Meta label="Distance" value={`${Math.round(j.distanceNm)} nm`} />
-                    <Meta label="Payload" value={`${j.weightLbs.toLocaleString()} lb`} />
+                    <Meta label={isPaxType(j.type) ? 'Passengers' : 'Payload'} value={loadText(j.type, j.weightLbs, j.pax)} />
                     <Meta label="XP" value={`+${j.xp}`} />
                   </div>
                   <div className="job-foot">
@@ -364,6 +364,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
                   <div className="leg"><b>{a.origin}</b> → <b>{a.dest}</b> <span className="muted">{a.destName} · {a.commodity}</span></div>
                   <div className="assign-meta">
                     <span>{Math.round(a.distanceNm)} nm</span>
+                    <span>{loadText(a.type, a.weightLbs, a.pax)}</span>
                     <span className="pos">{money(a.rewardQuoteCents)}</span>
                   </div>
                   <button className="primary" disabled={begun?.id === a.id || !aircraftId} onClick={() => begin(a)}>
@@ -397,7 +398,7 @@ function SettlementCard({ settled }: { settled: Settled }) {
       <div className="settled-meta">
         <span>+{settled.xp} XP</span>
         <span>touchdown <b className="num">{signed(Math.round(settled.touchdownFpm))} fpm</b> ({landingWord(settled.touchdownFpm)})</span>
-        {settled.payloadMatched && <span className="pos">payload bonus</span>}
+        {settled.payloadMatched && <span className="pos">aircraft bonus</span>}
       </div>
     </section>
   )
@@ -740,6 +741,11 @@ function Logbook() {
 
 function signed(n: number): string { return n > 0 ? `+${n.toLocaleString()}` : n.toLocaleString() }
 function spaced(s: string): string { return s.replace(/([a-z])([A-Z])/g, '$1 $2') }
+function isPaxType(type: string): boolean { return type === 'Passenger' || type === 'Vip' || type === 'Tourist' }
+// A job's "load" reads as seats for passenger charters, freight weight for cargo.
+function loadText(type: string, weightLbs: number, pax: number): string {
+  return isPaxType(type) ? `${pax} pax` : `${weightLbs.toLocaleString()} lb`
+}
 function when(iso: string): string {
   const d = new Date(iso)
   return isNaN(d.getTime()) ? '' : d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })

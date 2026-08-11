@@ -35,7 +35,14 @@ public static class CallsignWebApp
         // --- Singletons ---
         builder.Services.AddSingleton<IClock, SystemClock>();
         builder.Services.AddSingleton(EconomyConfig.Default);
-        builder.Services.AddSingleton<IJobSource>(sp => new CargoJobSource(sp.GetRequiredService<EconomyConfig>()));
+        builder.Services.AddSingleton<IJobSource>(sp =>
+        {
+            var cfg = sp.GetRequiredService<EconomyConfig>();
+            // The board mixes freelance cargo runs and passenger charters (Phase 2f).
+            return new CompositeJobSource(
+                (new CargoJobSource(cfg), cfg.CargoJobShare),
+                (new PassengerJobSource(cfg), cfg.PassengerJobShare));
+        });
         builder.Services.AddSingleton<AircraftScanner>();
         builder.Services.AddSingleton<ISimTelemetrySource>(sp =>
             SimTelemetryFactory.Create(sp.GetRequiredService<ILoggerFactory>().CreateLogger("Telemetry")));
@@ -143,7 +150,7 @@ public static class CallsignWebApp
             var jobs = await board.GetAvailableAsync(icao);
             var names = await AirportNamesAsync(db, jobs.Select(j => j.DestIcao));
             return Results.Ok(jobs.Select(j => new JobDto(j.Id, j.Type.ToString(), j.OriginIcao, j.DestIcao,
-                names.GetValueOrDefault(j.DestIcao, j.DestIcao), j.Commodity, j.WeightLbs, j.DistanceNm, j.RewardCents, j.Xp, j.ExpiresAt)));
+                names.GetValueOrDefault(j.DestIcao, j.DestIcao), j.Commodity, j.WeightLbs, j.Pax, j.DistanceNm, j.RewardCents, j.Xp, j.ExpiresAt)));
         });
 
         app.MapPost("/api/jobs/{id:guid}/accept", async (Guid id, CallsignDbContext db, JobAssignmentService svc) =>
@@ -158,8 +165,8 @@ public static class CallsignWebApp
         {
             var list = await db.JobAssignments.Where(a => a.Status == AssignmentStatus.Accepted).ToListAsync();
             var names = await AirportNamesAsync(db, list.Select(a => a.DestIcao));
-            return Results.Ok(list.Select(a => new AssignmentDto(a.Id, a.OriginIcao, a.DestIcao,
-                names.GetValueOrDefault(a.DestIcao, a.DestIcao), a.Commodity, a.WeightLbs, a.DistanceNm, a.RewardQuoteCents, a.XpQuote, a.Status.ToString())));
+            return Results.Ok(list.Select(a => new AssignmentDto(a.Id, a.Type.ToString(), a.OriginIcao, a.DestIcao,
+                names.GetValueOrDefault(a.DestIcao, a.DestIcao), a.Commodity, a.WeightLbs, a.Pax, a.DistanceNm, a.RewardQuoteCents, a.XpQuote, a.Status.ToString())));
         });
 
         app.MapPost("/api/assignments/{id:guid}/settle", async (Guid id, FlightResultDto dto, SettlementService svc) =>

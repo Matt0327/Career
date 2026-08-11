@@ -15,3 +15,11 @@ public enum MissionType
     Vip = 10,
     Illicit = 11,
 }
+
+public static class MissionTypeExtensions
+{
+    /// <summary>Missions that carry people, so "the right aircraft" is measured in SEATS, not payload
+    /// weight. Settlement and the UI branch on this to gate the capability bonus correctly.</summary>
+    public static bool CarriesPassengers(this MissionType type)
+        => type is MissionType.Passenger or MissionType.Vip or MissionType.Tourist;
+}

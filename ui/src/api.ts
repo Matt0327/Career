@@ -20,6 +20,7 @@ export interface Job {
   destName: string
   commodity: string
   weightLbs: number
+  pax: number
   distanceNm: number
   rewardCents: number
   xp: number
@@ -28,11 +29,13 @@ export interface Job {
 
 export interface Assignment {
   id: string
+  type: string
   origin: string
   dest: string
   destName: string
   commodity: string
   weightLbs: number
+  pax: number
   distanceNm: number
   rewardQuoteCents: number
   xpQuote: number

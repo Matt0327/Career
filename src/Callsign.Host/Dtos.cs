@@ -8,10 +8,10 @@ public record StateDto(
 
 public record JobDto(
     Guid Id, string Type, string Origin, string Dest, string DestName, string Commodity,
-    int WeightLbs, double DistanceNm, long RewardCents, int Xp, DateTimeOffset ExpiresAt);
+    int WeightLbs, int Pax, double DistanceNm, long RewardCents, int Xp, DateTimeOffset ExpiresAt);
 
 public record AssignmentDto(
-    Guid Id, string Origin, string Dest, string DestName, string Commodity, int WeightLbs,
+    Guid Id, string Type, string Origin, string Dest, string DestName, string Commodity, int WeightLbs, int Pax,
     double DistanceNm, long RewardQuoteCents, int XpQuote, string Status);
 
 public record PayoutLineDto(string Label, long AmountCents);
