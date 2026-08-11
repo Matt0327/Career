@@ -34,11 +34,14 @@ wipe). Everything stays **server-ready**.
    with the same message. *Verified live:* a Trainee's board showed Copilot/Captain/Senior-Captain jobs
    locked, and accept returned `400 "Copilot required — you're a Trainee."`
 
-3. **3c — Qualification classes & aircraft gating.** Add `QualificationClassDef` (letter classes A–M,
-   H = helicopter), `AircraftType.RequiredClass`, and `PilotQualification` (the classes you hold, with
-   `Stars 0..5`). The hangar and flight picker show which airframes you're **rated** to fly; an unrated
-   class is flagged/locked with the reason. Seed the player with a starter class (A) so the core loop
-   still flows on day one. *Playable:* your fleet splits into "rated" and "needs a rating".
+3. ✅ **3c — Qualification classes & aircraft gating.** `QualificationClasses` (letter classes A–M,
+   H = helicopter, M = glider), self-documented via `/api/quals`; each aircraft category maps to the class
+   it needs (derived from `AircraftType.Category`, no stored column). `PilotQualification` (save + EF
+   migration `AddPilotQualifications`) records the classes you hold with `Stars`. A new career is seeded
+   Class A so the gifted single is flyable. The hangar flags each airframe **rated / not rated**; the
+   flight picker defaults to a rated aircraft and disables the rest; dispatching an unrated one is refused
+   server-side. *Verified live:* a Class-A pilot flew the starter but got `400 "…not rated… needs Class C ·
+   Turboprop"` on a bought turboprop. (Stars/earning come with 3d.)
 
 4. **3d — Check-flights (earn a rating).** A `CheckFlight` attempt: pay a `CheckFlightFee` (ledger debit)
    to fly a scored profile (touchdown within limits, no exceedances) that earns or upgrades a

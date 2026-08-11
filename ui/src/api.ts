@@ -91,6 +91,16 @@ export interface OwnedAircraft {
   engineConditionMilli: number
   maintenanceDue: boolean
   maintenanceQuoteCents: number
+  requiredClass: string
+  rated: boolean
+}
+
+export interface QualClass {
+  class: string
+  displayName: string
+  description: string
+  held: boolean
+  stars: number
 }
 
 /** A live telemetry frame pushed over the WebSocket. */
@@ -280,6 +290,7 @@ export const api = {
   flights: () => fetch('/api/flights').then(ok<FlightLog[]>),
   market: () => fetch('/api/aircraft/market').then(ok<AircraftOffer[]>),
   hangar: () => fetch('/api/aircraft').then(ok<OwnedAircraft[]>),
+  quals: () => fetch('/api/quals').then(ok<QualClass[]>),
   buyAircraft: (typeId: string) => POST_IDEM('/api/aircraft/buy', { typeId }).then(ok),
   maintain: (id: string) => POST_IDEM(`/api/aircraft/${id}/maintain`).then(ok),
   staffCandidates: () => fetch('/api/staff/candidates').then(ok<StaffCandidate[]>),

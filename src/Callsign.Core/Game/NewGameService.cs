@@ -1,6 +1,7 @@
 using Callsign.Core.Data;
 using Callsign.Core.Domain;
 using Callsign.Core.Economy;
+using Callsign.Core.Progression;
 using Callsign.Core.Time;
 using Microsoft.EntityFrameworkCore;
 
@@ -42,6 +43,13 @@ public sealed class NewGameService
             UpdatedAt = now,
         };
         _db.Pilots.Add(pilot);
+
+        // The starter licence — Class A (single-engine piston) — so the gifted airframe is flyable (3c).
+        _db.PilotQualifications.Add(new PilotQualification
+        {
+            Id = Guid.NewGuid(), PilotId = pilot.Id, Class = QualificationClasses.Starter,
+            Stars = 1, EarnedAt = now, UpdatedAt = now,
+        });
         await _db.SaveChangesAsync(ct);
 
         // Even the opening balance is a ledger movement — nothing bypasses the ledger.

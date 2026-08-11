@@ -319,13 +319,15 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
   const [diverted, setDiverted] = useState<Diverted | null>(null)
   const [fleet, setFleet] = useState<OwnedAircraft[]>([])
   const [aircraftId, setAircraftId] = useState('')
+  const [beginErr, setBeginErr] = useState<string | null>(null)
 
   const loadAssignments = useCallback(() => { api.assignments().then(setAssignments).catch(() => {}) }, [])
   const loadFleet = useCallback(() => {
     api.hangar().then(hs => {
       const avail = hs.filter(h => h.availability === 'Available')
       setFleet(avail)
-      setAircraftId(prev => prev || avail[0]?.id || '')
+      // Default to an aircraft you're actually rated to fly (3c), else the first available.
+      setAircraftId(prev => prev || avail.find(h => h.rated)?.id || avail[0]?.id || '')
     }).catch(() => {})
   }, [])
   useEffect(() => { loadAssignments(); loadFleet() }, [loadAssignments, loadFleet])
@@ -346,8 +348,13 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
   const begin = async (a: Assignment) => {
     setSettled(null)
     setDiverted(null)
-    await api.beginFlight(a.id, aircraftId || undefined)
-    setBegun(a)
+    setBeginErr(null)
+    try {
+      await api.beginFlight(a.id, aircraftId || undefined)
+      setBegun(a)
+    } catch (e) {
+      setBeginErr(cleanErr(e)) // e.g. "You're not rated for the …"
+    }
   }
 
   return (
@@ -379,11 +386,12 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
           {fleet.length > 0
             ? <label className="pick">Aircraft&nbsp;
                 <select value={aircraftId} onChange={e => setAircraftId(e.target.value)}>
-                  {fleet.map(f => <option key={f.id} value={f.id}>{f.tail} · {f.name} — {f.locationIcao}</option>)}
+                  {fleet.map(f => <option key={f.id} value={f.id} disabled={!f.rated}>{f.tail} · {f.name} — {f.locationIcao}{f.rated ? '' : ' · not rated'}</option>)}
                 </select>
               </label>
             : <span className="hint">No available aircraft — buy one in the Hangar.</span>}
         </div>
+        {beginErr && <div className="banner error" onClick={() => setBeginErr(null)}>{beginErr} — tap to dismiss</div>}
         {assignments.length === 0
           ? <div className="empty"><p>No accepted jobs. Accept one on the Jobs board first.</p></div>
           : (
@@ -467,7 +475,7 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
           : owned.length === 0 ? <div className="empty">No aircraft yet — buy one below.</div>
             : (
               <table className="tbl">
-                <thead><tr><th>Tail</th><th>Aircraft</th><th>At</th><th className="r">Hours</th><th className="r">Condition</th><th className="r">Maintenance</th></tr></thead>
+                <thead><tr><th>Tail</th><th>Aircraft</th><th>At</th><th className="r">Hours</th><th className="r">Condition</th><th>Rating</th><th className="r">Maintenance</th></tr></thead>
                 <tbody>
                   {owned.map(a => {
                     const cond = Math.round(Math.min(a.hullConditionMilli, a.engineConditionMilli) / 1000)
@@ -478,6 +486,7 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
                         <td className="loc">{a.locationIcao}</td>
                         <td className="r num">{a.airframeHours.toFixed(1)}</td>
                         <td className={`r num ${cond < 40 ? 'neg' : cond < 70 ? '' : 'pos'}`}>{cond}%</td>
+                        <td>{a.rated ? <span className="pos">rated</span> : <span className="lock" title={`Needs ${a.requiredClass}`}>🔒 not rated</span>}</td>
                         <td className="r">
                           {a.maintenanceDue
                             ? <button className="primary small" disabled={busy} onClick={() => maintain(a)}>Service · {money(a.maintenanceQuoteCents)}</button>

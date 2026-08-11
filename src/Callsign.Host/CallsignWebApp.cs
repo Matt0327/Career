@@ -63,6 +63,7 @@ public static class CallsignWebApp
         builder.Services.AddScoped<BaseService>();
         builder.Services.AddScoped<GameSetupService>();
         builder.Services.AddScoped<TradeService>();
+        builder.Services.AddScoped<QualificationService>();
         builder.Services.AddSingleton<MarketService>(); // pure pricing (IClock + EconomyConfig)
 
         builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
@@ -224,17 +225,23 @@ public static class CallsignWebApp
                 o.Quote.Factors.Select(f => new PriceFactorDto(f.Label, f.AmountCents)).ToList())));
         });
 
-        app.MapGet("/api/aircraft", async (CallsignDbContext db, AircraftDealerService dealer) =>
+        app.MapGet("/api/aircraft", async (CallsignDbContext db, AircraftDealerService dealer, QualificationService quals) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             var hangar = await dealer.GetHangarAsync(pilot.CompanyId);
-            return Results.Ok(hangar.Select(h => new OwnedAircraftDto(
-                h.Instance.Id, h.Instance.Tail, h.Type.CanonicalName, h.Type.Category.ToString(),
-                h.Instance.LocationIcao, h.Instance.Availability.ToString(),
-                h.Instance.PurchasePriceCents, h.Instance.AirframeHours,
-                h.Instance.HullConditionMilli, h.Instance.EngineConditionMilli,
-                dealer.MaintenanceDue(h.Instance), dealer.MaintenanceQuoteCents(h.Instance))));
+            var held = await quals.HeldClassesAsync(pilot.Id); // which licence classes the pilot holds (3c)
+            return Results.Ok(hangar.Select(h =>
+            {
+                var reqd = QualificationClasses.ForCategory(h.Type.Category);
+                return new OwnedAircraftDto(
+                    h.Instance.Id, h.Instance.Tail, h.Type.CanonicalName, h.Type.Category.ToString(),
+                    h.Instance.LocationIcao, h.Instance.Availability.ToString(),
+                    h.Instance.PurchasePriceCents, h.Instance.AirframeHours,
+                    h.Instance.HullConditionMilli, h.Instance.EngineConditionMilli,
+                    dealer.MaintenanceDue(h.Instance), dealer.MaintenanceQuoteCents(h.Instance),
+                    QualificationClasses.Def(reqd).DisplayName, held.Contains(reqd));
+            }));
         });
 
         app.MapPost("/api/aircraft/{id:guid}/maintain", async (Guid id, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, AircraftDealerService dealer) =>
@@ -428,10 +435,35 @@ public static class CallsignWebApp
         });
 
         // --- Live flight: begin tracking an accepted assignment; the next landing auto-settles it ---
-        app.MapPost("/api/flight/begin", (BeginFlightRequest req, FlightSessionService session) =>
+        app.MapPost("/api/flight/begin", async (BeginFlightRequest req, CallsignDbContext db, QualificationService quals, FlightSessionService session) =>
         {
+            // Rating gate (Phase 3c): dispatching an OWNED airframe needs the licence class for its category.
+            if (req.AircraftInstanceId is { } aid)
+            {
+                var pilot = await db.Pilots.FirstOrDefaultAsync();
+                var inst = await db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == aid);
+                var type = inst is null ? null : await db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == inst.TypeId);
+                if (pilot is not null && type is not null)
+                {
+                    var required = QualificationClasses.ForCategory(type.Category);
+                    if (!await quals.IsRatedAsync(pilot.Id, required))
+                        return Results.BadRequest(new { error = $"You're not rated for the {type.CanonicalName} — it needs {QualificationClasses.Def(required).DisplayName}." });
+                }
+            }
             session.BeginFlight(req.AssignmentId, req.AircraftInstanceId);
             return Results.Ok(new { begun = req.AssignmentId, aircraft = req.AircraftInstanceId });
+        });
+
+        // Licence classes (Phase 3c): the full ladder, flagged with what the pilot holds — self-documenting.
+        app.MapGet("/api/quals", async (CallsignDbContext db, QualificationService quals) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            var held = pilot is null
+                ? new List<Callsign.Core.Domain.PilotQualification>()
+                : await quals.GetHeldAsync(pilot.Id);
+            var stars = held.ToDictionary(q => q.Class, q => q.Stars);
+            return Results.Ok(QualificationClasses.All.Select(c => new QualClassDto(
+                c.Class.ToString(), c.DisplayName, c.Description, stars.ContainsKey(c.Class), stars.GetValueOrDefault(c.Class))));
         });
 
         app.MapGet("/api/flight/live", (FlightSessionService session) =>

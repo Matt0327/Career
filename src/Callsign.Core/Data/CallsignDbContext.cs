@@ -25,6 +25,7 @@ public sealed class CallsignDbContext : DbContext
     public DbSet<StandingOrder> StandingOrders => Set<StandingOrder>();
     public DbSet<Base> Bases => Set<Base>();
     public DbSet<InventoryLot> InventoryLots => Set<InventoryLot>();
+    public DbSet<PilotQualification> PilotQualifications => Set<PilotQualification>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -187,5 +188,12 @@ public sealed class CallsignDbContext : DbContext
         lot.Property(l => l.LocationIcao).IsRequired().HasMaxLength(12);
         lot.HasIndex(l => new { l.CompanyId, l.Good, l.LocationIcao });
         lot.HasOne<Company>().WithMany().HasForeignKey(l => l.CompanyId).OnDelete(DeleteBehavior.Restrict);
+
+        // --- Pilot licence classes (Phase 3c) ---
+        var qual = model.Entity<PilotQualification>();
+        qual.HasKey(q => q.Id);
+        qual.Property(q => q.Class).HasConversion<string>().HasMaxLength(4);
+        qual.HasIndex(q => new { q.PilotId, q.Class }).IsUnique(); // one row per class held
+        qual.HasOne<Pilot>().WithMany().HasForeignKey(q => q.PilotId).OnDelete(DeleteBehavior.Cascade);
     }
 }

@@ -37,7 +37,11 @@ public record AircraftOfferDto(
 public record OwnedAircraftDto(
     Guid Id, string Tail, string Name, string Category, string LocationIcao,
     string Availability, long? PurchasePriceCents, double AirframeHours,
-    int HullConditionMilli, int EngineConditionMilli, bool MaintenanceDue, long MaintenanceQuoteCents);
+    int HullConditionMilli, int EngineConditionMilli, bool MaintenanceDue, long MaintenanceQuoteCents,
+    string RequiredClass, bool Rated);
+
+// --- Phase 3c: licence classes ---
+public record QualClassDto(string Class, string DisplayName, string Description, bool Held, int Stars);
 
 public record BuyAircraftRequest(Guid TypeId);
 
