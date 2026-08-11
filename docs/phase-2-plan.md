@@ -28,7 +28,11 @@ Build order — each step independently playable, finish before the next:
    `CompositeJobSource` mixes both on every board refresh); reward scales with heads × distance, the
    load reads in seats, and settlement's "right aircraft" bonus gates on seats ≥ pax. (Express/
    tourist/etc. remain future variants on the same rails.)
-7. **2g — Trade.** Buy low / sell high across airports; goods as assets with a cost basis.
+7. ✅ **2g — Trade.** A per-airport commodity market (deterministic prices that swing by place and
+   re-roll each time window, buy above / sell below a mid) with `InventoryLot` holdings carrying a
+   weighted-average cost basis. Buy low, the goods ride with your pilot (settlement moves lots to the
+   destination), sell high elsewhere; purchases are capped by your fleet's carry capacity. Every
+   movement is a `Trade` ledger posting.
 
 ## Pre-ship infrastructure (tracked, before any real save ships)
 

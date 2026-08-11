@@ -119,5 +119,16 @@ public sealed record EconomyConfig
         _ => 4_000,                            // $40/day
     };
 
+    // --- Trade (Phase 2g): buy low here, sell high there ---
+    /// <summary>How far a good's price swings above/below its catalog base across airports (±fraction).</summary>
+    public double TradePriceSwing { get; init; } = 0.35;
+    /// <summary>Dealer spread: buy sits this fraction above mid, sell the same below — a same-airport
+    /// round trip loses ~2× this, so profit has to come from flying goods somewhere pricier.</summary>
+    public decimal TradeSpreadPct { get; init; } = 0.05m;
+    /// <summary>How long a market holds its prices before they re-roll (keeps a run plannable).</summary>
+    public TimeSpan TradePriceWindow { get; init; } = TimeSpan.FromHours(6);
+    /// <summary>Fallback carry capacity when no owned aircraft has a known useful load.</summary>
+    public int TradeDefaultHoldLbs { get; init; } = 1_500;
+
     public static EconomyConfig Default { get; } = new();
 }

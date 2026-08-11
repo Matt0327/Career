@@ -52,6 +52,14 @@ public record BaseViewDto(Guid Id, string Icao, string Name, bool IsHome, long R
 public record BaseOfferDto(string Icao, string Name, string Kind, double DistanceNm, long OpenCents, long RentPerDayCents);
 public record OpenBaseRequest(string AirportIcao);
 
+// --- Phase 2g: trade ---
+public record MarketQuoteDto(string Good, string Name, long BuyCents, long SellCents, int UnitWeightLbs);
+public record InventoryDto(
+    Guid Id, string Good, string Name, int Quantity, long UnitCostCents,
+    long MarketSellCents, long UnrealizedPnlCents, int UnitWeightLbs, string LocationIcao);
+public record TradeRequest(string Good, int Qty);
+public record TradeResultDto(int Quantity, long ProceedsCents, long CostBasisCents, long PnlCents);
+
 public record FlightDto(Guid Id, string AircraftTitle, double TouchdownFpm, long PayoutCents, int Xp, DateTimeOffset SettledAt);
 
 public record BeginFlightRequest(Guid AssignmentId, Guid? AircraftInstanceId);

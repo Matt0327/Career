@@ -2,11 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api, money,
   type AircraftOffer, type Assignment, type BaseOffer, type BaseView, type Diverted, type FlightLog,
-  type Job, type LedgerEntry, type OwnedAircraft, type ReconcileResult, type Settled, type Staff,
-  type StaffCandidate, type StandingOrder, type State, type Telemetry, type WsEvent,
+  type Inventory, type Job, type LedgerEntry, type MarketQuote, type OwnedAircraft, type ReconcileResult,
+  type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type WsEvent,
 } from './api'
 
-type Tab = 'dashboard' | 'jobs' | 'flight' | 'hangar' | 'ops' | 'bases' | 'logbook'
+type Tab = 'dashboard' | 'jobs' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'logbook'
 
 export function App() {
   const [state, setState] = useState<State | null | undefined>(undefined) // undefined = still loading
@@ -37,6 +37,7 @@ export function App() {
         {tab === 'hangar' && <Hangar state={state} onChanged={reload} />}
         {tab === 'ops' && <Ops onChanged={reload} />}
         {tab === 'bases' && <Bases state={state} onChanged={reload} />}
+        {tab === 'trade' && <Trade state={state} onChanged={reload} />}
         {tab === 'logbook' && <Logbook />}
       </main>
     </div>
@@ -47,7 +48,7 @@ export function App() {
 
 function TopBar({ state, tab, setTab }: { state: State; tab: Tab; setTab: (t: Tab) => void }) {
   const tabs: [Tab, string][] = [
-    ['dashboard', 'Dashboard'], ['jobs', 'Jobs'], ['flight', 'Flight'], ['hangar', 'Hangar'], ['ops', 'Staff'], ['bases', 'Bases'], ['logbook', 'Logbook'],
+    ['dashboard', 'Dashboard'], ['jobs', 'Jobs'], ['flight', 'Flight'], ['hangar', 'Hangar'], ['ops', 'Staff'], ['bases', 'Bases'], ['trade', 'Trade'], ['logbook', 'Logbook'],
   ]
   return (
     <header className="topbar">
@@ -676,6 +677,89 @@ function Bases({ state, onChanged }: { state: State; onChanged: () => void }) {
                 </div>
               )
             })}
+          </div>
+        )}
+      </section>
+    </div>
+  )
+}
+
+// ─── Trade ───────────────────────────────────────────────────────────────────
+
+function Trade({ state, onChanged }: { state: State; onChanged: () => void }) {
+  const [market, setMarket] = useState<MarketQuote[]>([])
+  const [inv, setInv] = useState<Inventory[]>([])
+  const [qty, setQty] = useState<Record<string, number>>({})
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    try { setMarket(await api.tradeMarket()); setInv(await api.inventory()) } catch (e) { setMsg(cleanErr(e)) }
+  }, [])
+  useEffect(() => { void load() }, [load])
+
+  const q = (key: string) => Math.max(1, Math.floor(qty[key] || 1))
+  const setQ = (key: string, n: number) => setQty(s => ({ ...s, [key]: n }))
+
+  const buy = async (good: string) => {
+    setBusy(true); setMsg(null)
+    try { await api.buyGood(good, q('buy-' + good)); await load(); onChanged() }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+  const sell = async (good: string, max: number) => {
+    setBusy(true); setMsg(null)
+    try {
+      const r = await api.sellGood(good, Math.min(q('sell-' + good), max))
+      await load(); onChanged()
+      const pnl = r.pnlCents >= 0 ? `+${money(r.pnlCents)}` : money(r.pnlCents)
+      setMsg(`Sold ${r.quantity} — proceeds ${money(r.proceedsCents)}, P&L ${pnl}.`)
+    } catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="grid">
+      <section className="card">
+        <div className="row-head"><h2>Market · <span className="loc">{state.currentIcao}</span></h2><span className="hint">Buy low here, fly it, sell high there</span></div>
+        {msg && <div className="banner">{msg}</div>}
+        <div className="tbl-wrap">
+          <table className="tbl">
+            <thead><tr><th>Commodity</th><th className="r">Buy</th><th className="r">Sell</th><th className="r">Unit wt</th><th className="r">Qty</th><th></th></tr></thead>
+            <tbody>{market.map(m => (
+              <tr key={m.good}>
+                <td>{m.name}</td>
+                <td className="r num">{money(m.buyCents)}</td>
+                <td className="r num muted">{money(m.sellCents)}</td>
+                <td className="r muted">{m.unitWeightLbs} lb</td>
+                <td className="r"><input className="qty" type="number" min={1} value={q('buy-' + m.good)} onChange={e => setQ('buy-' + m.good, Number(e.target.value))} /></td>
+                <td className="r"><button disabled={busy} onClick={() => buy(m.good)}>Buy</button></td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="card">
+        <h2>Holdings</h2>
+        {inv.length === 0 ? <div className="empty">No goods held. Buy something on the market to start trading.</div> : (
+          <div className="tbl-wrap">
+            <table className="tbl">
+              <thead><tr><th>Commodity</th><th className="r">Qty</th><th className="r">Avg cost</th><th className="r">Sell here</th><th className="r">Unrealised</th><th>At</th><th className="r">Qty</th><th></th></tr></thead>
+              <tbody>{inv.map(v => {
+                const here = v.locationIcao === state.currentIcao
+                return (
+                  <tr key={v.id}>
+                    <td>{v.name}</td>
+                    <td className="r num">{v.quantity}</td>
+                    <td className="r num muted">{money(v.unitCostCents)}</td>
+                    <td className="r num">{money(v.marketSellCents)}</td>
+                    <td className={`r num ${v.unrealizedPnlCents >= 0 ? 'pos' : 'neg'}`}>{money(v.unrealizedPnlCents)}</td>
+                    <td><span className="loc">{v.locationIcao}</span></td>
+                    <td className="r"><input className="qty" type="number" min={1} max={v.quantity} value={q('sell-' + v.good)} onChange={e => setQ('sell-' + v.good, Number(e.target.value))} /></td>
+                    <td className="r"><button disabled={busy || !here} title={here ? '' : `Fly to ${v.locationIcao} to sell`} onClick={() => sell(v.good, v.quantity)}>Sell</button></td>
+                  </tr>
+                )
+              })}</tbody>
+            </table>
           </div>
         )}
       </section>

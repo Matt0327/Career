@@ -140,7 +140,18 @@ public sealed class SettlementService
             }
         }
 
-        await _db.SaveChangesAsync(ct); // one transaction: ledger rows + cash + flight + xp + status + airframe
+        // Trade goods ride with the pilot: any lots at the departure airport travel to the destination
+        // (Phase 2g). Staged here so they move in the same transaction as the rest of the settlement.
+        var moving = await _db.InventoryLots
+            .Where(l => l.CompanyId == a.AccountId && l.LocationIcao == a.OriginIcao && l.Quantity > 0 && !l.IsDeleted)
+            .ToListAsync(ct);
+        foreach (var lot in moving)
+        {
+            lot.LocationIcao = a.DestIcao;
+            lot.UpdatedAt = now;
+        }
+
+        await _db.SaveChangesAsync(ct); // one transaction: ledger rows + cash + flight + xp + status + airframe + goods
 
         return new SettlementResult(flightEntity.Id, total, xp, payloadMatched, breakdown);
     }

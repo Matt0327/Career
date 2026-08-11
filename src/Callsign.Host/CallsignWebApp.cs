@@ -60,6 +60,8 @@ public static class CallsignWebApp
         builder.Services.AddScoped<OperationsService>();
         builder.Services.AddScoped<BaseService>();
         builder.Services.AddScoped<GameSetupService>();
+        builder.Services.AddScoped<TradeService>();
+        builder.Services.AddSingleton<MarketService>(); // pure pricing (IClock + EconomyConfig)
 
         builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
@@ -341,6 +343,50 @@ public static class CallsignWebApp
             {
                 var b = await bases.OpenBaseAsync(pilot.CompanyId, req.AirportIcao);
                 return Results.Ok(new { id = b.Id, icao = b.AirportIcao });
+            }
+            catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "Cash changed at the same time — try again." }); }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        // --- Trade (Phase 2g): the market is priced at your current airport ---
+        app.MapGet("/api/trade/market", async (CallsignDbContext db, MarketService market) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            return Results.Ok(market.Quotes(pilot.CurrentIcao)
+                .Select(q => new MarketQuoteDto(q.Good, q.Name, q.BuyCents, q.SellCents, q.UnitWeightLbs)));
+        });
+
+        app.MapGet("/api/trade/inventory", async (CallsignDbContext db, TradeService trade) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var inv = await trade.GetInventoryAsync(pilot.CompanyId);
+            return Results.Ok(inv.Select(v => new InventoryDto(v.Id, v.Good, v.Name, v.Quantity, v.UnitCostCents,
+                v.MarketSellCents, v.UnrealizedPnlCents, v.UnitWeightLbs, v.LocationIcao)));
+        });
+
+        app.MapPost("/api/trade/buy", async (TradeRequest req, CallsignDbContext db, TradeService trade) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                var lot = await trade.BuyAsync(pilot.CompanyId, pilot.CurrentIcao, req.Good, req.Qty);
+                return Results.Ok(new { id = lot.Id, good = lot.Good, quantity = lot.Quantity, unitCostCents = lot.UnitCostCents });
+            }
+            catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "Cash changed at the same time — try again." }); }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        app.MapPost("/api/trade/sell", async (TradeRequest req, CallsignDbContext db, TradeService trade) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                var r = await trade.SellAsync(pilot.CompanyId, pilot.CurrentIcao, req.Good, req.Qty);
+                return Results.Ok(new TradeResultDto(r.Quantity, r.ProceedsCents, r.CostBasisCents, r.PnlCents));
             }
             catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "Cash changed at the same time — try again." }); }
             catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }

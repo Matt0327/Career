@@ -185,6 +185,33 @@ export interface BaseOffer {
   rentPerDayCents: number
 }
 
+export interface MarketQuote {
+  good: string
+  name: string
+  buyCents: number
+  sellCents: number
+  unitWeightLbs: number
+}
+
+export interface Inventory {
+  id: string
+  good: string
+  name: string
+  quantity: number
+  unitCostCents: number
+  marketSellCents: number
+  unrealizedPnlCents: number
+  unitWeightLbs: number
+  locationIcao: string
+}
+
+export interface TradeResult {
+  quantity: number
+  proceedsCents: number
+  costBasisCents: number
+  pnlCents: number
+}
+
 async function ok<T>(r: Response): Promise<T> {
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${await r.text()}`)
   return r.json() as Promise<T>
@@ -229,6 +256,10 @@ export const api = {
   bases: () => fetch('/api/bases').then(ok<BaseView[]>),
   baseCandidates: () => fetch('/api/bases/candidates').then(ok<BaseOffer[]>),
   openBase: (airportIcao: string) => POST('/api/bases/open', { airportIcao }).then(ok),
+  tradeMarket: () => fetch('/api/trade/market').then(ok<MarketQuote[]>),
+  inventory: () => fetch('/api/trade/inventory').then(ok<Inventory[]>),
+  buyGood: (good: string, qty: number) => POST('/api/trade/buy', { good, qty }).then(ok),
+  sellGood: (good: string, qty: number) => POST('/api/trade/sell', { good, qty }).then(ok<TradeResult>),
 }
 
 /** Whole-dollar, sign-aware money from integer cents: 147000 -> "$1,470". */

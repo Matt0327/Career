@@ -24,6 +24,7 @@ public sealed class CallsignDbContext : DbContext
     public DbSet<Staff> Staff => Set<Staff>();
     public DbSet<StandingOrder> StandingOrders => Set<StandingOrder>();
     public DbSet<Base> Bases => Set<Base>();
+    public DbSet<InventoryLot> InventoryLots => Set<InventoryLot>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -178,5 +179,13 @@ public sealed class CallsignDbContext : DbContext
         companyBase.Property(b => b.AirportIcao).IsRequired().HasMaxLength(12);
         companyBase.HasIndex(b => new { b.CompanyId, b.AirportIcao }).IsUnique(); // one base per airport per company
         companyBase.HasOne<Company>().WithMany().HasForeignKey(b => b.CompanyId).OnDelete(DeleteBehavior.Restrict);
+
+        // --- Traded commodity holdings (Phase 2g) ---
+        var lot = model.Entity<InventoryLot>();
+        lot.HasKey(l => l.Id);
+        lot.Property(l => l.Good).IsRequired().HasMaxLength(40);
+        lot.Property(l => l.LocationIcao).IsRequired().HasMaxLength(12);
+        lot.HasIndex(l => new { l.CompanyId, l.Good, l.LocationIcao });
+        lot.HasOne<Company>().WithMany().HasForeignKey(l => l.CompanyId).OnDelete(DeleteBehavior.Restrict);
     }
 }

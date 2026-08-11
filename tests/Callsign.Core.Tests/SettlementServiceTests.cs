@@ -278,6 +278,39 @@ public class SettlementServiceTests
         }
     }
 
+    [Fact]
+    public async Task Settle_MovesTradeGoods_WithThePilot_ToTheDestination()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Seed s;
+        Guid assignmentId, lotId;
+        using (var db = tdb.NewContext())
+        {
+            s = await SeedAsync(db); // Cargo EHAM -> EHRD
+            var lot = new InventoryLot
+            {
+                Id = Guid.NewGuid(), CompanyId = s.CompanyId, Good = "coffee", Quantity = 5,
+                UnitCostCents = 9_000, LocationIcao = "EHAM", AcquiredAt = T0, UpdatedAt = T0,
+            };
+            db.InventoryLots.Add(lot);
+            await db.SaveChangesAsync();
+            lotId = lot.Id;
+            assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, s.PilotId)).Id;
+        }
+
+        using (var db = tdb.NewContext())
+            await new SettlementService(db, new LedgerService(db, clock), clock, EconomyConfig.Default)
+                .SettleAsync(assignmentId, Flown(-120));
+
+        using (var db = tdb.NewContext())
+        {
+            var lot = await db.InventoryLots.FindAsync(lotId);
+            Assert.Equal("EHRD", lot!.LocationIcao); // flew with the pilot to the destination
+            Assert.Equal(5, lot.Quantity);           // untouched otherwise
+        }
+    }
+
     [Theory]
     [InlineData(-50, 0.10)]
     [InlineData(-150, 0.05)]
