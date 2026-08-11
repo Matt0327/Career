@@ -163,16 +163,26 @@ public static class CallsignWebApp
             var icao = string.IsNullOrWhiteSpace(origin) ? pilot.CurrentIcao : origin!;
             var jobs = await board.GetAvailableAsync(icao);
             var names = await AirportNamesAsync(db, jobs.Select(j => j.DestIcao));
-            return Results.Ok(jobs.Select(j => new JobDto(j.Id, j.Type.ToString(), j.OriginIcao, j.DestIcao,
-                names.GetValueOrDefault(j.DestIcao, j.DestIcao), j.Commodity, j.WeightLbs, j.Pax, j.DistanceNm, j.RewardCents, j.Xp, j.ExpiresAt)));
+            return Results.Ok(jobs.Select(j =>
+            {
+                bool locked = pilot.Rank < j.RequiredRank; // shown on the board, but locked with the reason (3b)
+                var reqName = RankTiers.Def(j.RequiredRank).DisplayName;
+                return new JobDto(j.Id, j.Type.ToString(), j.OriginIcao, j.DestIcao,
+                    names.GetValueOrDefault(j.DestIcao, j.DestIcao), j.Commodity, j.WeightLbs, j.Pax, j.DistanceNm,
+                    j.RewardCents, j.Xp, reqName, locked, locked ? $"Requires {reqName}" : null, j.ExpiresAt);
+            }));
         });
 
         app.MapPost("/api/jobs/{id:guid}/accept", async (Guid id, CallsignDbContext db, JobAssignmentService svc) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
-            var a = await svc.AcceptAsync(id, pilot.CompanyId, pilot.Id);
-            return Results.Ok(new { assignmentId = a.Id, dest = a.DestIcao, rewardQuoteCents = a.RewardQuoteCents });
+            try
+            {
+                var a = await svc.AcceptAsync(id, pilot.CompanyId, pilot.Id);
+                return Results.Ok(new { assignmentId = a.Id, dest = a.DestIcao, rewardQuoteCents = a.RewardQuoteCents });
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
         app.MapGet("/api/assignments", async (CallsignDbContext db) =>

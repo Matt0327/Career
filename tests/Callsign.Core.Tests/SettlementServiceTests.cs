@@ -193,7 +193,13 @@ public class SettlementServiceTests
         {
             var s = await SeedAsync(db);
             companyId = s.CompanyId;
-            assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, Guid.NewGuid())).Id;
+            assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, s.PilotId)).Id;
+        }
+        // The pilot vanishes before settlement (e.g. a corrupt save) — settlement must refuse, not half-pay.
+        using (var db = tdb.NewContext())
+        {
+            db.Pilots.RemoveRange(await db.Pilots.ToListAsync());
+            await db.SaveChangesAsync();
         }
         using (var db = tdb.NewContext())
         {

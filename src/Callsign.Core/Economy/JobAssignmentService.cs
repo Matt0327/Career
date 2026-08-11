@@ -1,5 +1,6 @@
 using Callsign.Core.Data;
 using Callsign.Core.Domain;
+using Callsign.Core.Progression;
 using Callsign.Core.Time;
 using Microsoft.EntityFrameworkCore;
 
@@ -21,6 +22,14 @@ public sealed class JobAssignmentService
     {
         var job = await _db.Jobs.FirstOrDefaultAsync(j => j.Id == jobId, ct)
                   ?? throw new InvalidOperationException($"Job {jobId} not found.");
+
+        // Rank gate (Phase 3b): the board shows jobs above your rank locked with the reason; refuse them
+        // here too, so the gate holds even if a stale board is submitted.
+        var pilot = await _db.Pilots.FirstOrDefaultAsync(p => p.Id == pilotId, ct)
+                    ?? throw new InvalidOperationException($"Pilot {pilotId} not found.");
+        if (pilot.Rank < job.RequiredRank)
+            throw new InvalidOperationException(
+                $"{RankTiers.Def(job.RequiredRank).DisplayName} required — you're a {RankTiers.Def(pilot.Rank).DisplayName}.");
 
         var assignment = new JobAssignment
         {

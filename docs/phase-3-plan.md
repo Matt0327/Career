@@ -27,10 +27,12 @@ wipe). Everything stays **server-ready**.
    the settlement toast celebrates it and the dashboard shows a *progress-to-next-rank* bar. No new money.
    *Verified live:* flew legs to 518 XP → promoted to Copilot. (`UnlocksMissionMask` arrives with 3b/3e.)
 
-2. **3b — Job gating by rank (locked-with-reason).** The board keeps generating a spread, but a job above
-   your rank renders **locked** with its reason ("Senior Captain required"), never hidden; `AcceptAsync`
-   refuses it server-side with the same message. Wire `Job.RequiredRank` (generators start stamping a real
-   gate instead of always `Trainee`). *Playable:* see the ladder above you, take what you've earned.
+2. ✅ **3b — Job gating by rank (locked-with-reason).** Generators now stamp `Job.RequiredRank` by leg
+   difficulty (distance bands → Copilot / Captain / Senior Captain), so the ladder is visible with today's
+   cargo & passenger jobs. `/api/jobs` returns every job but flags the ones above your rank as `locked`
+   with a reason; the board dims them and swaps Accept for the reason. `AcceptAsync` refuses server-side
+   with the same message. *Verified live:* a Trainee's board showed Copilot/Captain/Senior-Captain jobs
+   locked, and accept returned `400 "Copilot required — you're a Trainee."`
 
 3. **3c — Qualification classes & aircraft gating.** Add `QualificationClassDef` (letter classes A–M,
    H = helicopter), `AircraftType.RequiredClass`, and `PilotQualification` (the classes you hold, with

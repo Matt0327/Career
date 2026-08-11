@@ -52,6 +52,20 @@ public sealed record EconomyConfig
     public double CargoJobShare { get; init; } = 3;
     public double PassengerJobShare { get; init; } = 2;
 
+    // --- Rank gate (Phase 3b): longer, harder legs demand a higher rank. Jobs above your rank are
+    //     shown on the board LOCKED with the reason (never hidden); accept is refused server-side. ---
+    public double CopilotDistanceNm { get; init; } = 90;
+    public double CaptainDistanceNm { get; init; } = 180;
+    public double SeniorCaptainDistanceNm { get; init; } = 300;
+
+    public PilotRank RankForDistance(double distanceNm)
+    {
+        if (distanceNm >= SeniorCaptainDistanceNm) return PilotRank.SeniorCaptain;
+        if (distanceNm >= CaptainDistanceNm) return PilotRank.Captain;
+        if (distanceNm >= CopilotDistanceNm) return PilotRank.Copilot;
+        return PilotRank.Trainee;
+    }
+
     // --- Settlement: landing quality (as a fraction of base reward) and payload bonus ---
     public double PayloadMatchXpBonusPct { get; init; } = 0.5;
 

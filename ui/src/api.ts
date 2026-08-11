@@ -24,6 +24,9 @@ export interface Job {
   distanceNm: number
   rewardCents: number
   xp: number
+  requiredRank: string
+  locked: boolean
+  lockReason?: string | null
   expiresAt: string
 }
 

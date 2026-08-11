@@ -52,7 +52,7 @@ public sealed class PassengerJobSource : IJobSource
                 dest.DistanceNm,
                 _cfg.PaxRewardCents(dest.DistanceNm, pax),
                 _cfg.JobXp(dest.DistanceNm),
-                PilotRank.Trainee));
+                _cfg.RankForDistance(dest.DistanceNm)));
         }
         return jobs;
     }

@@ -212,7 +212,7 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
           : (
             <div className="jobs">
               {jobs.map(j => (
-                <div className="card job" key={j.id}>
+                <div className={`card job ${j.locked ? 'locked' : ''}`} key={j.id}>
                   <div className="job-top">
                     <div className="leg"><b>{j.origin}</b> → <b>{j.dest}</b></div>
                     <div className="tag">{j.type}</div>
@@ -226,7 +226,9 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
                   </div>
                   <div className="job-foot">
                     <div className="reward num">{money(j.rewardCents)}</div>
-                    <button className="primary" disabled={busy} onClick={() => accept(j.id)}>Accept</button>
+                    {j.locked
+                      ? <span className="lock" title={j.lockReason ?? ''}>🔒 {j.lockReason}</span>
+                      : <button className="primary" disabled={busy} onClick={() => accept(j.id)}>Accept</button>}
                   </div>
                 </div>
               ))}

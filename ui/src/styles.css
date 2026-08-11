@@ -182,6 +182,11 @@ input { font: inherit; }
 .promo { margin-top: 12px; padding: 8px 12px; border-radius: 8px; font-weight: 700;
   background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
 
+/* ── Rank-gated jobs (3b): shown, but locked with the reason ── */
+.card.job.locked { opacity: .62; }
+.card.job.locked .reward { color: var(--muted); }
+.lock { font-size: 13px; font-weight: 600; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+
 /* ── Splash / new career ── */
 .splash { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; color: var(--muted); }
 .new-career { width: min(420px, 92vw); display: flex; flex-direction: column; gap: 14px; text-align: left; color: var(--ink); }

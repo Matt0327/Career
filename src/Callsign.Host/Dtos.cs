@@ -8,7 +8,8 @@ public record StateDto(
 
 public record JobDto(
     Guid Id, string Type, string Origin, string Dest, string DestName, string Commodity,
-    int WeightLbs, int Pax, double DistanceNm, long RewardCents, int Xp, DateTimeOffset ExpiresAt);
+    int WeightLbs, int Pax, double DistanceNm, long RewardCents, int Xp,
+    string RequiredRank, bool Locked, string? LockReason, DateTimeOffset ExpiresAt);
 
 public record AssignmentDto(
     Guid Id, string Type, string Origin, string Dest, string DestName, string Commodity, int WeightLbs, int Pax,

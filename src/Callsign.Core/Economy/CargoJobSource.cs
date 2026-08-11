@@ -50,7 +50,7 @@ public sealed class CargoJobSource : IJobSource
                 dest.DistanceNm,
                 _cfg.CargoRewardCents(dest.DistanceNm, weight),
                 _cfg.JobXp(dest.DistanceNm),
-                PilotRank.Trainee));
+                _cfg.RankForDistance(dest.DistanceNm)));
         }
         return jobs;
     }
