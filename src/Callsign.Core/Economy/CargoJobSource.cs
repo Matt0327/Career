@@ -22,6 +22,7 @@ public sealed class CargoJobSource : IJobSource
     {
         var eligible = request.Candidates
             .Where(c => c.DistanceNm >= _cfg.MinJobDistanceNm && c.DistanceNm <= _cfg.MaxJobDistanceNm)
+            .OrderBy(c => c.DistanceNm)
             .ToList();
         if (eligible.Count == 0)
             return Array.Empty<GeneratedJob>();
@@ -30,7 +31,7 @@ public sealed class CargoJobSource : IJobSource
         var jobs = new List<GeneratedJob>(request.Count);
         for (int i = 0; i < request.Count; i++)
         {
-            var dest = eligible[rng.Next(eligible.Count)];
+            var dest = eligible[NearBiasedIndex(rng, eligible.Count)];
             int weight = rng.Next(_cfg.MinCargoWeightLbs, _cfg.MaxCargoWeightLbs + 1);
             var commodity = Commodities[rng.Next(Commodities.Length)];
 
@@ -48,4 +49,13 @@ public sealed class CargoJobSource : IJobSource
         }
         return jobs;
     }
+
+    /// <summary>
+    /// Draw an index into a nearest-first list, biased toward the front so short regional hops appear
+    /// reliably. A uniform draw over a wide radius is area-dominated (far airports vastly outnumber
+    /// near ones), so without this the board is almost all long hauls. The tail still reaches the
+    /// occasional long haul; <see cref="EconomyConfig.JobDistanceBiasExponent"/> controls the lean.
+    /// </summary>
+    private int NearBiasedIndex(Random rng, int count)
+        => Math.Min((int)(Math.Pow(rng.NextDouble(), _cfg.JobDistanceBiasExponent) * count), count - 1);
 }

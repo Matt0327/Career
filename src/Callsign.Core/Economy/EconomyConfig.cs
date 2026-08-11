@@ -21,8 +21,9 @@ public sealed record EconomyConfig
     // --- Generation bounds ---
     public int MinCargoWeightLbs { get; init; } = 200;
     public int MaxCargoWeightLbs { get; init; } = 3_000;
-    public double MinJobDistanceNm { get; init; } = 20;
+    public double MinJobDistanceNm { get; init; } = 5;       // short regional hops are welcome (quick legs to fly)
     public double MaxJobDistanceNm { get; init; } = 400;
+    public double JobDistanceBiasExponent { get; init; } = 3; // >1 favours nearer airports so short hops reliably appear
     public int JobOfferHours { get; init; } = 6;             // how long an offer stays on the board
 
     public long CargoRewardCents(double distanceNm, int weightLbs)
