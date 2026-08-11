@@ -117,6 +117,25 @@ public class LedgerServiceTests
             () => ledger.PostAsync(account.Id, LedgerCategory.StaffWage, -500m, "wage dup", dedupeKey: "wage:2026-08-11"));
     }
 
+    [Fact]
+    public async Task Reconcile_HealsCacheDrift_FromLedger()
+    {
+        using var tdb = new TestDb();
+        using var db = tdb.NewContext();
+        var account = await SeedAccountAsync(db);
+        var ledger = new LedgerService(db, new FakeClock());
+        await ledger.PostAsync(account.Id, LedgerCategory.StartingBalance, 1000m, "start");
+
+        // Force a drift, as if a reused context had left the cache desynced (ApplyCashDelta is internal).
+        account.ApplyCashDelta(50_000);
+        await db.SaveChangesAsync();
+        Assert.NotEqual(await ledger.GetBalanceCentsAsync(account.Id), account.CashCents);
+
+        var reconciled = await ledger.ReconcileAsync(account.Id);
+        Assert.Equal(100_000, reconciled);          // ledger truth: 1000 * 100
+        Assert.Equal(100_000, account.CashCents);   // cache healed
+    }
+
     [Theory]
     [InlineData(0.005, 1)]     // rounds away from zero
     [InlineData(-0.005, -1)]

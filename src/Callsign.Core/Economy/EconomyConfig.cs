@@ -36,16 +36,17 @@ public sealed record EconomyConfig
     // --- Settlement: landing quality (as a fraction of base reward) and payload bonus ---
     public double PayloadMatchXpBonusPct { get; init; } = 0.5;
 
-    /// <summary>Reward multiplier delta from the touchdown rate: a greaser earns a bonus, a slam a penalty.</summary>
-    public double LandingModifierPct(double touchdownFpm)
+    /// <summary>Reward multiplier delta from the touchdown rate: a greaser earns a bonus, a slam a
+    /// penalty. Decimal so the caller can round money away-from-zero, the one cents convention.</summary>
+    public decimal LandingModifierPct(double touchdownFpm)
     {
         double m = Math.Abs(touchdownFpm);
-        if (m <= 100) return 0.10;   // greaser
-        if (m <= 200) return 0.05;   // good
-        if (m <= 400) return 0.00;   // acceptable
-        if (m <= 600) return -0.05;  // firm
-        if (m <= 1000) return -0.15; // hard
-        return -0.30;                // slammed
+        if (m <= 100) return 0.10m;   // greaser
+        if (m <= 200) return 0.05m;   // good
+        if (m <= 400) return 0.00m;   // acceptable
+        if (m <= 600) return -0.05m;  // firm
+        if (m <= 1000) return -0.15m; // hard
+        return -0.30m;                // slammed
     }
 
     public static EconomyConfig Default { get; } = new();

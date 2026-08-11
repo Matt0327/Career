@@ -37,9 +37,16 @@ public sealed class SettlementService
         if (a.Status == AssignmentStatus.Settled)
             throw new InvalidOperationException("Assignment already settled.");
 
+        // Resolve everything that can fail BEFORE any money is staged.
+        var pilot = await _db.Pilots.FirstOrDefaultAsync(p => p.Id == a.PilotId, ct)
+                    ?? throw new InvalidOperationException($"Pilot {a.PilotId} not found for assignment {a.Id}.");
+
         var now = _clock.UtcNow;
         long baseCents = a.RewardQuoteCents; // frozen quote, never the live job
-        long landingDelta = (long)Math.Round(baseCents * _cfg.LandingModifierPct(flight.TouchdownFpm));
+
+        // Landing delta in DECIMAL with away-from-zero rounding — the one money convention (ToCents).
+        long landingDelta = (long)Math.Round(
+            (decimal)baseCents * _cfg.LandingModifierPct(flight.TouchdownFpm), MidpointRounding.AwayFromZero);
 
         var type = await MatchAircraftAsync(flight.AircraftTitle, ct);
         bool payloadMatched = type?.UsefulLoadLbs is int usefulLoad && usefulLoad >= a.WeightLbs;
@@ -48,18 +55,21 @@ public sealed class SettlementService
         var jobRef = a.JobId.ToString();
         var postings = new List<LedgerPosting>
         {
-            new(LedgerCategory.JobPayout, baseCents / 100m, $"{a.Type} payout to {a.DestIcao}", LedgerRefType.Job, jobRef),
+            new(LedgerCategory.JobPayout, baseCents / 100m, $"{a.Type} payout to {a.DestIcao}",
+                LedgerRefType.Job, jobRef, DedupeKey: $"settle:{a.Id}:base"),
         };
         var lines = new List<PayoutLine> { new("Base reward", baseCents) };
 
         if (landingDelta > 0)
         {
-            postings.Add(new(LedgerCategory.JobBonus, landingDelta / 100m, "Smooth landing bonus", LedgerRefType.Job, jobRef));
+            postings.Add(new(LedgerCategory.JobBonus, landingDelta / 100m, "Smooth landing bonus",
+                LedgerRefType.Job, jobRef, DedupeKey: $"settle:{a.Id}:landing"));
             lines.Add(new($"Landing bonus ({flight.TouchdownFpm:F0} fpm)", landingDelta));
         }
         else if (landingDelta < 0)
         {
-            postings.Add(new(LedgerCategory.Penalty, landingDelta / 100m, "Hard-landing penalty", LedgerRefType.Job, jobRef));
+            postings.Add(new(LedgerCategory.Penalty, landingDelta / 100m, "Hard-landing penalty",
+                LedgerRefType.Job, jobRef, DedupeKey: $"settle:{a.Id}:landing"));
             lines.Add(new($"Landing penalty ({flight.TouchdownFpm:F0} fpm)", landingDelta));
         }
 
@@ -67,7 +77,7 @@ public sealed class SettlementService
         var breakdown = new PayoutBreakdown(total, lines);
 
         // Stage the ledger rows + cash delta (not saved), then commit them together with the Flight
-        // row, XP, and status in a single transaction.
+        // row, XP, and status in a single transaction. The per-line DedupeKeys make a retry idempotent.
         await _ledger.StageBatchAsync(a.AccountId, postings, ct);
 
         var flightEntity = new FlightEntity
@@ -88,11 +98,7 @@ public sealed class SettlementService
             SettledAt = now,
         };
         _db.Flights.Add(flightEntity);
-
-        var pilot = await _db.Pilots.FirstOrDefaultAsync(p => p.Id == a.PilotId, ct);
-        if (pilot is not null)
-            pilot.Xp += xp;
-
+        pilot.Xp += xp;
         a.Status = AssignmentStatus.Settled;
         a.SettledAt = now;
 
@@ -111,9 +117,11 @@ public sealed class SettlementService
         if (exact is not null)
             return await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == exact.AircraftTypeId, ct);
 
-        // Fallback: substring match either way (small roster, brief §5.3 — never fail over identity).
+        // Fallback: substring either way, but only for aliases long enough not to false-match a short
+        // token onto the wrong type (§5.3 — never fail a flight over identity, but don't mis-bind either).
         var aliases = await _db.AircraftTitleAliases.ToListAsync(ct);
-        var m = aliases.FirstOrDefault(x => norm.Contains(x.TitleNormalized) || x.TitleNormalized.Contains(norm));
+        var m = aliases.FirstOrDefault(x => x.TitleNormalized.Length >= 5
+            && (norm.Contains(x.TitleNormalized) || x.TitleNormalized.Contains(norm)));
         return m is null ? null : await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == m.AircraftTypeId, ct);
     }
 }

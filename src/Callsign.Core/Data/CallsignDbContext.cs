@@ -136,6 +136,6 @@ public sealed class CallsignDbContext : DbContext
         flight.Property(f => f.AircraftTitle).IsRequired().HasMaxLength(200);
         flight.Property(f => f.PayoutBreakdownJson).IsRequired();
         flight.HasIndex(f => f.FlownByPilotId);
-        flight.HasIndex(f => f.JobAssignmentId);
+        flight.HasIndex(f => f.JobAssignmentId).IsUnique(); // one settled flight per assignment (store-level double-settle guard)
     }
 }

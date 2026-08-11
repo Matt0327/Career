@@ -164,6 +164,46 @@ public class SettlementServiceTests
         }
     }
 
+    [Fact]
+    public async Task Settle_RoundsMoney_AwayFromZero_NotBankers()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Guid assignmentId;
+        using (var db = tdb.NewContext())
+        {
+            var s = await SeedAsync(db, rewardCents: 215_350); // $2153.50
+            assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, s.PilotId)).Id;
+        }
+        using (var db = tdb.NewContext())
+        {
+            var r = await new SettlementService(db, new LedgerService(db, clock), clock, EconomyConfig.Default)
+                .SettleAsync(assignmentId, Flown(-900)); // -15% of 215350 = -32302.5 -> away-from-zero -32303
+            Assert.Equal(215_350 - 32_303, r.PayoutCents); // 183047 (banker's rounding would wrongly give 183048)
+        }
+    }
+
+    [Fact]
+    public async Task Settle_MissingPilot_Throws_BeforeMovingMoney()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Guid assignmentId, companyId;
+        using (var db = tdb.NewContext())
+        {
+            var s = await SeedAsync(db);
+            companyId = s.CompanyId;
+            assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, Guid.NewGuid())).Id;
+        }
+        using (var db = tdb.NewContext())
+        {
+            var svc = new SettlementService(db, new LedgerService(db, clock), clock, EconomyConfig.Default);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => svc.SettleAsync(assignmentId, Flown(-150)));
+        }
+        using (var db = tdb.NewContext())
+            Assert.Empty(await db.LedgerEntries.Where(e => e.AccountId == companyId).ToListAsync()); // no money moved
+    }
+
     [Theory]
     [InlineData(-50, 0.10)]
     [InlineData(-150, 0.05)]
@@ -172,5 +212,5 @@ public class SettlementServiceTests
     [InlineData(-900, -0.15)]
     [InlineData(-1500, -0.30)]
     public void LandingModifier_Bands(double fpm, double expected)
-        => Assert.Equal(expected, EconomyConfig.Default.LandingModifierPct(fpm), 3);
+        => Assert.Equal(expected, (double)EconomyConfig.Default.LandingModifierPct(fpm), 3);
 }

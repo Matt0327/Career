@@ -111,6 +111,25 @@ public sealed class LedgerService
     public Task<long> GetBalanceCentsAsync(Guid accountId, CancellationToken ct = default)
         => _db.LedgerEntries.Where(e => e.AccountId == accountId).SumAsync(e => e.AmountCents, ct);
 
+    /// <summary>
+    /// Recompute the cached balance from the ledger (the authoritative source) and persist any
+    /// correction — a self-heal if the cache ever drifts (e.g. a context reused after a failed save).
+    /// Returns the reconciled balance in cents.
+    /// </summary>
+    public async Task<long> ReconcileAsync(Guid accountId, CancellationToken ct = default)
+    {
+        var account = await _db.Companies.FirstOrDefaultAsync(c => c.Id == accountId, ct)
+                      ?? throw new InvalidOperationException($"Account {accountId} not found.");
+        long sum = await _db.LedgerEntries.Where(e => e.AccountId == accountId).SumAsync(e => e.AmountCents, ct);
+        long drift = sum - account.CashCents;
+        if (drift != 0)
+        {
+            account.ApplyCashDelta(drift);
+            await _db.SaveChangesAsync(ct);
+        }
+        return sum;
+    }
+
     /// <summary>Convert a decimal currency amount to integer cents.</summary>
     internal static long ToCents(decimal amount)
         => (long)Math.Round(amount * 100m, MidpointRounding.AwayFromZero);
