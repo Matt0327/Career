@@ -9,12 +9,12 @@ through the ledger) so a future shared world (Phase 4 ADR) isn't foreclosed.
 The data model is already sketched in [`domain-notes.md`](domain-notes.md) §4.4–4.8 and §6.2–6.7.
 Build order — each step independently playable, finish before the next:
 
-1. ⏳ **2a — Aircraft ownership.** `AircraftInstance` (an owned airframe: tail, type, location,
+1. ✅ **2a — Aircraft ownership.** `AircraftInstance` (an owned airframe: tail, type, location,
    condition, hours). A buy market at your airport prices each type with an itemised "why this price".
    Buy → the airframe is yours and cash is debited via the ledger. "Your hangar" lists what you own.
-2. **2b — Fly what you own.** Pick one of your aircraft for a job; the flight + settlement bind to
-   that instance; the airframe moves to the destination and ticks airframe hours. (Retires the
-   Phase-1 "fly by title" stand-in.)
+2. ✅ **2b — Fly what you own.** A new career gets a gifted starter airframe; you pick which of your
+   aircraft flies a leg; on landing at the destination the airframe (and the pilot) move there and it
+   ticks airframe hours. The airframe binding is optional, so the synthetic/test path still works.
 3. **2c — Running costs.** Airframe hours → maintenance billing; hull/engine condition; parking &
    landing fees on arrival — all itemised ledger rows, all shown before you commit.
 4. **2d — Staff.** Hire pilots; standing orders that fly routes autonomously while you're away

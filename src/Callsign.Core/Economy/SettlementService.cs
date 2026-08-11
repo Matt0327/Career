@@ -30,7 +30,8 @@ public sealed class SettlementService
         _cfg = cfg;
     }
 
-    public async Task<SettlementResult> SettleAsync(Guid assignmentId, FlightRecord flight, CancellationToken ct = default)
+    public async Task<SettlementResult> SettleAsync(Guid assignmentId, FlightRecord flight,
+        Guid? aircraftInstanceId = null, CancellationToken ct = default)
     {
         var a = await _db.JobAssignments.FirstOrDefaultAsync(x => x.Id == assignmentId, ct)
                 ?? throw new InvalidOperationException($"Assignment {assignmentId} not found.");
@@ -87,6 +88,7 @@ public sealed class SettlementService
             FlownByPilotId = a.PilotId,
             AircraftTitle = flight.AircraftTitle,
             AircraftTypeId = type?.Id,
+            AircraftInstanceId = aircraftInstanceId,
             DepartedAt = flight.DepartedAt,
             ArrivedAt = flight.ArrivedAt,
             TouchdownFpm = flight.TouchdownFpm,
@@ -99,10 +101,24 @@ public sealed class SettlementService
         };
         _db.Flights.Add(flightEntity);
         pilot.Xp += xp;
+        pilot.CurrentIcao = a.DestIcao; // the pilot ends the leg at the destination — the loop moves along
         a.Status = AssignmentStatus.Settled;
         a.SettledAt = now;
 
-        await _db.SaveChangesAsync(ct); // one transaction: ledger rows + cash + flight + xp + status
+        // If the leg was flown in an owned airframe, it moves to the destination and ticks airframe hours.
+        if (aircraftInstanceId is { } aid)
+        {
+            var instance = await _db.AircraftInstances.FirstOrDefaultAsync(x => x.Id == aid, ct);
+            if (instance is not null)
+            {
+                instance.LocationIcao = a.DestIcao;
+                instance.Availability = AircraftAvailability.Available;
+                instance.AirframeHours += Math.Max(0, flight.BlockTime.TotalHours);
+                instance.UpdatedAt = now;
+            }
+        }
+
+        await _db.SaveChangesAsync(ct); // one transaction: ledger rows + cash + flight + xp + status + airframe
 
         return new SettlementResult(flightEntity.Id, total, xp, payloadMatched, breakdown);
     }

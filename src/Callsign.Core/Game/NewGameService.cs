@@ -2,6 +2,7 @@ using Callsign.Core.Data;
 using Callsign.Core.Domain;
 using Callsign.Core.Economy;
 using Callsign.Core.Time;
+using Microsoft.EntityFrameworkCore;
 
 namespace Callsign.Core.Game;
 
@@ -46,6 +47,24 @@ public sealed class NewGameService
         // Even the opening balance is a ledger movement — nothing bypasses the ledger.
         await _ledger.PostAsync(company.Id, LedgerCategory.StartingBalance, startingCash,
             "New career starting balance", ct: ct);
+
+        // Grant a starter airframe so a fresh career can fly straight away (a gifted asset — the
+        // ledger tracks CASH, and no cash moves for a gift; buying a real fleet is the Hangar).
+        var starter = await _db.AircraftTypes
+                          .Where(t => t.Category == AircraftCategory.LightSingle)
+                          .OrderBy(t => t.CanonicalName).FirstOrDefaultAsync(ct)
+                      ?? await _db.AircraftTypes.OrderBy(t => t.CanonicalName).FirstOrDefaultAsync(ct);
+        if (starter is not null)
+        {
+            _db.AircraftInstances.Add(new AircraftInstance
+            {
+                Id = Guid.NewGuid(), TypeId = starter.Id, CompanyId = company.Id,
+                Tail = "CS-" + Guid.NewGuid().ToString("N")[..6].ToUpperInvariant(),
+                Ownership = OwnershipKind.Owned, Availability = AircraftAvailability.Available,
+                LocationIcao = homeIcao, AcquiredAt = now, UpdatedAt = now,
+            });
+            await _db.SaveChangesAsync(ct);
+        }
 
         return (company, pilot);
     }

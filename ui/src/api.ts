@@ -152,7 +152,8 @@ export const api = {
   jobs: () => fetch('/api/jobs').then(ok<Job[]>),
   accept: (id: string) => POST(`/api/jobs/${id}/accept`).then(ok),
   assignments: () => fetch('/api/assignments').then(ok<Assignment[]>),
-  beginFlight: (assignmentId: string) => POST('/api/flight/begin', { assignmentId }).then(ok),
+  beginFlight: (assignmentId: string, aircraftInstanceId?: string) =>
+    POST('/api/flight/begin', { assignmentId, aircraftInstanceId }).then(ok),
   ledger: (limit = 50) => fetch(`/api/ledger?limit=${limit}`).then(ok<LedgerEntry[]>),
   flights: () => fetch('/api/flights').then(ok<FlightLog[]>),
   market: () => fetch('/api/aircraft/market').then(ok<AircraftOffer[]>),

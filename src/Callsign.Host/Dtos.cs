@@ -38,7 +38,7 @@ public record BuyAircraftRequest(Guid TypeId);
 
 public record FlightDto(Guid Id, string AircraftTitle, double TouchdownFpm, long PayoutCents, int Xp, DateTimeOffset SettledAt);
 
-public record BeginFlightRequest(Guid AssignmentId);
+public record BeginFlightRequest(Guid AssignmentId, Guid? AircraftInstanceId);
 
 public record FlightLiveDto(
     string Phase, string Connection, Guid? AssignmentId,

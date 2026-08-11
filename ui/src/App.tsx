@@ -285,9 +285,18 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
   const [begun, setBegun] = useState<Assignment | null>(null)
   const [settled, setSettled] = useState<Settled | null>(null)
   const [diverted, setDiverted] = useState<Diverted | null>(null)
+  const [fleet, setFleet] = useState<OwnedAircraft[]>([])
+  const [aircraftId, setAircraftId] = useState('')
 
   const loadAssignments = useCallback(() => { api.assignments().then(setAssignments).catch(() => {}) }, [])
-  useEffect(() => { loadAssignments() }, [loadAssignments])
+  const loadFleet = useCallback(() => {
+    api.hangar().then(hs => {
+      const avail = hs.filter(h => h.availability === 'Available')
+      setFleet(avail)
+      setAircraftId(prev => prev || avail[0]?.id || '')
+    }).catch(() => {})
+  }, [])
+  useEffect(() => { loadAssignments(); loadFleet() }, [loadAssignments, loadFleet])
 
   const { tele, wsOpen, link } = useTelemetry(
     s => {
@@ -296,6 +305,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
       setBegun(null)
       onSettled()
       loadAssignments()
+      loadFleet() // the airframe moved to the destination + ticked hours
     },
     d => setDiverted(d), // landed away from the destination — the job stays open
   )
@@ -304,7 +314,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
   const begin = async (a: Assignment) => {
     setSettled(null)
     setDiverted(null)
-    await api.beginFlight(a.id)
+    await api.beginFlight(a.id, aircraftId || undefined)
     setBegun(a)
   }
 
@@ -332,7 +342,16 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
       {settled && <SettlementCard settled={settled} />}
 
       <section className="card">
-        <h2>Ready to fly</h2>
+        <div className="row-head">
+          <h2>Ready to fly</h2>
+          {fleet.length > 0
+            ? <label className="pick">Aircraft&nbsp;
+                <select value={aircraftId} onChange={e => setAircraftId(e.target.value)}>
+                  {fleet.map(f => <option key={f.id} value={f.id}>{f.tail} · {f.name} — {f.locationIcao}</option>)}
+                </select>
+              </label>
+            : <span className="hint">No available aircraft — buy one in the Hangar.</span>}
+        </div>
         {assignments.length === 0
           ? <div className="empty"><p>No accepted jobs. Accept one on the Jobs board first.</p></div>
           : (
@@ -344,7 +363,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
                     <span>{Math.round(a.distanceNm)} nm</span>
                     <span className="pos">{money(a.rewardQuoteCents)}</span>
                   </div>
-                  <button className="primary" disabled={begun?.id === a.id} onClick={() => begin(a)}>
+                  <button className="primary" disabled={begun?.id === a.id || !aircraftId} onClick={() => begin(a)}>
                     {begun?.id === a.id ? 'In progress…' : 'Begin flight'}
                   </button>
                 </li>

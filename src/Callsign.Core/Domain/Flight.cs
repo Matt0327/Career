@@ -14,6 +14,7 @@ public sealed class Flight
     public Guid FlownByPilotId { get; set; }
     public string AircraftTitle { get; set; } = null!;
     public Guid? AircraftTypeId { get; set; }
+    public Guid? AircraftInstanceId { get; set; }  // the owned airframe flown, when the leg was flown in one (P2b)
     public DateTimeOffset DepartedAt { get; set; }
     public DateTimeOffset ArrivedAt { get; set; }
     public double TouchdownFpm { get; set; }

@@ -142,6 +142,50 @@ public class FlightSessionServiceTests
     }
 
     [Fact]
+    public async Task Landing_InOwnedAircraft_MovesAirframe_TicksHours_AndMovesPilot()
+    {
+        using var conn = new SqliteConnection("DataSource=:memory:");
+        conn.Open();
+        await using var sp = NewProvider(conn);
+        var (assignmentId, _) = await SeedAsync(sp, withDestAirport: false); // synthetic source skips geofencing
+
+        Guid aircraftId, pilotId;
+        using (var scope = sp.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CallsignDbContext>();
+            var companyId = await db.Companies.Select(c => c.Id).SingleAsync();
+            pilotId = await db.Pilots.Select(p => p.Id).SingleAsync();
+            var type = new AircraftType { Id = Guid.NewGuid(), Key = "C172", CanonicalName = "C172", Category = AircraftCategory.LightSingle };
+            db.AircraftTypes.Add(type);
+            var inst = new AircraftInstance
+            {
+                Id = Guid.NewGuid(), TypeId = type.Id, CompanyId = companyId, Tail = "CS-1",
+                Ownership = OwnershipKind.Owned, Availability = AircraftAvailability.Available, LocationIcao = "EHAM",
+            };
+            db.AircraftInstances.Add(inst);
+            await db.SaveChangesAsync();
+            aircraftId = inst.Id;
+        }
+
+        await using var source = new FakeTelemetrySource();
+        using var session = new FlightSessionService(source, sp.GetRequiredService<IServiceScopeFactory>(),
+            NullLogger<FlightSessionService>.Instance, EconomyConfig.Default);
+        session.BeginFlight(assignmentId, aircraftId);
+        await FlyAndLandAsync(session, EhamLat, EhamLon);
+
+        Assert.Null(session.CurrentAssignmentId); // settled
+
+        using var check = sp.CreateScope();
+        var cdb = check.ServiceProvider.GetRequiredService<CallsignDbContext>();
+        var flown = await cdb.AircraftInstances.FindAsync(aircraftId);
+        Assert.Equal("EHRD", flown!.LocationIcao);                 // airframe moved to the destination
+        Assert.True(flown.AirframeHours > 0);                       // ticked airframe hours
+        Assert.Equal(AircraftAvailability.Available, flown.Availability);
+        Assert.Equal("EHRD", (await cdb.Pilots.FindAsync(pilotId))!.CurrentIcao); // pilot moved too
+        Assert.Equal(aircraftId, (await cdb.Flights.SingleAsync()).AircraftInstanceId);
+    }
+
+    [Fact]
     public async Task Landing_AtDestination_Settles()
     {
         using var conn = new SqliteConnection("DataSource=:memory:");

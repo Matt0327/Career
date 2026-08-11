@@ -223,8 +223,8 @@ public static class CallsignWebApp
         // --- Live flight: begin tracking an accepted assignment; the next landing auto-settles it ---
         app.MapPost("/api/flight/begin", (BeginFlightRequest req, FlightSessionService session) =>
         {
-            session.BeginFlight(req.AssignmentId);
-            return Results.Ok(new { begun = req.AssignmentId });
+            session.BeginFlight(req.AssignmentId, req.AircraftInstanceId);
+            return Results.Ok(new { begun = req.AssignmentId, aircraft = req.AircraftInstanceId });
         });
 
         app.MapGet("/api/flight/live", (FlightSessionService session) =>

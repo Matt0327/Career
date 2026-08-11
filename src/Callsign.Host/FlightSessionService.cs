@@ -30,6 +30,7 @@ public sealed class FlightSessionService : IDisposable
 
     private FlightTracker _tracker = new();
     private Guid? _assignmentId;
+    private Guid? _aircraftInstanceId; // the owned airframe flown this leg, if any
     private bool _settling; // guards the async settle so one landing is resolved at a time
 
     public TelemetrySnapshot? Latest { get; private set; }
@@ -64,13 +65,15 @@ public sealed class FlightSessionService : IDisposable
     /// <summary>Start the telemetry source (idempotent at the source level).</summary>
     public Task StartAsync(CancellationToken ct = default) => _source.StartAsync(ct);
 
-    /// <summary>Track a fresh flight for the given accepted assignment; the next landing settles it.</summary>
-    public void BeginFlight(Guid assignmentId)
+    /// <summary>Track a fresh flight for the given accepted assignment (optionally in an owned airframe);
+    /// the next landing at the destination settles it.</summary>
+    public void BeginFlight(Guid assignmentId, Guid? aircraftInstanceId = null)
     {
         lock (_gate)
         {
             _tracker = new FlightTracker();
             _assignmentId = assignmentId;
+            _aircraftInstanceId = aircraftInstanceId;
         }
     }
 
@@ -79,6 +82,7 @@ public sealed class FlightSessionService : IDisposable
     {
         FlightRecord? completed = null;
         Guid assignmentToSettle = default;
+        Guid? aircraftToSettle = null;
 
         lock (_gate)
         {
@@ -89,6 +93,7 @@ public sealed class FlightSessionService : IDisposable
             {
                 completed = record;
                 assignmentToSettle = aid;
+                aircraftToSettle = _aircraftInstanceId;
                 _settling = true; // resolve this landing before accepting another
             }
         }
@@ -110,7 +115,7 @@ public sealed class FlightSessionService : IDisposable
         });
 
         if (completed is not null)
-            await ResolveLandingAsync(assignmentToSettle, completed);
+            await ResolveLandingAsync(assignmentToSettle, aircraftToSettle, completed);
     }
 
     /// <summary>
@@ -118,7 +123,7 @@ public sealed class FlightSessionService : IDisposable
     /// synthetic, which has no real geography — settle it. Otherwise keep the job open and tell the UI
     /// they diverted, so they can take off again and fly on to the destination.
     /// </summary>
-    private async Task ResolveLandingAsync(Guid assignmentId, FlightRecord completed)
+    private async Task ResolveLandingAsync(Guid assignmentId, Guid? aircraftInstanceId, FlightRecord completed)
     {
         var arrival = await CheckArrivalAsync(assignmentId, completed);
 
@@ -135,11 +140,11 @@ public sealed class FlightSessionService : IDisposable
             return;
         }
 
-        var result = await SettleAsync(assignmentId, completed);
+        var result = await SettleAsync(assignmentId, aircraftInstanceId, completed);
         lock (_gate)
         {
             _tracker = new FlightTracker();
-            if (result is not null) _assignmentId = null; // settled → done; on error keep it for a retry
+            if (result is not null) { _assignmentId = null; _aircraftInstanceId = null; } // settled → done; on error keep for retry
             _settling = false;
         }
         if (result is not null)
@@ -178,13 +183,13 @@ public sealed class FlightSessionService : IDisposable
         }
     }
 
-    private async Task<SettlementResult?> SettleAsync(Guid assignmentId, FlightRecord record)
+    private async Task<SettlementResult?> SettleAsync(Guid assignmentId, Guid? aircraftInstanceId, FlightRecord record)
     {
         try
         {
             using var scope = _scopes.CreateScope();
             var settlement = scope.ServiceProvider.GetRequiredService<SettlementService>();
-            return await settlement.SettleAsync(assignmentId, record);
+            return await settlement.SettleAsync(assignmentId, record, aircraftInstanceId);
         }
         catch
         {
