@@ -21,6 +21,8 @@ public sealed class CallsignDbContext : DbContext
     public DbSet<JobAssignment> JobAssignments => Set<JobAssignment>();
     public DbSet<Callsign.Core.Domain.Flight> Flights => Set<Callsign.Core.Domain.Flight>();
     public DbSet<AircraftInstance> AircraftInstances => Set<AircraftInstance>();
+    public DbSet<Staff> Staff => Set<Staff>();
+    public DbSet<StandingOrder> StandingOrders => Set<StandingOrder>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -151,5 +153,23 @@ public sealed class CallsignDbContext : DbContext
         instance.HasIndex(a => a.CompanyId);
         instance.HasOne<AircraftType>().WithMany().HasForeignKey(a => a.TypeId).OnDelete(DeleteBehavior.Restrict);
         instance.HasOne<Company>().WithMany().HasForeignKey(a => a.CompanyId).OnDelete(DeleteBehavior.Restrict);
+
+        // --- Staff + standing orders (Phase 2d) ---
+        var staff = model.Entity<Staff>();
+        staff.HasKey(s => s.Id);
+        staff.Property(s => s.Name).IsRequired().HasMaxLength(80);
+        staff.Property(s => s.Role).HasConversion<string>().HasMaxLength(16);
+        staff.HasIndex(s => s.CompanyId);
+        staff.HasOne<Company>().WithMany().HasForeignKey(s => s.CompanyId).OnDelete(DeleteBehavior.Restrict);
+
+        var order = model.Entity<StandingOrder>();
+        order.HasKey(o => o.Id);
+        order.Property(o => o.OriginIcao).IsRequired().HasMaxLength(12);
+        order.Property(o => o.DestIcao).IsRequired().HasMaxLength(12);
+        order.Property(o => o.Commodity).IsRequired().HasMaxLength(60);
+        order.HasIndex(o => o.CompanyId);
+        order.HasOne<Company>().WithMany().HasForeignKey(o => o.CompanyId).OnDelete(DeleteBehavior.Restrict);
+        order.HasOne<Staff>().WithMany().HasForeignKey(o => o.StaffId).OnDelete(DeleteBehavior.Restrict);
+        order.HasOne<AircraftInstance>().WithMany().HasForeignKey(o => o.AircraftInstanceId).OnDelete(DeleteBehavior.Restrict);
     }
 }

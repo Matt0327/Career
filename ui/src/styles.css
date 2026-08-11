@@ -115,6 +115,9 @@ input { font: inherit; }
 .row-head h2 { margin: 0; font-size: 18px; }
 .pick { font-size: 13px; color: var(--muted); display: flex; align-items: center; }
 .pick select { margin-left: 6px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); font: inherit; }
+.order-form { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: center; }
+.order-form select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); font: inherit; }
+.sub-h { margin: 18px 0 8px; font-size: 14px; font-weight: 500; }
 
 .assign-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .assign { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 16px; padding: 12px 0; border-top: 1px solid var(--line); }

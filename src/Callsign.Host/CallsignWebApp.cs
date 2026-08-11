@@ -50,6 +50,7 @@ public static class CallsignWebApp
         builder.Services.AddScoped<AircraftRosterService>();
         builder.Services.AddScoped<AircraftDealerService>();
         builder.Services.AddScoped<JobBoardService>();
+        builder.Services.AddScoped<OperationsService>();
         builder.Services.AddScoped<GameSetupService>();
 
         builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
@@ -73,6 +74,16 @@ public static class CallsignWebApp
         // Start streaming telemetry into the flight session (live SimConnect on the Windows build,
         // synthetic source on the portable build or when SimConnect isn't available).
         _ = app.Services.GetRequiredService<FlightSessionService>().StartAsync();
+
+        // Reopen reconciliation: book any autonomous standing-order trips + wages that accrued while
+        // the app was closed, so the company keeps ticking (Phase 2d).
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CallsignDbContext>();
+            var pilot = db.Pilots.FirstOrDefault();
+            if (pilot is not null)
+                scope.ServiceProvider.GetRequiredService<OperationsService>().ReconcileAsync(pilot.CompanyId).GetAwaiter().GetResult();
+        }
 
         MapEndpoints(app, uiPath);
         return app;
@@ -227,6 +238,71 @@ public static class CallsignWebApp
             {
                 return Results.BadRequest(new { error = ex.Message });
             }
+        });
+
+        // --- Staff + standing orders (Phase 2d) ---
+        app.MapGet("/api/staff/candidates", async (CallsignDbContext db, OperationsService ops) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            return Results.Ok(ops.GenerateCandidates(pilot.CompanyId.GetHashCode())
+                .Select(c => new StaffCandidateDto(c.Seed, c.Name, c.WagePerDayCents, c.SkillMilli)));
+        });
+
+        app.MapGet("/api/staff", async (CallsignDbContext db) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var staff = await db.Staff.Where(s => s.CompanyId == pilot.CompanyId && s.IsActive && !s.IsDeleted).ToListAsync();
+            return Results.Ok(staff.Select(s => new StaffDto(s.Id, s.Name, s.WagePerDayCents, s.SkillMilli)));
+        });
+
+        app.MapPost("/api/staff/hire", async (HireRequest req, CallsignDbContext db, OperationsService ops) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var s = await ops.HireAsync(pilot.CompanyId, req.CandidateSeed);
+            return Results.Ok(new { id = s.Id, name = s.Name });
+        });
+
+        app.MapGet("/api/ops/orders", async (CallsignDbContext db) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var orders = await db.StandingOrders.Where(o => o.CompanyId == pilot.CompanyId && o.IsActive && !o.IsDeleted).ToListAsync();
+            var staffNames = await db.Staff.Where(s => s.CompanyId == pilot.CompanyId).ToDictionaryAsync(s => s.Id, s => s.Name);
+            var tails = await db.AircraftInstances.Where(a => a.CompanyId == pilot.CompanyId).ToDictionaryAsync(a => a.Id, a => a.Tail);
+            return Results.Ok(orders.Select(o => new StandingOrderDto(o.Id,
+                staffNames.GetValueOrDefault(o.StaffId, "?"), tails.GetValueOrDefault(o.AircraftInstanceId, "?"),
+                o.OriginIcao, o.DestIcao, o.DistanceNm, o.RoundTripHours, o.RewardPerTripCents)));
+        });
+
+        app.MapPost("/api/ops/orders", async (StandingOrderRequest req, CallsignDbContext db, OperationsService ops) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                var o = await ops.CreateStandingOrderAsync(pilot.CompanyId, req.StaffId, req.AircraftInstanceId, req.DestIcao);
+                return Results.Ok(new { id = o.Id, roundTripHours = o.RoundTripHours, rewardPerTripCents = o.RewardPerTripCents });
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        app.MapPost("/api/ops/orders/{id:guid}/cancel", async (Guid id, CallsignDbContext db, OperationsService ops) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            await ops.CancelStandingOrderAsync(pilot.CompanyId, id);
+            return Results.Ok(new { cancelled = id });
+        });
+
+        app.MapPost("/api/ops/reconcile", async (CallsignDbContext db, OperationsService ops) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var d = await ops.ReconcileAsync(pilot.CompanyId);
+            return Results.Ok(new ReconcileDto(d.Trips, d.GrossIncomeCents, d.FeesCents, d.WagesCents, d.NetCents));
         });
 
         app.MapGet("/api/ledger", async (int? limit, CallsignDbContext db) =>

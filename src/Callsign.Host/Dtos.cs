@@ -37,6 +37,16 @@ public record OwnedAircraftDto(
 
 public record BuyAircraftRequest(Guid TypeId);
 
+// --- Phase 2d: staff + standing orders ---
+public record StaffCandidateDto(int Seed, string Name, long WagePerDayCents, int SkillMilli);
+public record StaffDto(Guid Id, string Name, long WagePerDayCents, int SkillMilli);
+public record HireRequest(int CandidateSeed);
+public record StandingOrderDto(
+    Guid Id, string StaffName, string Tail, string Origin, string Dest,
+    double DistanceNm, double RoundTripHours, long RewardPerTripCents);
+public record StandingOrderRequest(Guid StaffId, Guid AircraftInstanceId, string DestIcao);
+public record ReconcileDto(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long NetCents);
+
 public record FlightDto(Guid Id, string AircraftTitle, double TouchdownFpm, long PayoutCents, int Xp, DateTimeOffset SettledAt);
 
 public record BeginFlightRequest(Guid AssignmentId, Guid? AircraftInstanceId);

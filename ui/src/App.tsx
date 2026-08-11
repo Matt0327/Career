@@ -2,10 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api, money,
   type AircraftOffer, type Assignment, type Diverted, type FlightLog, type Job, type LedgerEntry,
-  type OwnedAircraft, type Settled, type State, type Telemetry, type WsEvent,
+  type OwnedAircraft, type ReconcileResult, type Settled, type Staff, type StaffCandidate,
+  type StandingOrder, type State, type Telemetry, type WsEvent,
 } from './api'
 
-type Tab = 'dashboard' | 'jobs' | 'flight' | 'hangar' | 'logbook'
+type Tab = 'dashboard' | 'jobs' | 'flight' | 'hangar' | 'ops' | 'logbook'
 
 export function App() {
   const [state, setState] = useState<State | null | undefined>(undefined) // undefined = still loading
@@ -34,6 +35,7 @@ export function App() {
         {tab === 'jobs' && <Jobs state={state} onChanged={reload} />}
         {tab === 'flight' && <Flight state={state} onSettled={reload} />}
         {tab === 'hangar' && <Hangar state={state} onChanged={reload} />}
+        {tab === 'ops' && <Ops onChanged={reload} />}
         {tab === 'logbook' && <Logbook />}
       </main>
     </div>
@@ -44,7 +46,7 @@ export function App() {
 
 function TopBar({ state, tab, setTab }: { state: State; tab: Tab; setTab: (t: Tab) => void }) {
   const tabs: [Tab, string][] = [
-    ['dashboard', 'Dashboard'], ['jobs', 'Jobs'], ['flight', 'Flight'], ['hangar', 'Hangar'], ['logbook', 'Logbook'],
+    ['dashboard', 'Dashboard'], ['jobs', 'Jobs'], ['flight', 'Flight'], ['hangar', 'Hangar'], ['ops', 'Staff'], ['logbook', 'Logbook'],
   ]
   return (
     <header className="topbar">
@@ -492,6 +494,121 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
                 })}
               </div>
             )}
+      </section>
+    </div>
+  )
+}
+
+// ─── Staff & standing orders ─────────────────────────────────────────────────
+
+function Ops({ onChanged }: { onChanged: () => void }) {
+  const [staff, setStaff] = useState<Staff[]>([])
+  const [candidates, setCandidates] = useState<StaffCandidate[]>([])
+  const [orders, setOrders] = useState<StandingOrder[]>([])
+  const [fleet, setFleet] = useState<OwnedAircraft[]>([])
+  const [dests, setDests] = useState<{ icao: string; name: string }[]>([])
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  const [oStaff, setOStaff] = useState('')
+  const [oAircraft, setOAircraft] = useState('')
+  const [oDest, setODest] = useState('')
+
+  const load = useCallback(async () => {
+    try {
+      setStaff(await api.staff())
+      setCandidates(await api.staffCandidates())
+      setOrders(await api.orders())
+      setFleet((await api.hangar()).filter(h => h.availability === 'Available'))
+      const uniq = new Map((await api.jobs()).map(j => [j.dest, j.destName]))
+      setDests(Array.from(uniq, ([icao, name]) => ({ icao, name })))
+    } catch (e) { setMsg(cleanErr(e)) }
+  }, [])
+  useEffect(() => { void load() }, [load])
+
+  const hire = async (c: StaffCandidate) => {
+    setBusy(true); setMsg(null)
+    try { await api.hire(c.seed); await load(); onChanged(); setMsg(`Hired ${c.name}.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+  const createOrder = async () => {
+    if (!oStaff || !oAircraft || !oDest) { setMsg('Pick a pilot, an aircraft, and a destination.'); return }
+    setBusy(true); setMsg(null)
+    try { await api.createOrder(oStaff, oAircraft, oDest); setOStaff(''); setOAircraft(''); setODest(''); await load(); onChanged(); setMsg("Standing order set — it flies while you're away.") }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+  const cancel = async (o: StandingOrder) => {
+    setBusy(true); setMsg(null)
+    try { await api.cancelOrder(o.id); await load(); onChanged() }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+  const process = async () => {
+    setBusy(true); setMsg(null)
+    try {
+      const d: ReconcileResult = await api.reconcile()
+      await load(); onChanged()
+      setMsg(d.trips > 0
+        ? `Booked ${d.trips} trip${d.trips === 1 ? '' : 's'}: ${money(d.grossIncomeCents)} gross − ${money(d.feesCents)} fees − ${money(d.wagesCents)} wages = ${money(d.netCents)} net.`
+        : `Up to date — no new trips${d.wagesCents ? ` (wages ${money(d.wagesCents)})` : ''}.`)
+    } catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="grid">
+      <section className="card">
+        <div className="row-head"><h2>Standing orders</h2><button className="primary" disabled={busy} onClick={process}>Process now</button></div>
+        {msg && <div className="banner">{msg}</div>}
+        {orders.length === 0
+          ? <div className="empty">No standing orders. Set one below to earn while you're away.</div>
+          : (
+            <table className="tbl">
+              <thead><tr><th>Pilot</th><th>Aircraft</th><th>Route</th><th className="r">Per trip</th><th className="r">Cycle</th><th></th></tr></thead>
+              <tbody>
+                {orders.map(o => (
+                  <tr key={o.id}>
+                    <td>{o.staffName}</td>
+                    <td className="num">{o.tail}</td>
+                    <td><b>{o.origin}</b> ↔ <b>{o.dest}</b> <span className="muted">· {Math.round(o.distanceNm)} nm</span></td>
+                    <td className="r num pos">{money(o.rewardPerTripCents)}</td>
+                    <td className="r num">{o.roundTripHours.toFixed(1)} h</td>
+                    <td className="r"><button className="primary small" disabled={busy} onClick={() => cancel(o)}>Stop</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        {staff.length > 0 && fleet.length > 0 && dests.length > 0 && (
+          <div className="order-form">
+            <select value={oStaff} onChange={e => setOStaff(e.target.value)}><option value="">Pilot…</option>{staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+            <select value={oAircraft} onChange={e => setOAircraft(e.target.value)}><option value="">Aircraft…</option>{fleet.map(f => <option key={f.id} value={f.id}>{f.tail} — {f.locationIcao}</option>)}</select>
+            <select value={oDest} onChange={e => setODest(e.target.value)}><option value="">Destination…</option>{dests.map(d => <option key={d.icao} value={d.icao}>{d.icao} · {d.name}</option>)}</select>
+            <button className="primary" disabled={busy} onClick={createOrder}>Set order</button>
+          </div>
+        )}
+      </section>
+
+      <section className="card">
+        <h2>Your crew</h2>
+        {staff.length === 0 ? <div className="empty">No pilots hired yet.</div> : (
+          <table className="tbl">
+            <thead><tr><th>Name</th><th className="r">Skill</th><th className="r">Wage / day</th></tr></thead>
+            <tbody>{staff.map(s => (
+              <tr key={s.id}><td>{s.name}</td><td className="r num">{Math.round(s.skillMilli / 1000)}%</td><td className="r num neg">{money(s.wagePerDayCents)}</td></tr>
+            ))}</tbody>
+          </table>
+        )}
+        <h3 className="sub-h">Hire a pilot</h3>
+        <div className="jobs">
+          {candidates.map(c => (
+            <div className="card job" key={c.seed}>
+              <div className="leg"><b>{c.name}</b></div>
+              <div className="job-meta">
+                <Meta label="Skill" value={`${Math.round(c.skillMilli / 1000)}%`} />
+                <Meta label="Wage/day" value={money(c.wagePerDayCents)} />
+              </div>
+              <div className="job-foot"><span /><button className="primary" disabled={busy} onClick={() => hire(c)}>Hire</button></div>
+            </div>
+          ))}
+        </div>
       </section>
     </div>
   )

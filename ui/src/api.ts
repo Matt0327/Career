@@ -131,6 +131,39 @@ export interface Diverted {
 
 export type WsEvent = Telemetry | Settled | LinkState | Diverted
 
+export interface StaffCandidate {
+  seed: number
+  name: string
+  wagePerDayCents: number
+  skillMilli: number
+}
+
+export interface Staff {
+  id: string
+  name: string
+  wagePerDayCents: number
+  skillMilli: number
+}
+
+export interface StandingOrder {
+  id: string
+  staffName: string
+  tail: string
+  origin: string
+  dest: string
+  distanceNm: number
+  roundTripHours: number
+  rewardPerTripCents: number
+}
+
+export interface ReconcileResult {
+  trips: number
+  grossIncomeCents: number
+  feesCents: number
+  wagesCents: number
+  netCents: number
+}
+
 async function ok<T>(r: Response): Promise<T> {
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${await r.text()}`)
   return r.json() as Promise<T>
@@ -164,6 +197,14 @@ export const api = {
   hangar: () => fetch('/api/aircraft').then(ok<OwnedAircraft[]>),
   buyAircraft: (typeId: string) => POST('/api/aircraft/buy', { typeId }).then(ok),
   maintain: (id: string) => POST(`/api/aircraft/${id}/maintain`).then(ok),
+  staffCandidates: () => fetch('/api/staff/candidates').then(ok<StaffCandidate[]>),
+  staff: () => fetch('/api/staff').then(ok<Staff[]>),
+  hire: (candidateSeed: number) => POST('/api/staff/hire', { candidateSeed }).then(ok),
+  orders: () => fetch('/api/ops/orders').then(ok<StandingOrder[]>),
+  createOrder: (staffId: string, aircraftInstanceId: string, destIcao: string) =>
+    POST('/api/ops/orders', { staffId, aircraftInstanceId, destIcao }).then(ok),
+  cancelOrder: (id: string) => POST(`/api/ops/orders/${id}/cancel`).then(ok),
+  reconcile: () => POST('/api/ops/reconcile').then(ok<ReconcileResult>),
 }
 
 /** Whole-dollar, sign-aware money from integer cents: 147000 -> "$1,470". */

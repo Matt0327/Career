@@ -18,8 +18,9 @@ Build order — each step independently playable, finish before the next:
 3. ✅ **2c — Running costs.** A landing/handling fee on every arrival (itemised in the payout); hull +
    engine condition that wears with hours and hard landings; maintenance you pay for to restore it and
    reset the interval — all itemised ledger rows.
-4. **2d — Staff.** Hire pilots; standing orders that fly routes autonomously while you're away
-   (the "automate the busywork" promise), reconciled deterministically on reopen.
+4. ✅ **2d — Staff.** Hire pilots (economy-set wages); assign a pilot + an owned aircraft to a repeating
+   route (reward frozen at economy price); trips + landing fees + wages are reconciled deterministically
+   from elapsed wall-clock on reopen, all through the ledger. The airframe ticks hours/condition too.
 5. **2e — Bases.** Open/close bases; home-basing, parking, and where your fleet lives.
 6. **2f — More mission types.** Passengers first (manifest + seats), then express/tourist/etc.
 7. **2g — Trade.** Buy low / sell high across airports; goods as assets with a cost basis.
