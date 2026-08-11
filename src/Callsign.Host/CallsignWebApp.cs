@@ -48,6 +48,7 @@ public static class CallsignWebApp
         builder.Services.AddScoped<JobAssignmentService>();
         builder.Services.AddScoped<SettlementService>();
         builder.Services.AddScoped<AircraftRosterService>();
+        builder.Services.AddScoped<AircraftDealerService>();
         builder.Services.AddScoped<JobBoardService>();
         builder.Services.AddScoped<GameSetupService>();
 
@@ -164,6 +165,42 @@ public static class CallsignWebApp
                 .Select(t => new RosterDto(t.Key, t.CanonicalName, t.Category.ToString(),
                     installed[t.Id].Any(i => i.IsOnDisk), t.Seats, t.UsefulLoadLbs, t.CruiseKtas, t.MinRunwayFt))
                 .OrderBy(r => r.Name));
+        });
+
+        // --- Aircraft ownership (Phase 2a): buy market, hangar ---
+        app.MapGet("/api/aircraft/market", async (AircraftDealerService dealer) =>
+        {
+            var offers = await dealer.GetOffersAsync();
+            return Results.Ok(offers.Select(o => new AircraftOfferDto(
+                o.Type.Id, o.Type.CanonicalName, o.Type.Category.ToString(), o.Quote.TotalCents, o.OnDisk,
+                o.Type.Seats, o.Type.UsefulLoadLbs, o.Type.CruiseKtas,
+                o.Quote.Factors.Select(f => new PriceFactorDto(f.Label, f.AmountCents)).ToList())));
+        });
+
+        app.MapGet("/api/aircraft", async (CallsignDbContext db, AircraftDealerService dealer) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var hangar = await dealer.GetHangarAsync(pilot.CompanyId);
+            return Results.Ok(hangar.Select(h => new OwnedAircraftDto(
+                h.Instance.Id, h.Instance.Tail, h.Type.CanonicalName, h.Type.Category.ToString(),
+                h.Instance.LocationIcao, h.Instance.Availability.ToString(),
+                h.Instance.PurchasePriceCents, h.Instance.AirframeHours)));
+        });
+
+        app.MapPost("/api/aircraft/buy", async (BuyAircraftRequest req, CallsignDbContext db, AircraftDealerService dealer) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                var inst = await dealer.BuyAsync(pilot.CompanyId, req.TypeId, pilot.CurrentIcao);
+                return Results.Ok(new { id = inst.Id, tail = inst.Tail });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
         });
 
         app.MapGet("/api/ledger", async (int? limit, CallsignDbContext db) =>

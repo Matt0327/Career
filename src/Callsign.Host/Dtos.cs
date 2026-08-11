@@ -24,6 +24,18 @@ public record RosterDto(
 
 public record LedgerDto(DateTimeOffset At, string Category, long AmountCents, string Description);
 
+public record PriceFactorDto(string Label, long AmountCents);
+
+public record AircraftOfferDto(
+    Guid TypeId, string Name, string Category, long PriceCents, bool OnDisk,
+    int? Seats, int? UsefulLoadLbs, int? CruiseKtas, IReadOnlyList<PriceFactorDto> Factors);
+
+public record OwnedAircraftDto(
+    Guid Id, string Tail, string Name, string Category, string LocationIcao,
+    string Availability, long? PurchasePriceCents, double AirframeHours);
+
+public record BuyAircraftRequest(Guid TypeId);
+
 public record FlightDto(Guid Id, string AircraftTitle, double TouchdownFpm, long PayoutCents, int Xp, DateTimeOffset SettledAt);
 
 public record BeginFlightRequest(Guid AssignmentId);

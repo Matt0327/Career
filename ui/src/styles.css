@@ -131,6 +131,10 @@ input { font: inherit; }
 .metalabel { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 .job-foot { display: flex; align-items: center; justify-content: space-between; margin-top: auto; padding-top: 6px; }
 .reward { font-size: 22px; font-weight: 700; color: var(--pos); }
+.price { font-size: 22px; font-weight: 700; }
+.factors summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.factors ul { list-style: none; margin: 6px 0 0; padding: 0; }
+.factors li { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--muted); padding: 2px 0; }
 
 /* ── Flight HUD ── */
 .hud-head { display: flex; align-items: center; justify-content: space-between; }

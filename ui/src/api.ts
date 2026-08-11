@@ -55,6 +55,34 @@ export interface FlightLog {
   settledAt: string
 }
 
+export interface PriceFactor {
+  label: string
+  amountCents: number
+}
+
+export interface AircraftOffer {
+  typeId: string
+  name: string
+  category: string
+  priceCents: number
+  onDisk: boolean
+  seats: number | null
+  usefulLoadLbs: number | null
+  cruiseKtas: number | null
+  factors: PriceFactor[]
+}
+
+export interface OwnedAircraft {
+  id: string
+  tail: string
+  name: string
+  category: string
+  locationIcao: string
+  availability: string
+  purchasePriceCents: number | null
+  airframeHours: number
+}
+
 /** A live telemetry frame pushed over the WebSocket. */
 export interface Telemetry {
   type: 'telemetry'
@@ -127,6 +155,9 @@ export const api = {
   beginFlight: (assignmentId: string) => POST('/api/flight/begin', { assignmentId }).then(ok),
   ledger: (limit = 50) => fetch(`/api/ledger?limit=${limit}`).then(ok<LedgerEntry[]>),
   flights: () => fetch('/api/flights').then(ok<FlightLog[]>),
+  market: () => fetch('/api/aircraft/market').then(ok<AircraftOffer[]>),
+  hangar: () => fetch('/api/aircraft').then(ok<OwnedAircraft[]>),
+  buyAircraft: (typeId: string) => POST('/api/aircraft/buy', { typeId }).then(ok),
 }
 
 /** Whole-dollar, sign-aware money from integer cents: 147000 -> "$1,470". */

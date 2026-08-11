@@ -1,3 +1,5 @@
+using Callsign.Core.Domain;
+
 namespace Callsign.Core.Economy;
 
 /// <summary>
@@ -50,6 +52,25 @@ public sealed record EconomyConfig
         if (m <= 1000) return -0.15m; // hard
         return -0.30m;                // slammed
     }
+
+    // --- Aircraft pricing (buy) — category base + itemised spec premiums (§6.2) ---
+    public long AircraftPricePerUsefulLbCents { get; init; } = 2_000;   // $20 per useful-load lb
+    public long AircraftPricePerSeatCents { get; init; } = 150_000;     // $1,500 per seat
+    public long AircraftPricePerCruiseKtCents { get; init; } = 300_000; // $3,000 per cruise kt over 100
+
+    /// <summary>Base sticker by category, in cents.</summary>
+    public long AircraftBaseCents(AircraftCategory category) => category switch
+    {
+        AircraftCategory.LightSingle => 40_000_000,     // $400k
+        AircraftCategory.LightTwin   => 90_000_000,     // $900k
+        AircraftCategory.Turboprop   => 350_000_000,    // $3.5M
+        AircraftCategory.LightJet    => 400_000_000,    // $4M
+        AircraftCategory.Jet         => 1_500_000_000,  // $15M
+        AircraftCategory.Helicopter  => 120_000_000,    // $1.2M
+        AircraftCategory.Heavy       => 9_000_000_000,  // $90M
+        AircraftCategory.Glider      => 15_000_000,     // $150k
+        _                            => 50_000_000,     // $500k
+    };
 
     public static EconomyConfig Default { get; } = new();
 }

@@ -20,6 +20,7 @@ public sealed class CallsignDbContext : DbContext
     public DbSet<Job> Jobs => Set<Job>();
     public DbSet<JobAssignment> JobAssignments => Set<JobAssignment>();
     public DbSet<Callsign.Core.Domain.Flight> Flights => Set<Callsign.Core.Domain.Flight>();
+    public DbSet<AircraftInstance> AircraftInstances => Set<AircraftInstance>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -137,5 +138,15 @@ public sealed class CallsignDbContext : DbContext
         flight.Property(f => f.PayoutBreakdownJson).IsRequired();
         flight.HasIndex(f => f.FlownByPilotId);
         flight.HasIndex(f => f.JobAssignmentId).IsUnique(); // one settled flight per assignment (store-level double-settle guard)
+
+        // --- Owned airframes (Phase 2a) ---
+        var instance = model.Entity<AircraftInstance>();
+        instance.HasKey(a => a.Id);
+        instance.Property(a => a.Tail).IsRequired().HasMaxLength(12);
+        instance.Property(a => a.Ownership).HasConversion<string>().HasMaxLength(16);
+        instance.Property(a => a.Availability).HasConversion<string>().HasMaxLength(16);
+        instance.Property(a => a.LocationIcao).IsRequired().HasMaxLength(12);
+        instance.HasIndex(a => a.CompanyId);
+        instance.HasOne<AircraftType>().WithMany().HasForeignKey(a => a.TypeId).OnDelete(DeleteBehavior.Restrict);
     }
 }

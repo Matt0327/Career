@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api, money,
-  type Assignment, type Diverted, type FlightLog, type Job, type LedgerEntry, type Settled, type State, type Telemetry, type WsEvent,
+  type AircraftOffer, type Assignment, type Diverted, type FlightLog, type Job, type LedgerEntry,
+  type OwnedAircraft, type Settled, type State, type Telemetry, type WsEvent,
 } from './api'
 
-type Tab = 'dashboard' | 'jobs' | 'flight' | 'logbook'
+type Tab = 'dashboard' | 'jobs' | 'flight' | 'hangar' | 'logbook'
 
 export function App() {
   const [state, setState] = useState<State | null | undefined>(undefined) // undefined = still loading
@@ -32,6 +33,7 @@ export function App() {
         {tab === 'dashboard' && <Dashboard state={state} go={setTab} />}
         {tab === 'jobs' && <Jobs state={state} onChanged={reload} />}
         {tab === 'flight' && <Flight state={state} onSettled={reload} />}
+        {tab === 'hangar' && <Hangar state={state} onChanged={reload} />}
         {tab === 'logbook' && <Logbook />}
       </main>
     </div>
@@ -42,7 +44,7 @@ export function App() {
 
 function TopBar({ state, tab, setTab }: { state: State; tab: Tab; setTab: (t: Tab) => void }) {
   const tabs: [Tab, string][] = [
-    ['dashboard', 'Dashboard'], ['jobs', 'Jobs'], ['flight', 'Flight'], ['logbook', 'Logbook'],
+    ['dashboard', 'Dashboard'], ['jobs', 'Jobs'], ['flight', 'Flight'], ['hangar', 'Hangar'], ['logbook', 'Logbook'],
   ]
   return (
     <header className="topbar">
@@ -379,6 +381,89 @@ function SettlementCard({ settled }: { settled: Settled }) {
   )
 }
 
+// ─── Hangar (own aircraft) ───────────────────────────────────────────────────
+
+function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
+  const [owned, setOwned] = useState<OwnedAircraft[] | null>(null)
+  const [offers, setOffers] = useState<AircraftOffer[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    try { setOwned(await api.hangar()); setOffers(await api.market()) } catch (e) { setMsg(cleanErr(e)) }
+  }, [])
+  useEffect(() => { void load() }, [load])
+
+  const buy = async (o: AircraftOffer) => {
+    setBusy(true); setMsg(null)
+    try { await api.buyAircraft(o.typeId); await load(); onChanged(); setMsg(`Bought a ${o.name} — it's in your hangar.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="grid">
+      <section className="card">
+        <h2>Your hangar</h2>
+        {owned === null ? <div className="empty">Loading…</div>
+          : owned.length === 0 ? <div className="empty">No aircraft yet — buy one below.</div>
+            : (
+              <table className="tbl">
+                <thead><tr><th>Tail</th><th>Aircraft</th><th>At</th><th className="r">Hours</th><th className="r">Paid</th></tr></thead>
+                <tbody>
+                  {owned.map(a => (
+                    <tr key={a.id}>
+                      <td className="num">{a.tail}</td>
+                      <td>{a.name} <span className="muted">· {spaced(a.category)}</span></td>
+                      <td className="loc">{a.locationIcao}</td>
+                      <td className="r num">{a.airframeHours.toFixed(1)}</td>
+                      <td className="r num muted">{a.purchasePriceCents != null ? money(a.purchasePriceCents) : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+      </section>
+
+      <section className="card">
+        <div className="row-head"><h2>Buy an aircraft</h2><span className="hint">Delivered to <span className="loc">{state.currentIcao}</span></span></div>
+        {msg && <div className="banner">{msg}</div>}
+        {offers === null ? <div className="empty">Loading…</div>
+          : offers.length === 0 ? <div className="empty">No aircraft types known yet.</div>
+            : (
+              <div className="jobs">
+                {offers.map(o => {
+                  const afford = state.cashCents >= o.priceCents
+                  return (
+                    <div className="card job" key={o.typeId}>
+                      <div className="job-top">
+                        <div className="leg"><b>{o.name}</b></div>
+                        {o.onDisk && <div className="tag">installed</div>}
+                      </div>
+                      <div className="commodity">{spaced(o.category)}</div>
+                      <div className="job-meta">
+                        {o.seats != null && <Meta label="Seats" value={String(o.seats)} />}
+                        {o.usefulLoadLbs != null && <Meta label="Payload" value={`${o.usefulLoadLbs.toLocaleString()} lb`} />}
+                        {o.cruiseKtas != null && <Meta label="Cruise" value={`${o.cruiseKtas} kt`} />}
+                      </div>
+                      <div className="price num">{money(o.priceCents)}</div>
+                      <details className="factors">
+                        <summary>why this price</summary>
+                        <ul>{o.factors.map((f, i) => <li key={i}><span>{f.label}</span><span className="num">{money(f.amountCents)}</span></li>)}</ul>
+                      </details>
+                      <div className="job-foot">
+                        <span className="hint">{afford ? '' : 'over budget'}</span>
+                        <button className="primary" disabled={busy || !afford} onClick={() => buy(o)}>Buy</button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+      </section>
+    </div>
+  )
+}
+
 // ─── Logbook ─────────────────────────────────────────────────────────────────
 
 function Logbook() {
@@ -448,4 +533,9 @@ function landingWord(fpm: number): string {
   if (f <= 360) return 'firm'
   if (f <= 600) return 'hard'
   return 'rough'
+}
+function cleanErr(e: unknown): string {
+  const s = String(e)
+  const m = s.match(/"error":"([^"]+)"/) // pull the server's message out of a failed fetch
+  return m ? m[1] : s.replace(/^Error:\s*/, '')
 }
