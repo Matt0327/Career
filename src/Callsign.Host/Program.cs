@@ -8,6 +8,7 @@ using Callsign.Core.Time;
 using Callsign.Host;
 using Callsign.SimConnect;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,6 +16,10 @@ var builder = WebApplication.CreateBuilder(args);
 var dbPath = builder.Configuration["Db:Path"]
              ?? Path.Combine(builder.Environment.ContentRootPath, "callsign.db");
 builder.Services.AddDbContext<CallsignDbContext>(o => o.UseSqlite($"Data Source={dbPath}"));
+
+// --- Web UI: the Vite build output (path overridable via config "Ui:Path" / env Ui__Path) ---
+var uiPath = builder.Configuration["Ui:Path"]
+             ?? Path.Combine(builder.Environment.ContentRootPath, "wwwroot");
 
 // --- Singletons ---
 builder.Services.AddSingleton<IClock, SystemClock>();
@@ -39,6 +44,15 @@ builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAn
 var app = builder.Build();
 app.UseCors();
 app.UseWebSockets();
+
+// --- Serve the built React UI (if present). API + WebSocket routes are matched first;
+//     any other path falls back to index.html so client-side navigation works. ---
+if (Directory.Exists(uiPath))
+{
+    var ui = new PhysicalFileProvider(Path.GetFullPath(uiPath));
+    app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = ui });
+    app.UseStaticFiles(new StaticFileOptions { FileProvider = ui });
+}
 
 // Synchronous on purpose: a top-level 'await' here makes the entry point async, which breaks
 // WebApplicationFactory's host resolver in integration tests.
@@ -162,6 +176,16 @@ app.Map("/ws/telemetry", async (HttpContext ctx, FlightSessionService session) =
     using var ws = await ctx.WebSockets.AcceptWebSocketAsync();
     await session.AddClientAsync(ws, ctx.RequestAborted);
 });
+
+// SPA fallback: anything that isn't an API/WebSocket route or a static asset returns index.html.
+if (Directory.Exists(uiPath))
+{
+    var indexHtml = Path.Combine(Path.GetFullPath(uiPath), "index.html");
+    app.MapFallback((HttpContext ctx) =>
+        ctx.Request.Path.StartsWithSegments("/api") || ctx.Request.Path.StartsWithSegments("/ws")
+            ? Results.NotFound()
+            : Results.File(indexHtml, "text/html"));
+}
 
 app.Run();
 
