@@ -7,7 +7,7 @@
     <SimConnectNativeDll>$(MSBuildThisFileDirectory)vendor\simconnect\SimConnect.dll</SimConnectNativeDll>
   </PropertyGroup>
 
-  <ItemGroup Condition="'$(OutputType)' == 'Exe' And Exists('$(SimConnectNativeDll)')">
+  <ItemGroup Condition="('$(OutputType)' == 'Exe' Or '$(OutputType)' == 'WinExe') And Exists('$(SimConnectNativeDll)')">
     <None Include="$(SimConnectNativeDll)">
       <Link>SimConnect.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

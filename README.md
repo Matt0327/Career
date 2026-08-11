@@ -30,6 +30,7 @@ src/
   Callsign.SimConnect.Windows/    Real SimConnect adapter (net10.0-windows, Windows-only)
 ui/                               React + TypeScript front end (Vite)
 app/
+  Callsign.Desktop/               Native Windows app (WinForms + WebView2) — the shipping .exe
   Callsign.SimPoc/                Console SimConnect proof-of-concept (brief §10.3)
 tests/                            Core, Host, and SimConnect unit/integration tests
 docs/                             ADRs, the Phase 1 plan, domain notes
@@ -61,30 +62,39 @@ over the `\\wsl.localhost\...` share. Two practical notes:
 
 ## Build & run
 
-### The app (career loop)
+### The desktop app (Callsign.exe)
+
+The shipping form is a native Windows app: the whole thing — web UI, REST API, telemetry,
+SimConnect — runs in **one process** inside a WebView2 window. No browser, no visible localhost.
 
 ```bash
 # 1. Build the web UI (inside WSL — native filesystem)
 cd ui && npm install && npm run build
 
-# 2. Publish the Host to a local folder. For LIVE MSFS telemetry, target Windows:
-dotnet publish src/Callsign.Host -c Release -f net10.0-windows -o C:\callsign
-#    (or -f net10.0 for the portable build — always synthetic telemetry, any OS)
+# 2. Publish the desktop app to a local folder (bundles the UI + native SimConnect):
+dotnet publish app/Callsign.Desktop -c Release -o C:\callsign
 
-# 3. Put the UI where the Host can serve it, then run:
-#    copy ui/dist into C:\callsign\wwwroot  (or pass --Ui:Path=...\ui\dist)
-C:\callsign\Callsign.Host.exe --urls http://localhost:5199
+# 3. Run it — double-click Callsign.exe (or from a shell):
+C:\callsign\Callsign.exe
 ```
 
-Then open <http://localhost:5199>. (For quick iteration you can instead
-`dotnet run --project src/Callsign.Host -f net10.0-windows` when the repo is on a local
-disk, and run the UI dev server with `cd ui && npm run dev`.)
+The save lives in `%LOCALAPPDATA%\Callsign`. Needs the Microsoft Edge **WebView2 Runtime**
+(preinstalled on Windows 11). Live MSFS telemetry lights up automatically when the sim is running.
+
+### Dev / web mode
+
+For quick UI iteration, run the host and the Vite dev server separately in a browser:
+
+```bash
+dotnet run --project src/Callsign.Host -f net10.0-windows   # API + telemetry on :5199
+cd ui && npm run dev                                        # Vite dev server, proxies to :5199
+```
 
 ### Fly a leg
 
 1. Start **MSFS 2024** and load into an aircraft on a runway.
-2. Run the **Windows** Host (`-f net10.0-windows`). The **Flight** tab shows a live link
-   and streams your altitude / airspeed / vertical speed.
+2. Launch **Callsign** (the desktop app). The **Flight** tab's badge flips from "waiting for
+   sim" to **live** and streams your altitude / airspeed / vertical speed.
 3. Start a career, accept a cargo job on the **Jobs** board, and hit **Begin flight**.
 4. Fly to the destination and land. Callsign settles the job automatically and pays you,
    itemised (base reward + landing bonus), and the flight and every dollar show up in the

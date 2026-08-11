@@ -6,6 +6,7 @@
     <Project Path="src/Callsign.SimConnect.Windows/Callsign.SimConnect.Windows.csproj" />
   </Folder>
   <Folder Name="/app/">
+    <Project Path="app/Callsign.Desktop/Callsign.Desktop.csproj" />
     <Project Path="app/Callsign.SimPoc/Callsign.SimPoc.csproj" />
   </Folder>
   <Folder Name="/tests/">
