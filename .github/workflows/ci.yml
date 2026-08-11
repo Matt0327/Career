@@ -15,8 +15,8 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
 
 jobs:
-  core:
-    name: Core (portable) — build & test on Linux
+  portable:
+    name: Portable — build & test on Linux
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,8 +24,10 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - run: dotnet --info
-      - name: Test (portable library)
+      - name: Test SimConnect (portable)
         run: dotnet test -c Release tests/Callsign.SimConnect.Tests/Callsign.SimConnect.Tests.csproj
+      - name: Test Core
+        run: dotnet test -c Release tests/Callsign.Core.Tests/Callsign.Core.Tests.csproj
 
   windows:
     name: Windows — full solution (stub SimConnect) + tests
@@ -35,9 +37,10 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      # No SimConnect binaries in CI, so Callsign.SimConnect.Windows compiles as a
-      # stub — this proves the whole solution builds on Windows without them.
+      # No SimConnect binaries in CI, so Callsign.SimConnect.Windows compiles as a stub.
       - name: Build solution
         run: dotnet build -c Release Callsign.slnx
       - name: Test
-        run: dotnet test -c Release --no-build tests/Callsign.SimConnect.Tests/Callsign.SimConnect.Tests.csproj
+        run: |
+          dotnet test -c Release --no-build tests/Callsign.SimConnect.Tests/Callsign.SimConnect.Tests.csproj
+          dotnet test -c Release --no-build tests/Callsign.Core.Tests/Callsign.Core.Tests.csproj
