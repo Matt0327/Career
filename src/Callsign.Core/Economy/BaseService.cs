@@ -58,6 +58,7 @@ public sealed class BaseService
         return near
             .Where(x => !existing.Contains(x.Airport.Ident)
                         && !string.IsNullOrWhiteSpace(x.Airport.IcaoCode)
+                        && string.Equals(x.Airport.Ident, x.Airport.IcaoCode, StringComparison.OrdinalIgnoreCase)
                         && x.Airport.Kind is AirportKind.SmallAirport or AirportKind.MediumAirport or AirportKind.LargeAirport)
             .Take(8)
             .Select(x => new BaseOffer(x.Airport.Ident, x.Airport.Name, x.Airport.Kind.ToString(), x.DistanceNm,

@@ -69,8 +69,11 @@ public static class CallsignWebApp
             app.UseStaticFiles(new StaticFileOptions { FileProvider = ui });
         }
 
+        // Create/upgrade the schema through EF migrations, so a shipped install survives a schema
+        // change across app updates instead of having its save wiped. A fresh DB gets the full
+        // InitialCreate; an already-current DB is a no-op. (Tests still use EnsureCreated on throwaway DBs.)
         using (var scope = app.Services.CreateScope())
-            scope.ServiceProvider.GetRequiredService<CallsignDbContext>().Database.EnsureCreated();
+            scope.ServiceProvider.GetRequiredService<CallsignDbContext>().Database.Migrate();
 
         // Start streaming telemetry into the flight session (live SimConnect on the Windows build,
         // synthetic source on the portable build or when SimConnect isn't available).

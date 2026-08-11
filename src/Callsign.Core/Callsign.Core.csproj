@@ -6,6 +6,9 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.10" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
     <!-- Pin the native SQLite bundle above the version flagged by NU1903 (GHSA-2m69-gcr7-jv3q). -->
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
   </ItemGroup>
