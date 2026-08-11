@@ -89,6 +89,7 @@ input { font: inherit; }
 .hint { font-size: 13px; color: var(--muted); }
 .banner { padding: 10px 14px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 12%, var(--panel)); font-size: 14px; margin-bottom: 12px; }
 .banner.ok { background: color-mix(in srgb, var(--pos) 14%, var(--panel)); }
+.banner.warn { background: color-mix(in srgb, #b8860b 16%, var(--panel)); color: #b8860b; }
 .banner.error { background: color-mix(in srgb, var(--neg) 14%, var(--panel)); color: var(--neg); cursor: pointer; }
 
 /* ── Stats row ── */

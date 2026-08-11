@@ -16,81 +16,150 @@ public class FlightSessionServiceTests
 {
     private static readonly DateTimeOffset T0 = new(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
 
+    // Rotterdam — the destination for every test's assignment.
+    private const double EhrdLat = 51.9569, EhrdLon = 4.4372;
+    // Amsterdam — ~24 nm from Rotterdam, i.e. well outside the arrival radius.
+    private const double EhamLat = 52.3086, EhamLon = 4.7639;
+
     private sealed class FakeClock : IClock
     {
         public DateTimeOffset UtcNow { get; set; } = T0;
     }
 
-    private static TelemetrySnapshot Snap(int sec, double alt, double gs, double vs, bool onGround)
+    /// <summary>A non-synthetic source, so the session applies destination geofencing (drives FeedAsync directly).</summary>
+    private sealed class RealSourceStub : ISimTelemetrySource
+    {
+        public SimConnectionState State => SimConnectionState.Connected;
+        public bool IsSynthetic => false;
+        public event Action<SimConnectionState>? StateChanged { add { } remove { } }
+        public event Action<TelemetrySnapshot>? TelemetryReceived { add { } remove { } }
+        public Task StartAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task StopAsync() => Task.CompletedTask;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private static TelemetrySnapshot Snap(int sec, double alt, double gs, double vs, bool onGround,
+        double lat = EhamLat, double lon = EhamLon)
         => new()
         {
             Sequence = sec, CapturedAt = T0.AddSeconds(sec), AltitudeFt = alt,
             IndicatedAirspeedKts = gs, GroundSpeedKts = gs, VerticalSpeedFpm = vs,
-            LatitudeDeg = 52.3, LongitudeDeg = 4.76, FuelQuantityLbs = 300 - sec,
+            LatitudeDeg = lat, LongitudeDeg = lon, FuelQuantityLbs = 300 - sec,
             OnGround = onGround, AircraftTitle = "Cessna 172 Skyhawk",
         };
 
-    [Fact]
-    public async Task Landing_AutoSettles_TheBegunAssignment()
+    private static ServiceProvider NewProvider(SqliteConnection conn)
     {
-        var conn = new SqliteConnection("DataSource=:memory:");
-        conn.Open();
         var services = new ServiceCollection();
         services.AddDbContext<CallsignDbContext>(o => o.UseSqlite(conn));
         services.AddSingleton<IClock>(new FakeClock());
         services.AddSingleton(EconomyConfig.Default);
         services.AddScoped<LedgerService>();
         services.AddScoped<SettlementService>();
-        await using var sp = services.BuildServiceProvider();
+        return services.BuildServiceProvider();
+    }
 
-        Guid assignmentId, companyId;
-        using (var scope = sp.CreateScope())
+    private static async Task<(Guid assignmentId, Guid companyId)> SeedAsync(ServiceProvider sp, bool withDestAirport)
+    {
+        using var scope = sp.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CallsignDbContext>();
+        await db.Database.EnsureCreatedAsync();
+
+        var company = new Company { Id = Guid.NewGuid(), Name = "Co" };
+        var pilot = new Pilot { Id = Guid.NewGuid(), CompanyId = company.Id, Name = "Amelia", HomeIcao = "EHAM", CurrentIcao = "EHAM" };
+        db.Companies.Add(company);
+        db.Pilots.Add(pilot);
+        if (withDestAirport)
+            db.Airports.Add(new Airport { Ident = "EHRD", IcaoCode = "EHRD", Name = "Rotterdam", Latitude = EhrdLat, Longitude = EhrdLon, Kind = AirportKind.LargeAirport });
+        var a = new JobAssignment
         {
-            var db = scope.ServiceProvider.GetRequiredService<CallsignDbContext>();
-            await db.Database.EnsureCreatedAsync();
+            Id = Guid.NewGuid(), JobId = Guid.NewGuid(), AccountId = company.Id, PilotId = pilot.Id,
+            Type = MissionType.Cargo, OriginIcao = "EHAM", DestIcao = "EHRD", Commodity = "Mail",
+            WeightLbs = 400, DistanceNm = 120, RewardQuoteCents = 200_000, XpQuote = 20,
+            Status = AssignmentStatus.Accepted, AcceptedAt = T0,
+        };
+        db.JobAssignments.Add(a);
+        await db.SaveChangesAsync();
+        return (a.Id, company.Id);
+    }
 
-            var company = new Company { Id = Guid.NewGuid(), Name = "Co" };
-            var pilot = new Pilot { Id = Guid.NewGuid(), CompanyId = company.Id, Name = "Amelia", HomeIcao = "EHAM", CurrentIcao = "EHAM" };
-            db.Companies.Add(company);
-            db.Pilots.Add(pilot);
-            db.JobAssignments.Add(new JobAssignment
-            {
-                Id = Guid.NewGuid(), JobId = Guid.NewGuid(), AccountId = company.Id, PilotId = pilot.Id,
-                Type = MissionType.Cargo, OriginIcao = "EHAM", DestIcao = "EHRD", Commodity = "Mail",
-                WeightLbs = 400, DistanceNm = 120, RewardQuoteCents = 200_000, XpQuote = 20,
-                Status = AssignmentStatus.Accepted, AcceptedAt = T0,
-            });
-            await db.SaveChangesAsync();
-            companyId = company.Id;
-            assignmentId = await db.JobAssignments.Select(a => a.Id).SingleAsync();
-        }
+    // takeoff -> short final (-120 fpm) -> touchdown -> stop, landing at (lat, lon).
+    private static async Task FlyAndLandAsync(FlightSessionService session, double lat, double lon)
+    {
+        await session.FeedAsync(Snap(0, 0, 0, 0, onGround: true, lat: EhamLat, lon: EhamLon));
+        await session.FeedAsync(Snap(10, 50, 70, 500, onGround: false, lat: EhamLat, lon: EhamLon));
+        await session.FeedAsync(Snap(60, 40, 60, -120, onGround: false, lat: lat, lon: lon));
+        await session.FeedAsync(Snap(61, 0, 55, 0, onGround: true, lat: lat, lon: lon));
+        await session.FeedAsync(Snap(90, 0, 0, 0, onGround: true, lat: lat, lon: lon)); // stop -> flight complete
+    }
 
+    [Fact]
+    public async Task Landing_AutoSettles_TheBegunAssignment()
+    {
+        using var conn = new SqliteConnection("DataSource=:memory:");
+        conn.Open();
+        await using var sp = NewProvider(conn);
+        var (assignmentId, companyId) = await SeedAsync(sp, withDestAirport: false);
+
+        // Synthetic source: geofencing is skipped, so the canned landing still settles.
         await using var source = new FakeTelemetrySource();
         using var session = new FlightSessionService(source, sp.GetRequiredService<IServiceScopeFactory>(),
-            NullLogger<FlightSessionService>.Instance);
+            NullLogger<FlightSessionService>.Instance, EconomyConfig.Default);
         session.BeginFlight(assignmentId);
-
-        // parked -> takeoff -> short final (-120 fpm) -> touchdown -> stop
-        await session.FeedAsync(Snap(0, 0, 0, 0, onGround: true));
-        await session.FeedAsync(Snap(10, 50, 70, 500, onGround: false));
-        await session.FeedAsync(Snap(60, 40, 60, -120, onGround: false));
-        await session.FeedAsync(Snap(61, 0, 55, 0, onGround: true));
-        await session.FeedAsync(Snap(90, 0, 0, 0, onGround: true)); // stop -> flight complete -> auto-settle
+        await FlyAndLandAsync(session, EhamLat, EhamLon);
 
         Assert.Null(session.CurrentAssignmentId); // claimed and settled
 
-        using (var scope = sp.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<CallsignDbContext>();
-            var assignment = await db.JobAssignments.FindAsync(assignmentId);
-            Assert.Equal(AssignmentStatus.Settled, assignment!.Status);
+        using var scope = sp.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CallsignDbContext>();
+        Assert.Equal(AssignmentStatus.Settled, (await db.JobAssignments.FindAsync(assignmentId))!.Status);
+        var flight = await db.Flights.SingleAsync();
+        Assert.Equal(-120, flight.TouchdownFpm);
+        Assert.Equal(210_000, flight.PayoutCents); // 200000 + 5% landing bonus
+        Assert.Equal(210_000, (await db.Companies.FindAsync(companyId))!.CashCents);
+    }
 
-            var flight = await db.Flights.SingleAsync();
-            Assert.Equal(-120, flight.TouchdownFpm);
-            Assert.Equal(210_000, flight.PayoutCents); // 200000 + 5% landing bonus
+    [Fact]
+    public async Task Landing_AwayFromDestination_DoesNotSettle_AndKeepsJobOpen()
+    {
+        using var conn = new SqliteConnection("DataSource=:memory:");
+        conn.Open();
+        await using var sp = NewProvider(conn);
+        var (assignmentId, _) = await SeedAsync(sp, withDestAirport: true);
 
-            var company = await db.Companies.FindAsync(companyId);
-            Assert.Equal(210_000, company!.CashCents); // paid, via the ledger
-        }
+        await using var source = new RealSourceStub(); // real source -> geofencing applies
+        using var session = new FlightSessionService(source, sp.GetRequiredService<IServiceScopeFactory>(),
+            NullLogger<FlightSessionService>.Instance, EconomyConfig.Default);
+        session.BeginFlight(assignmentId);
+        await FlyAndLandAsync(session, EhamLat, EhamLon); // lands at Amsterdam, ~24 nm from Rotterdam
+
+        Assert.Equal(assignmentId, session.CurrentAssignmentId); // still begun — job stays open
+
+        using var scope = sp.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CallsignDbContext>();
+        Assert.Equal(AssignmentStatus.Accepted, (await db.JobAssignments.FindAsync(assignmentId))!.Status);
+        Assert.Empty(await db.Flights.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Landing_AtDestination_Settles()
+    {
+        using var conn = new SqliteConnection("DataSource=:memory:");
+        conn.Open();
+        await using var sp = NewProvider(conn);
+        var (assignmentId, companyId) = await SeedAsync(sp, withDestAirport: true);
+
+        await using var source = new RealSourceStub();
+        using var session = new FlightSessionService(source, sp.GetRequiredService<IServiceScopeFactory>(),
+            NullLogger<FlightSessionService>.Instance, EconomyConfig.Default);
+        session.BeginFlight(assignmentId);
+        await FlyAndLandAsync(session, EhrdLat, EhrdLon); // lands at Rotterdam
+
+        Assert.Null(session.CurrentAssignmentId); // settled
+
+        using var scope = sp.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CallsignDbContext>();
+        Assert.Equal(AssignmentStatus.Settled, (await db.JobAssignments.FindAsync(assignmentId))!.Status);
+        Assert.Equal(210_000, (await db.Companies.FindAsync(companyId))!.CashCents);
     }
 }

@@ -89,7 +89,15 @@ export interface LinkState {
   phase: string
 }
 
-export type WsEvent = Telemetry | Settled | LinkState
+/** Landed away from the destination — the job stays open so you can fly on. */
+export interface Diverted {
+  type: 'diverted'
+  assignmentId: string
+  destIcao: string
+  distanceNm: number
+}
+
+export type WsEvent = Telemetry | Settled | LinkState | Diverted
 
 async function ok<T>(r: Response): Promise<T> {
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${await r.text()}`)

@@ -13,6 +13,13 @@ public interface ISimTelemetrySource : IAsyncDisposable
     /// <summary>Current connection state.</summary>
     SimConnectionState State { get; }
 
+    /// <summary>
+    /// True for a stand-in source with no real-world geography (the synthetic flight profile).
+    /// The game skips destination geofencing for a synthetic source, since its landing position
+    /// is canned — that keeps the whole loop playable and testable with the sim closed.
+    /// </summary>
+    bool IsSynthetic { get; }
+
     /// <summary>Raised whenever <see cref="State"/> changes.</summary>
     event Action<SimConnectionState>? StateChanged;
 

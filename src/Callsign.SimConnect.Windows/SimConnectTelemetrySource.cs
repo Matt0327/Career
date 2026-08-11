@@ -62,6 +62,7 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
     }
 
     public SimConnectionState State => _state;
+    public bool IsSynthetic => false;
     public event Action<SimConnectionState>? StateChanged;
     public event Action<TelemetrySnapshot>? TelemetryReceived;
 
@@ -249,6 +250,7 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
             "scripts/fetch-simconnect.ps1, then rebuild to enable live telemetry.");
 
     public SimConnectionState State => SimConnectionState.Disconnected;
+    public bool IsSynthetic => false;
     public event Action<SimConnectionState>? StateChanged { add { } remove { } }
     public event Action<TelemetrySnapshot>? TelemetryReceived { add { } remove { } }
     public Task StartAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;

@@ -25,6 +25,7 @@ public sealed record EconomyConfig
     public double MaxJobDistanceNm { get; init; } = 400;
     public double JobDistanceBiasExponent { get; init; } = 3; // >1 favours nearer airports so short hops reliably appear
     public int JobOfferHours { get; init; } = 6;             // how long an offer stays on the board
+    public double ArrivalRadiusNm { get; init; } = 5;        // must land within this of the destination to settle
 
     public long CargoRewardCents(double distanceNm, int weightLbs)
         => CargoBaseFeeCents

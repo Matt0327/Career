@@ -1,9 +1,12 @@
 using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text.Json;
+using Callsign.Core.Data;
 using Callsign.Core.Economy;
 using Callsign.Core.Flight;
+using Callsign.Core.Geo;
 using Callsign.SimConnect;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Callsign.Host;
@@ -19,6 +22,7 @@ public sealed class FlightSessionService : IDisposable
     private readonly ISimTelemetrySource _source;
     private readonly IServiceScopeFactory _scopes;
     private readonly ILogger<FlightSessionService> _logger;
+    private readonly EconomyConfig _config;
     private readonly Action<TelemetrySnapshot> _handler;
     private readonly Action<SimConnectionState> _stateHandler;
     private readonly object _gate = new();
@@ -26,17 +30,20 @@ public sealed class FlightSessionService : IDisposable
 
     private FlightTracker _tracker = new();
     private Guid? _assignmentId;
+    private bool _settling; // guards the async settle so one landing is resolved at a time
 
     public TelemetrySnapshot? Latest { get; private set; }
     public FlightPhase Phase { get; private set; } = FlightPhase.Parked;
     public SimConnectionState Connection => _source.State;
     public Guid? CurrentAssignmentId => _assignmentId;
 
-    public FlightSessionService(ISimTelemetrySource source, IServiceScopeFactory scopes, ILogger<FlightSessionService> logger)
+    public FlightSessionService(ISimTelemetrySource source, IServiceScopeFactory scopes,
+        ILogger<FlightSessionService> logger, EconomyConfig config)
     {
         _source = source;
         _scopes = scopes;
         _logger = logger;
+        _config = config;
         _handler = t => _ = FeedAsync(t);
         _stateHandler = OnStateChanged;
         _source.TelemetryReceived += _handler;
@@ -78,11 +85,11 @@ public sealed class FlightSessionService : IDisposable
             Latest = t;
             _tracker.Observe(t);
             Phase = _tracker.Phase;
-            if (_tracker.Result is { } record && _assignmentId is { } aid)
+            if (_tracker.Result is { } record && _assignmentId is { } aid && !_settling)
             {
                 completed = record;
                 assignmentToSettle = aid;
-                _assignmentId = null; // claim it under the lock so only one feed settles
+                _settling = true; // resolve this landing before accepting another
             }
         }
 
@@ -103,18 +110,71 @@ public sealed class FlightSessionService : IDisposable
         });
 
         if (completed is not null)
+            await ResolveLandingAsync(assignmentToSettle, completed);
+    }
+
+    /// <summary>
+    /// A tracked flight finished. If it landed at (near) the job's destination — or the source is
+    /// synthetic, which has no real geography — settle it. Otherwise keep the job open and tell the UI
+    /// they diverted, so they can take off again and fly on to the destination.
+    /// </summary>
+    private async Task ResolveLandingAsync(Guid assignmentId, FlightRecord completed)
+    {
+        var arrival = await CheckArrivalAsync(assignmentId, completed);
+
+        if (!arrival.Arrived)
         {
-            var result = await SettleAsync(assignmentToSettle, completed);
-            if (result is not null)
-                await BroadcastAsync(new
-                {
-                    type = "settled",
-                    assignmentId = assignmentToSettle,
-                    payoutCents = result.PayoutCents,
-                    xp = result.XpAwarded,
-                    payloadMatched = result.PayloadMatched,
-                    touchdownFpm = completed.TouchdownFpm,
-                });
+            lock (_gate) { _tracker = new FlightTracker(); _settling = false; } // keep the job; let them fly on
+            await BroadcastAsync(new
+            {
+                type = "diverted",
+                assignmentId,
+                destIcao = arrival.DestIcao,
+                distanceNm = arrival.DistanceNm,
+            });
+            return;
+        }
+
+        var result = await SettleAsync(assignmentId, completed);
+        lock (_gate)
+        {
+            _tracker = new FlightTracker();
+            if (result is not null) _assignmentId = null; // settled → done; on error keep it for a retry
+            _settling = false;
+        }
+        if (result is not null)
+            await BroadcastAsync(new
+            {
+                type = "settled",
+                assignmentId,
+                payoutCents = result.PayoutCents,
+                xp = result.XpAwarded,
+                payloadMatched = result.PayloadMatched,
+                touchdownFpm = completed.TouchdownFpm,
+            });
+    }
+
+    /// <summary>Did the flight end within the arrival radius of the job's destination airport?</summary>
+    private async Task<(bool Arrived, string DestIcao, double DistanceNm)> CheckArrivalAsync(Guid assignmentId, FlightRecord completed)
+    {
+        try
+        {
+            using var scope = _scopes.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<CallsignDbContext>();
+            var a = await db.JobAssignments.FirstOrDefaultAsync(x => x.Id == assignmentId);
+            if (a is null)
+                return (true, "", 0); // nothing to check against — let settlement decide
+            if (_source.IsSynthetic)
+                return (true, a.DestIcao, 0); // synthetic flight has no real landing position
+            var dest = await db.Airports.FirstOrDefaultAsync(x => x.Ident == a.DestIcao);
+            if (dest is null)
+                return (true, a.DestIcao, 0); // unknown airport — don't strand the player
+            var distNm = GeoMath.DistanceNm(completed.ArrivalLat, completed.ArrivalLon, dest.Latitude, dest.Longitude);
+            return (distNm <= _config.ArrivalRadiusNm, a.DestIcao, distNm);
+        }
+        catch
+        {
+            return (true, "", 0); // never block settlement on a lookup error
         }
     }
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api, money,
-  type Assignment, type FlightLog, type Job, type LedgerEntry, type Settled, type State, type Telemetry, type WsEvent,
+  type Assignment, type Diverted, type FlightLog, type Job, type LedgerEntry, type Settled, type State, type Telemetry, type WsEvent,
 } from './api'
 
 type Tab = 'dashboard' | 'jobs' | 'flight' | 'logbook'
@@ -229,12 +229,14 @@ function Meta({ label, value }: { label: string; value: string }) {
 
 // ─── Flight (live HUD + settlement) ──────────────────────────────────────────
 
-function useTelemetry(onSettled: (s: Settled) => void) {
+function useTelemetry(onSettled: (s: Settled) => void, onDiverted: (d: Diverted) => void) {
   const [tele, setTele] = useState<Telemetry | null>(null)
   const [wsOpen, setWsOpen] = useState(false)
   const [link, setLink] = useState('Disconnected') // SimConnectionState from the server
   const cb = useRef(onSettled)
   cb.current = onSettled
+  const dcb = useRef(onDiverted)
+  dcb.current = onDiverted
 
   useEffect(() => {
     let ws: WebSocket | null = null
@@ -253,6 +255,7 @@ function useTelemetry(onSettled: (s: Settled) => void) {
           if (m.connection !== 'Connected') setTele(null) // sim gone → reset the gauges to —
         }
         else if (m.type === 'settled') cb.current(m)
+        else if (m.type === 'diverted') dcb.current(m)
       }
       ws.onclose = () => { setWsOpen(false); if (!closed) retry = setTimeout(connect, 1500) }
       ws.onerror = () => ws?.close()
@@ -279,20 +282,26 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [begun, setBegun] = useState<Assignment | null>(null)
   const [settled, setSettled] = useState<Settled | null>(null)
+  const [diverted, setDiverted] = useState<Diverted | null>(null)
 
   const loadAssignments = useCallback(() => { api.assignments().then(setAssignments).catch(() => {}) }, [])
   useEffect(() => { loadAssignments() }, [loadAssignments])
 
-  const { tele, wsOpen, link } = useTelemetry(s => {
-    setSettled(s)
-    setBegun(null)
-    onSettled()
-    loadAssignments()
-  })
+  const { tele, wsOpen, link } = useTelemetry(
+    s => {
+      setSettled(s)
+      setDiverted(null)
+      setBegun(null)
+      onSettled()
+      loadAssignments()
+    },
+    d => setDiverted(d), // landed away from the destination — the job stays open
+  )
   const badge = linkBadge(wsOpen, link)
 
   const begin = async (a: Assignment) => {
     setSettled(null)
+    setDiverted(null)
     await api.beginFlight(a.id)
     setBegun(a)
   }
@@ -312,9 +321,10 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
             tone={tele ? (tele.vs < -50 ? 'down' : tele.vs > 50 ? 'up' : undefined) : undefined} />
           <Gauge label="Ground" value={tele ? (tele.onGround ? 'ON' : 'AIR') : '—'} unit={tele?.title?.split('(')[0].trim() ?? ''} />
         </div>
+        {diverted && <div className="banner warn">You landed {Math.round(diverted.distanceNm)} nm from <b>{diverted.destIcao}</b>. The job's still open — take off and fly on to {diverted.destIcao}.</div>}
         {begun
           ? <div className="banner ok">Flying <b>{begun.origin} → {begun.dest}</b> · {begun.destName} — land at {begun.dest} and Callsign settles it automatically.</div>
-          : <div className="hint">Begin a leg below, then fly it. The next landing settles the accepted job.</div>}
+          : <div className="hint">Begin a leg below, then fly it. The next landing at the destination settles the job.</div>}
       </section>
 
       {settled && <SettlementCard settled={settled} />}

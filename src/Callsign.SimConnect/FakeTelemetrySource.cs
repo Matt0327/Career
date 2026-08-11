@@ -21,6 +21,7 @@ public sealed class FakeTelemetrySource : ISimTelemetrySource
     }
 
     public SimConnectionState State => _state;
+    public bool IsSynthetic => true;
     public event Action<SimConnectionState>? StateChanged;
     public event Action<TelemetrySnapshot>? TelemetryReceived;
 
