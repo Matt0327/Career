@@ -16,7 +16,10 @@ public record AssignmentDto(
 
 public record PayoutLineDto(string Label, long AmountCents);
 
-public record SettlementDto(Guid FlightId, long PayoutCents, int XpAwarded, bool PayloadMatched, IReadOnlyList<PayoutLineDto> Lines);
+public record SettlementDto(Guid FlightId, long PayoutCents, int XpAwarded, bool PayloadMatched, string? PromotedTo, IReadOnlyList<PayoutLineDto> Lines);
+
+// --- Phase 3a: rank ladder (self-documenting reference content) ---
+public record RankTierDto(string Rank, string DisplayName, string Description, int MinXp, bool Reached, bool Current);
 
 public record RosterDto(
     string Key, string Name, string Category, bool OnDisk,

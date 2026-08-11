@@ -311,6 +311,61 @@ public class SettlementServiceTests
         }
     }
 
+    [Fact]
+    public async Task Settle_CrossingXpThreshold_PromotesRank()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Guid assignmentId, pilotId;
+        using (var db = tdb.NewContext())
+        {
+            var company = new Company { Id = Guid.NewGuid(), Name = "Co" };
+            var pilot = new Pilot
+            {
+                Id = Guid.NewGuid(), CompanyId = company.Id, Name = "Amelia", HomeIcao = "EHAM", CurrentIcao = "EHAM",
+                Xp = 490, Rank = PilotRank.Trainee, // one good leg away from Copilot (500)
+            };
+            var job = new Job
+            {
+                Id = Guid.NewGuid(), Type = MissionType.Cargo, OriginIcao = "EHAM", DestIcao = "EHRD",
+                Commodity = "Machine parts", WeightLbs = 100, RewardCents = 200_000, Xp = 20, DistanceNm = 120,
+                RequiredRank = PilotRank.Trainee, GeneratedAt = T0, ExpiresAt = T0.AddHours(6),
+            };
+            db.AddRange(company, pilot, job);
+            await db.SaveChangesAsync();
+            pilotId = pilot.Id;
+            assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(job.Id, company.Id, pilot.Id)).Id;
+        }
+
+        SettlementResult r;
+        using (var db = tdb.NewContext())
+            r = await new SettlementService(db, new LedgerService(db, clock), clock, EconomyConfig.Default)
+                .SettleAsync(assignmentId, Flown(-100));
+
+        Assert.Equal(PilotRank.Copilot, r.PromotedTo);   // 490 + 20 XP crosses 500
+        using (var db = tdb.NewContext())
+            Assert.Equal(PilotRank.Copilot, (await db.Pilots.FindAsync(pilotId))!.Rank);
+    }
+
+    [Fact]
+    public async Task Settle_BelowThreshold_DoesNotPromote()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Guid assignmentId;
+        using (var db = tdb.NewContext())
+        {
+            var s = await SeedAsync(db); // fresh pilot at 0 XP; one leg awards ~30
+            assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, s.PilotId)).Id;
+        }
+        using (var db = tdb.NewContext())
+        {
+            var r = await new SettlementService(db, new LedgerService(db, clock), clock, EconomyConfig.Default)
+                .SettleAsync(assignmentId, Flown(-80));
+            Assert.Null(r.PromotedTo); // still a Trainee
+        }
+    }
+
     [Theory]
     [InlineData(-50, 0.10)]
     [InlineData(-150, 0.05)]

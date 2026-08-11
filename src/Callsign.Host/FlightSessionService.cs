@@ -155,6 +155,7 @@ public sealed class FlightSessionService : IDisposable
                 payoutCents = result.PayoutCents,
                 xp = result.XpAwarded,
                 payloadMatched = result.PayloadMatched,
+                promotedTo = result.PromotedTo is { } pr ? Callsign.Core.Progression.RankTiers.Def(pr).DisplayName : null,
                 touchdownFpm = completed.TouchdownFpm,
             });
     }

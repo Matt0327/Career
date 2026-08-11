@@ -4,6 +4,7 @@ using Callsign.Core.Data;
 using Callsign.Core.Domain;
 using Callsign.Core.Economy;
 using Callsign.Core.Game;
+using Callsign.Core.Progression;
 using Callsign.Core.Time;
 using Callsign.SimConnect;
 using Microsoft.AspNetCore.Mvc;
@@ -136,6 +137,16 @@ public static class CallsignWebApp
                 pilot.HomeIcao, company.CashCents, company.Cash, flights));
         });
 
+        // The rank ladder (Phase 3a), flagged against the player's current XP/rank — self-documenting.
+        app.MapGet("/api/ranks", async (CallsignDbContext db) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            int xp = pilot?.Xp ?? 0;
+            var current = pilot?.Rank ?? PilotRank.Trainee;
+            return Results.Ok(RankTiers.All.Select(t => new RankTierDto(
+                t.Rank.ToString(), t.DisplayName, t.Description, t.MinXp, xp >= t.MinXp, t.Rank == current)));
+        });
+
         app.MapPost("/api/jobs/refresh", async (string? origin, int? count, CallsignDbContext db, JobBoardService board) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
@@ -179,6 +190,7 @@ public static class CallsignWebApp
                 dto.DepartureLat, dto.DepartureLon, dto.ArrivalLat, dto.ArrivalLon, dto.DistanceNm, dto.FuelUsedLbs, []);
             var r = await svc.SettleAsync(id, record);
             return Results.Ok(new SettlementDto(r.FlightId, r.PayoutCents, r.XpAwarded, r.PayloadMatched,
+                r.PromotedTo is { } pr ? RankTiers.Def(pr).DisplayName : null,
                 r.Breakdown.Lines.Select(l => new PayoutLineDto(l.Label, l.AmountCents)).ToList()));
         });
 

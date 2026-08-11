@@ -113,7 +113,17 @@ export interface Settled {
   payoutCents: number
   xp: number
   payloadMatched: boolean
+  promotedTo?: string | null
   touchdownFpm: number
+}
+
+export interface RankTier {
+  rank: string
+  displayName: string
+  description: string
+  minXp: number
+  reached: boolean
+  current: boolean
 }
 
 /** A link-state change (Connecting / Connected / Disconnected / SimExited), pushed even when no
@@ -256,6 +266,7 @@ export const api = {
   },
   newCareer: (name: string, homeIcao: string, startingCash: number) =>
     POST('/api/game/new', { name, homeIcao, startingCash }).then(ok),
+  ranks: () => fetch('/api/ranks').then(ok<RankTier[]>),
   refreshJobs: (count = 8) => POST(`/api/jobs/refresh?count=${count}`).then(ok),
   jobs: () => fetch('/api/jobs').then(ok<Job[]>),
   accept: (id: string) => POST(`/api/jobs/${id}/accept`).then(ok),

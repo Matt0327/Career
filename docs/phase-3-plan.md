@@ -21,11 +21,11 @@ wipe). Everything stays **server-ready**.
 
 ## Build order — each step independently playable, finish before the next
 
-1. **3a — Rank tiers & promotion.** Add `RankTierDef` reference content (per `PilotRank`: `MinXp`,
-   `DisplayName`, `Description`, `UnlocksMissionMask`), self-documenting so the UI never hard-codes a
-   threshold. Settlement already awards XP — hook promotion in: when accrued XP crosses the next tier,
-   promote the pilot and surface it (a "Promoted to Captain" moment + dashboard *progress-to-next-rank*).
-   No new money. *Playable:* fly, earn XP, get promoted.
+1. ✅ **3a — Rank tiers & promotion.** `RankTiers` reference content (per `PilotRank`: `MinXp`,
+   `DisplayName`, `Description`), self-documenting and shipped to the UI via `/api/ranks` so no threshold
+   is hard-coded. Settlement recomputes rank from cumulative XP and returns `PromotedTo` on a crossing;
+   the settlement toast celebrates it and the dashboard shows a *progress-to-next-rank* bar. No new money.
+   *Verified live:* flew legs to 518 XP → promoted to Copilot. (`UnlocksMissionMask` arrives with 3b/3e.)
 
 2. **3b — Job gating by rank (locked-with-reason).** The board keeps generating a spread, but a job above
    your rank renders **locked** with its reason ("Senior Captain required"), never hidden; `AcceptAsync`

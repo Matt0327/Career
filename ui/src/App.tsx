@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api, money,
   type AircraftOffer, type Assignment, type BaseOffer, type BaseView, type Diverted, type FlightLog,
-  type Inventory, type Job, type LedgerEntry, type MarketQuote, type OwnedAircraft, type ReconcileResult,
-  type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type WsEvent,
+  type Inventory, type Job, type LedgerEntry, type MarketQuote, type OwnedAircraft, type RankTier,
+  type ReconcileResult, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State,
+  type Telemetry, type WsEvent,
 } from './api'
 
 type Tab = 'dashboard' | 'jobs' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'logbook'
@@ -112,7 +113,11 @@ function NewCareer({ onStarted }: { onStarted: () => void }) {
 
 function Dashboard({ state, go }: { state: State; go: (t: Tab) => void }) {
   const [assignments, setAssignments] = useState<Assignment[]>([])
-  useEffect(() => { api.assignments().then(setAssignments).catch(() => {}) }, [])
+  const [ranks, setRanks] = useState<RankTier[]>([])
+  useEffect(() => {
+    api.assignments().then(setAssignments).catch(() => {})
+    api.ranks().then(setRanks).catch(() => {})
+  }, [])
 
   return (
     <div className="grid">
@@ -123,6 +128,8 @@ function Dashboard({ state, go }: { state: State; go: (t: Tab) => void }) {
         <Stat label="Flights flown" value={String(state.flights)} />
         <Stat label="Location" value={state.currentIcao} />
       </section>
+
+      {ranks.length > 0 && <RankCard state={state} ranks={ranks} />}
 
       <section className="card">
         <h2>Active assignment</h2>
@@ -226,6 +233,25 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
             </div>
           )}
     </div>
+  )
+}
+
+function RankCard({ state, ranks }: { state: State; ranks: RankTier[] }) {
+  const current = ranks.find(r => r.current) ?? ranks[0]
+  const next = ranks.find(r => !r.reached) // tiers are ascending; first not-yet-reached is the next goal
+  const pct = next && next.minXp > current.minXp
+    ? Math.max(0, Math.min(100, ((state.xp - current.minXp) / (next.minXp - current.minXp)) * 100))
+    : 100
+  return (
+    <section className="card rank-card">
+      <div className="row-head">
+        <h2>{current.displayName}</h2>
+        <span className="hint">{next ? `${(next.minXp - state.xp).toLocaleString()} XP to ${next.displayName}` : 'Top rank reached'}</span>
+      </div>
+      <p className="muted rank-desc">{current.description}</p>
+      <div className="rank-bar"><div className="rank-fill" style={{ width: `${pct}%` }} /></div>
+      <div className="rank-scale"><span className="num">{state.xp.toLocaleString()} XP</span><span className="num">{next ? `${next.minXp.toLocaleString()} XP` : ''}</span></div>
+    </section>
   )
 }
 
@@ -401,6 +427,7 @@ function SettlementCard({ settled }: { settled: Settled }) {
         <span>touchdown <b className="num">{signed(Math.round(settled.touchdownFpm))} fpm</b> ({landingWord(settled.touchdownFpm)})</span>
         {settled.payloadMatched && <span className="pos">aircraft bonus</span>}
       </div>
+      {settled.promotedTo && <div className="promo">🎖 Promoted to {settled.promotedTo}!</div>}
     </section>
   )
 }

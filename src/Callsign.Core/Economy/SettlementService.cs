@@ -2,6 +2,7 @@ using System.Text.Json;
 using Callsign.Core.Aircraft;
 using Callsign.Core.Data;
 using Callsign.Core.Domain;
+using Callsign.Core.Progression;
 using Callsign.Core.Time;
 using Microsoft.EntityFrameworkCore;
 using FlightEntity = Callsign.Core.Domain.Flight;
@@ -116,6 +117,10 @@ public sealed class SettlementService
         };
         _db.Flights.Add(flightEntity);
         pilot.Xp += xp;
+        // Promotion (Phase 3a): XP is cumulative, so recompute the rank and note a crossing to celebrate.
+        var earnedRank = RankTiers.ForXp(pilot.Xp);
+        PilotRank? promotedTo = earnedRank > pilot.Rank ? earnedRank : null;
+        pilot.Rank = earnedRank;
         pilot.CurrentIcao = a.DestIcao; // the pilot ends the leg at the destination — the loop moves along
         a.Status = AssignmentStatus.Settled;
         a.SettledAt = now;
@@ -153,7 +158,7 @@ public sealed class SettlementService
 
         await _db.SaveChangesAsync(ct); // one transaction: ledger rows + cash + flight + xp + status + airframe + goods
 
-        return new SettlementResult(flightEntity.Id, total, xp, payloadMatched, breakdown);
+        return new SettlementResult(flightEntity.Id, total, xp, payloadMatched, promotedTo, breakdown);
     }
 
     private async Task<AircraftType?> MatchAircraftAsync(string title, CancellationToken ct)
