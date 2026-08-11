@@ -26,6 +26,12 @@ public record LedgerDto(DateTimeOffset At, string Category, long AmountCents, st
 
 public record FlightDto(Guid Id, string AircraftTitle, double TouchdownFpm, long PayoutCents, int Xp, DateTimeOffset SettledAt);
 
+public record BeginFlightRequest(Guid AssignmentId);
+
+public record FlightLiveDto(
+    string Phase, string Connection, Guid? AssignmentId,
+    double? AltitudeFt, double? IndicatedAirspeedKts, double? VerticalSpeedFpm, bool? OnGround, string? AircraftTitle);
+
 public record FlightResultDto(
     string AircraftTitle, DateTimeOffset DepartedAt, DateTimeOffset ArrivedAt, double TouchdownFpm, double MaxAltitudeFt,
     double DepartureLat, double DepartureLon, double ArrivalLat, double ArrivalLon, double DistanceNm, double FuelUsedLbs);

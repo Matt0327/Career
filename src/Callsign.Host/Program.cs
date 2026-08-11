@@ -21,7 +21,8 @@ builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton(EconomyConfig.Default);
 builder.Services.AddSingleton<IJobSource>(sp => new CargoJobSource(sp.GetRequiredService<EconomyConfig>()));
 builder.Services.AddSingleton<AircraftScanner>();
-builder.Services.AddSingleton<ISimTelemetrySource>(_ => new FakeTelemetrySource()); // real adapter wired in 1g-b
+builder.Services.AddSingleton<ISimTelemetrySource>(_ => new FakeTelemetrySource()); // real SimConnect adapter wired in 1h
+builder.Services.AddSingleton<FlightSessionService>();
 
 // --- Scoped services (per request) ---
 builder.Services.AddScoped<AirportRepository>();
@@ -37,11 +38,15 @@ builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAn
 
 var app = builder.Build();
 app.UseCors();
+app.UseWebSockets();
 
 // Synchronous on purpose: a top-level 'await' here makes the entry point async, which breaks
 // WebApplicationFactory's host resolver in integration tests.
 using (var scope = app.Services.CreateScope())
     scope.ServiceProvider.GetRequiredService<CallsignDbContext>().Database.EnsureCreated();
+
+// Start streaming telemetry into the flight session (fake source until the real adapter is wired in 1h).
+_ = app.Services.GetRequiredService<FlightSessionService>().StartAsync();
 
 app.MapGet("/api/health", () => Results.Ok(new { ok = true }));
 
@@ -129,6 +134,33 @@ app.MapGet("/api/flights", async (CallsignDbContext db) =>
 {
     var flights = await db.Flights.OrderByDescending(f => f.SettledAt).Take(50).ToListAsync();
     return Results.Ok(flights.Select(f => new FlightDto(f.Id, f.AircraftTitle, f.TouchdownFpm, f.PayoutCents, f.Xp, f.SettledAt)));
+});
+
+// --- Live flight: begin tracking an accepted assignment; the next landing auto-settles it ---
+app.MapPost("/api/flight/begin", (BeginFlightRequest req, FlightSessionService session) =>
+{
+    session.BeginFlight(req.AssignmentId);
+    return Results.Ok(new { begun = req.AssignmentId });
+});
+
+app.MapGet("/api/flight/live", (FlightSessionService session) =>
+{
+    var t = session.Latest;
+    return Results.Ok(new FlightLiveDto(
+        session.Phase.ToString(), session.Connection.ToString(), session.CurrentAssignmentId,
+        t?.AltitudeFt, t?.IndicatedAirspeedKts, t?.VerticalSpeedFpm, t?.OnGround, t?.AircraftTitle));
+});
+
+// WebSocket that pushes live telemetry + settlement events to the UI.
+app.Map("/ws/telemetry", async (HttpContext ctx, FlightSessionService session) =>
+{
+    if (!ctx.WebSockets.IsWebSocketRequest)
+    {
+        ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
+        return;
+    }
+    using var ws = await ctx.WebSockets.AcceptWebSocketAsync();
+    await session.AddClientAsync(ws, ctx.RequestAborted);
 });
 
 app.Run();
