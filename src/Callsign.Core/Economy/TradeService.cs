@@ -60,13 +60,29 @@ public sealed class TradeService
             .ToList();
     }
 
-    /// <summary>Buy <paramref name="qty"/> units of a commodity at <paramref name="icao"/>'s market price.</summary>
-    public async Task<InventoryLot> BuyAsync(Guid companyId, string icao, string goodKey, int qty, CancellationToken ct = default)
+    /// <summary>
+    /// Buy <paramref name="qty"/> units of a commodity at <paramref name="icao"/>'s market price. Pass a
+    /// stable <paramref name="idempotencyKey"/> so a retried request replays instead of buying twice.
+    /// </summary>
+    public async Task<InventoryLot> BuyAsync(
+        Guid companyId, string icao, string goodKey, int qty, string? idempotencyKey = null, CancellationToken ct = default)
     {
         if (qty <= 0)
             throw new InvalidOperationException("Quantity must be a positive whole number.");
         var good = TradeCatalog.Find(goodKey)
                    ?? throw new InvalidOperationException($"Unknown commodity '{goodKey}'.");
+
+        string? dedupe = idempotencyKey is null ? null : $"trade-buy:{idempotencyKey}";
+        async Task<InventoryLot?> PriorAsync()
+        {
+            if (dedupe is null) return null;
+            var e = await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct);
+            return e?.RelatedEntityId is string s && Guid.TryParse(s, out var id)
+                ? await _db.InventoryLots.FirstOrDefaultAsync(l => l.Id == id, ct)
+                : null;
+        }
+        if (await PriorAsync() is { } replay) return replay;
+
         var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId, ct)
                       ?? throw new InvalidOperationException($"Company {companyId} not found.");
 
@@ -102,9 +118,18 @@ public sealed class TradeService
         await _ledger.StageBatchAsync(companyId, new[]
         {
             new LedgerPosting(LedgerCategory.Trade, -(cost / 100m), $"Bought {qty} × {good.Name} at {icao}",
-                LedgerRefType.StockLot, lot.Id.ToString()),
+                LedgerRefType.StockLot, lot.Id.ToString(), DedupeKey: dedupe),
         }, ct);
-        await _db.SaveChangesAsync(ct);
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException) when (dedupe is not null)
+        {
+            _db.ChangeTracker.Clear();
+            if (await PriorAsync() is { } raced) return raced;
+            throw;
+        }
         return lot;
     }
 

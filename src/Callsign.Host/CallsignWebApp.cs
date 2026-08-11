@@ -6,6 +6,7 @@ using Callsign.Core.Economy;
 using Callsign.Core.Game;
 using Callsign.Core.Time;
 using Callsign.SimConnect;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 
@@ -214,13 +215,13 @@ public static class CallsignWebApp
                 dealer.MaintenanceDue(h.Instance), dealer.MaintenanceQuoteCents(h.Instance))));
         });
 
-        app.MapPost("/api/aircraft/{id:guid}/maintain", async (Guid id, CallsignDbContext db, AircraftDealerService dealer) =>
+        app.MapPost("/api/aircraft/{id:guid}/maintain", async (Guid id, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, AircraftDealerService dealer) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             try
             {
-                var cost = await dealer.MaintainAsync(pilot.CompanyId, id);
+                var cost = await dealer.MaintainAsync(pilot.CompanyId, id, idem);
                 return Results.Ok(new { maintainedCents = cost });
             }
             catch (DbUpdateConcurrencyException)
@@ -233,13 +234,13 @@ public static class CallsignWebApp
             }
         });
 
-        app.MapPost("/api/aircraft/buy", async (BuyAircraftRequest req, CallsignDbContext db, AircraftDealerService dealer) =>
+        app.MapPost("/api/aircraft/buy", async (BuyAircraftRequest req, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, AircraftDealerService dealer) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             try
             {
-                var inst = await dealer.BuyAsync(pilot.CompanyId, req.TypeId, pilot.CurrentIcao);
+                var inst = await dealer.BuyAsync(pilot.CompanyId, req.TypeId, pilot.CurrentIcao, idem);
                 return Results.Ok(new { id = inst.Id, tail = inst.Tail });
             }
             catch (DbUpdateConcurrencyException)
@@ -335,13 +336,13 @@ public static class CallsignWebApp
             return Results.Ok(offers.Select(o => new BaseOfferDto(o.Icao, o.Name, o.Kind, o.DistanceNm, o.OpenCents, o.RentPerDayCents)));
         });
 
-        app.MapPost("/api/bases/open", async (OpenBaseRequest req, CallsignDbContext db, BaseService bases) =>
+        app.MapPost("/api/bases/open", async (OpenBaseRequest req, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, BaseService bases) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             try
             {
-                var b = await bases.OpenBaseAsync(pilot.CompanyId, req.AirportIcao);
+                var b = await bases.OpenBaseAsync(pilot.CompanyId, req.AirportIcao, idem);
                 return Results.Ok(new { id = b.Id, icao = b.AirportIcao });
             }
             catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "Cash changed at the same time — try again." }); }
@@ -366,13 +367,13 @@ public static class CallsignWebApp
                 v.MarketSellCents, v.UnrealizedPnlCents, v.UnitWeightLbs, v.LocationIcao)));
         });
 
-        app.MapPost("/api/trade/buy", async (TradeRequest req, CallsignDbContext db, TradeService trade) =>
+        app.MapPost("/api/trade/buy", async (TradeRequest req, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, TradeService trade) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             try
             {
-                var lot = await trade.BuyAsync(pilot.CompanyId, pilot.CurrentIcao, req.Good, req.Qty);
+                var lot = await trade.BuyAsync(pilot.CompanyId, pilot.CurrentIcao, req.Good, req.Qty, idem);
                 return Results.Ok(new { id = lot.Id, good = lot.Good, quantity = lot.Quantity, unitCostCents = lot.UnitCostCents });
             }
             catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "Cash changed at the same time — try again." }); }

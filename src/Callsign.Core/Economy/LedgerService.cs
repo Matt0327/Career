@@ -112,6 +112,15 @@ public sealed class LedgerService
         => _db.LedgerEntries.Where(e => e.AccountId == accountId).SumAsync(e => e.AmountCents, ct);
 
     /// <summary>
+    /// The prior posting made under an idempotency <paramref name="dedupeKey"/> on this account, if any.
+    /// A non-null result means the operation already ran (a client retried a request that had committed),
+    /// so a money endpoint can replay its previous outcome instead of charging twice. Untracked so it
+    /// never entangles with entities the caller is about to stage.
+    /// </summary>
+    public Task<LedgerEntry?> FindByDedupeKeyAsync(Guid accountId, string dedupeKey, CancellationToken ct = default)
+        => _db.LedgerEntries.AsNoTracking().FirstOrDefaultAsync(e => e.AccountId == accountId && e.DedupeKey == dedupeKey, ct);
+
+    /// <summary>
     /// Recompute the cached balance from the ledger (the authoritative source) and persist any
     /// correction — a self-heal if the cache ever drifts (e.g. a context reused after a failed save).
     /// Returns the reconciled balance in cents.

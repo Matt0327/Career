@@ -224,6 +224,29 @@ const POST = (url: string, body?: unknown): Promise<Response> =>
     body: body === undefined ? undefined : JSON.stringify(body),
   })
 
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+const newKey = () =>
+  globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
+
+// A money-committing POST that is safe to retry: one stable Idempotency-Key travels with every attempt,
+// so if a response is lost after the server already committed, the retry replays that same outcome
+// instead of charging twice. We only retry on a network-level rejection — never on an HTTP error status.
+async function POST_IDEM(url: string, body?: unknown): Promise<Response> {
+  const key = newKey()
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key },
+        body: JSON.stringify(body ?? {}),
+      })
+    } catch (e) {
+      if (attempt >= 2) throw e
+      await sleep(150 * (attempt + 1))
+    }
+  }
+}
+
 export const api = {
   /** Current career, or null if none has been started yet. */
   async state(): Promise<State | null> {
@@ -243,8 +266,8 @@ export const api = {
   flights: () => fetch('/api/flights').then(ok<FlightLog[]>),
   market: () => fetch('/api/aircraft/market').then(ok<AircraftOffer[]>),
   hangar: () => fetch('/api/aircraft').then(ok<OwnedAircraft[]>),
-  buyAircraft: (typeId: string) => POST('/api/aircraft/buy', { typeId }).then(ok),
-  maintain: (id: string) => POST(`/api/aircraft/${id}/maintain`).then(ok),
+  buyAircraft: (typeId: string) => POST_IDEM('/api/aircraft/buy', { typeId }).then(ok),
+  maintain: (id: string) => POST_IDEM(`/api/aircraft/${id}/maintain`).then(ok),
   staffCandidates: () => fetch('/api/staff/candidates').then(ok<StaffCandidate[]>),
   staff: () => fetch('/api/staff').then(ok<Staff[]>),
   hire: (candidateSeed: number) => POST('/api/staff/hire', { candidateSeed }).then(ok),
@@ -255,10 +278,10 @@ export const api = {
   reconcile: () => POST('/api/ops/reconcile').then(ok<ReconcileResult>),
   bases: () => fetch('/api/bases').then(ok<BaseView[]>),
   baseCandidates: () => fetch('/api/bases/candidates').then(ok<BaseOffer[]>),
-  openBase: (airportIcao: string) => POST('/api/bases/open', { airportIcao }).then(ok),
+  openBase: (airportIcao: string) => POST_IDEM('/api/bases/open', { airportIcao }).then(ok),
   tradeMarket: () => fetch('/api/trade/market').then(ok<MarketQuote[]>),
   inventory: () => fetch('/api/trade/inventory').then(ok<Inventory[]>),
-  buyGood: (good: string, qty: number) => POST('/api/trade/buy', { good, qty }).then(ok),
+  buyGood: (good: string, qty: number) => POST_IDEM('/api/trade/buy', { good, qty }).then(ok),
   sellGood: (good: string, qty: number) => POST('/api/trade/sell', { good, qty }).then(ok<TradeResult>),
 }
 

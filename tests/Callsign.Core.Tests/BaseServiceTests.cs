@@ -69,4 +69,26 @@ public class BaseServiceTests
         using (var db = tdb.NewContext())
             Assert.Contains(await db.LedgerEntries.ToListAsync(), e => e.Category == LedgerCategory.BaseRent && e.Description.StartsWith("Base rent"));
     }
+
+    [Fact]
+    public async Task OpenBase_SameIdempotencyKey_BillsOnce_ReturnsSameBase()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var companyId = await SeedAsync(tdb, clock, 10_000_000);
+
+        Guid first, second;
+        using (var db = tdb.NewContext())
+            first = (await NewBaseService(db, clock).OpenBaseAsync(companyId, "EHRD", "open-1")).Id;
+        using (var db = tdb.NewContext())
+            second = (await NewBaseService(db, clock).OpenBaseAsync(companyId, "EHRD", "open-1")).Id; // retry, same token
+
+        Assert.Equal(first, second); // the same base, not a second one (and no "already have a base" error)
+        using (var db = tdb.NewContext())
+        {
+            Assert.Equal(1, await db.Bases.CountAsync(b => b.CompanyId == companyId));
+            Assert.Equal(1, await db.LedgerEntries.CountAsync(e => e.Category == LedgerCategory.BaseRent));
+            Assert.Equal(10_000_000 - Cfg.BaseOpenCents(AirportKind.MediumAirport), (await db.Companies.FindAsync(companyId))!.CashCents);
+        }
+    }
 }

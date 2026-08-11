@@ -66,9 +66,22 @@ public sealed class BaseService
             .ToList();
     }
 
-    /// <summary>Open a base at an airport: pay the setup fee via the ledger and start the rent clock.</summary>
-    public async Task<Base> OpenBaseAsync(Guid companyId, string airportIcao, CancellationToken ct = default)
+    /// <summary>
+    /// Open a base at an airport: pay the setup fee via the ledger and start the rent clock. Pass a stable
+    /// <paramref name="idempotencyKey"/> so a retried request replays the same base instead of billing twice.
+    /// </summary>
+    public async Task<Base> OpenBaseAsync(Guid companyId, string airportIcao, string? idempotencyKey = null, CancellationToken ct = default)
     {
+        string? dedupe = idempotencyKey is null ? null : $"base-open:{idempotencyKey}";
+
+        async Task<Base?> PriorAsync()
+        {
+            if (dedupe is null) return null;
+            var e = await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct);
+            return e?.BaseId is Guid id ? await _db.Bases.FirstOrDefaultAsync(b => b.Id == id, ct) : null;
+        }
+        if (await PriorAsync() is { } replay) return replay;
+
         var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId, ct)
                       ?? throw new InvalidOperationException($"Company {companyId} not found.");
         if (await _db.Bases.AnyAsync(b => b.CompanyId == companyId && b.AirportIcao == airportIcao && b.IsActive, ct))
@@ -91,9 +104,18 @@ public sealed class BaseService
         await _ledger.StageBatchAsync(companyId, new[]
         {
             new LedgerPosting(LedgerCategory.BaseRent, -(setup / 100m), $"Opened base at {airportIcao}",
-                BaseId: b.Id, DedupeKey: $"base-open:{b.Id}"),
+                BaseId: b.Id, DedupeKey: dedupe ?? $"base-open:{b.Id}"),
         }, ct);
-        await _db.SaveChangesAsync(ct);
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException) when (dedupe is not null)
+        {
+            _db.ChangeTracker.Clear();
+            if (await PriorAsync() is { } raced) return raced;
+            throw;
+        }
         return b;
     }
 }

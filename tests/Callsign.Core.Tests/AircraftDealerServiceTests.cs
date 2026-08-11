@@ -152,4 +152,64 @@ public class AircraftDealerServiceTests
             Assert.Equal(10_000_000 - cost, (await db.Companies.FindAsync(companyId))!.CashCents);
         }
     }
+
+    [Fact]
+    public async Task Buy_SameIdempotencyKey_ChargesOnce_ReturnsSameAirframe()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var type = C172();
+        var quote = AircraftPricing.Quote(Cfg, type);
+        var companyId = await SeedCompanyWithCashAsync(tdb, clock, quote.TotalCents * 3, type);
+
+        Guid first, second;
+        using (var db = tdb.NewContext())
+            first = (await new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg)
+                .BuyAsync(companyId, type.Id, "EHAM", "buy-token-1")).Id;
+        using (var db = tdb.NewContext())
+            second = (await new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg)
+                .BuyAsync(companyId, type.Id, "EHAM", "buy-token-1")).Id; // retried request, same token
+
+        Assert.Equal(first, second); // the same airframe — not a second purchase
+        using (var db = tdb.NewContext())
+        {
+            Assert.Equal(1, await db.AircraftInstances.CountAsync(a => a.CompanyId == companyId));
+            Assert.Equal(1, await db.LedgerEntries.CountAsync(e => e.Category == LedgerCategory.AircraftPurchase));
+            Assert.Equal(quote.TotalCents * 3 - quote.TotalCents, (await db.Companies.FindAsync(companyId))!.CashCents); // charged once
+        }
+    }
+
+    [Fact]
+    public async Task Maintain_SameIdempotencyKey_BillsOnce()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var type = C172();
+        var companyId = await SeedCompanyWithCashAsync(tdb, clock, 10_000_000, type);
+        Guid instId;
+        using (var db = tdb.NewContext())
+        {
+            var inst = new AircraftInstance
+            {
+                Id = Guid.NewGuid(), TypeId = type.Id, CompanyId = companyId, Tail = "CS-1", LocationIcao = "EHAM",
+                AirframeHours = 60, MaintenanceHoursWatermark = 0,
+            };
+            db.AircraftInstances.Add(inst);
+            await db.SaveChangesAsync();
+            instId = inst.Id;
+        }
+
+        long c1, c2;
+        using (var db = tdb.NewContext())
+            c1 = await new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg).MaintainAsync(companyId, instId, "maint-1");
+        using (var db = tdb.NewContext())
+            c2 = await new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg).MaintainAsync(companyId, instId, "maint-1");
+
+        Assert.Equal(c1, c2);
+        using (var db = tdb.NewContext())
+        {
+            Assert.Equal(1, await db.LedgerEntries.CountAsync(e => e.Category == LedgerCategory.Repair));
+            Assert.Equal(10_000_000 - c1, (await db.Companies.FindAsync(companyId))!.CashCents); // billed once
+        }
+    }
 }

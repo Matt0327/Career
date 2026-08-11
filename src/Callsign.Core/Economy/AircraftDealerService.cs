@@ -58,9 +58,27 @@ public sealed class AircraftDealerService
             .ToList();
     }
 
-    /// <summary>Buy an aircraft type at <paramref name="atIcao"/>: creates an owned airframe and debits the ledger.</summary>
-    public async Task<AircraftInstance> BuyAsync(Guid companyId, Guid typeId, string atIcao, CancellationToken ct = default)
+    /// <summary>
+    /// Buy an aircraft type at <paramref name="atIcao"/>: creates an owned airframe and debits the ledger.
+    /// Pass a stable <paramref name="idempotencyKey"/> so a retried request replays the same purchase
+    /// instead of buying (and charging) twice.
+    /// </summary>
+    public async Task<AircraftInstance> BuyAsync(
+        Guid companyId, Guid typeId, string atIcao, string? idempotencyKey = null, CancellationToken ct = default)
     {
+        string? dedupe = idempotencyKey is null ? null : $"buy:{idempotencyKey}";
+
+        // A retry of a purchase that already committed returns the same airframe — no second charge.
+        async Task<AircraftInstance?> PriorAsync()
+        {
+            if (dedupe is null) return null;
+            var e = await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct);
+            return e?.AircraftInstanceId is Guid id
+                ? await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == id, ct)
+                : null;
+        }
+        if (await PriorAsync() is { } replay) return replay;
+
         var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId, ct)
                       ?? throw new InvalidOperationException($"Company {companyId} not found.");
         var type = await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == typeId, ct)
@@ -85,9 +103,19 @@ public sealed class AircraftDealerService
         {
             new LedgerPosting(LedgerCategory.AircraftPurchase, -(quote.TotalCents / 100m),
                 $"Bought {type.CanonicalName} ({instance.Tail})",
-                AircraftInstanceId: instance.Id, DedupeKey: $"buy:{instance.Id}"),
+                AircraftInstanceId: instance.Id, DedupeKey: dedupe ?? $"buy:{instance.Id}"),
         }, ct);
-        await _db.SaveChangesAsync(ct);
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException) when (dedupe is not null)
+        {
+            // A concurrent duplicate committed first (dedupe unique index / version token). Replay it.
+            _db.ChangeTracker.Clear();
+            if (await PriorAsync() is { } raced) return raced;
+            throw;
+        }
         return instance;
     }
 
@@ -100,9 +128,17 @@ public sealed class AircraftDealerService
     public bool MaintenanceDue(AircraftInstance inst)
         => inst.AirframeHours - inst.MaintenanceHoursWatermark >= _cfg.MaintenanceIntervalHours;
 
-    /// <summary>Service an owned airframe: bill via the ledger, restore condition, reset the watermark.</summary>
-    public async Task<long> MaintainAsync(Guid companyId, Guid instanceId, CancellationToken ct = default)
+    /// <summary>
+    /// Service an owned airframe: bill via the ledger, restore condition, reset the watermark. Pass a
+    /// stable <paramref name="idempotencyKey"/> so a retried request replays instead of billing twice.
+    /// </summary>
+    public async Task<long> MaintainAsync(
+        Guid companyId, Guid instanceId, string? idempotencyKey = null, CancellationToken ct = default)
     {
+        string? dedupe = idempotencyKey is null ? null : $"maint:{idempotencyKey}";
+        if (dedupe is not null && await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct) is { } prior)
+            return -prior.AmountCents; // already serviced under this key — return the same cost, no re-charge
+
         var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId, ct)
                       ?? throw new InvalidOperationException($"Company {companyId} not found.");
         var inst = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == instanceId && a.CompanyId == companyId, ct)
@@ -114,16 +150,27 @@ public sealed class AircraftDealerService
                 $"Not enough cash: maintenance costs {cost / 100m:C0}, you have {company.Cash:C0}.");
 
         var now = _clock.UtcNow;
+        // Without a client key, fall back to a state-derived key so a same-state double-submit still dedupes.
         await _ledger.StageBatchAsync(companyId, new[]
         {
             new LedgerPosting(LedgerCategory.Repair, -(cost / 100m), $"Maintenance on {inst.Tail}",
-                AircraftInstanceId: inst.Id, DedupeKey: $"maint:{inst.Id}:{inst.AirframeHours:F1}"),
+                AircraftInstanceId: inst.Id, DedupeKey: dedupe ?? $"maint:{inst.Id}:{inst.AirframeHours:F1}"),
         }, ct);
         inst.HullConditionMilli = 100_000;
         inst.EngineConditionMilli = 100_000;
         inst.MaintenanceHoursWatermark = inst.AirframeHours;
         inst.UpdatedAt = now;
-        await _db.SaveChangesAsync(ct);
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException) when (dedupe is not null)
+        {
+            _db.ChangeTracker.Clear();
+            if (await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct) is { } raced)
+                return -raced.AmountCents;
+            throw;
+        }
         return cost;
     }
 

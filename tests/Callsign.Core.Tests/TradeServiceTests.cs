@@ -210,4 +210,28 @@ public class TradeServiceTests
         using (var db = tdb.NewContext())
             await Assert.ThrowsAsync<InvalidOperationException>(() => Trade(db, clock).SellAsync(companyId, "EHAM", "coffee", 1));
     }
+
+    [Fact]
+    public async Task Buy_SameIdempotencyKey_ChargesOnce()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var companyId = await SeedAsync(tdb, clock, 10_000_000);
+        long buyPrice = new MarketService(clock, Cfg).Quote("EHAM", TradeCatalog.Find("coffee")!).BuyCents;
+
+        Guid first, second;
+        using (var db = tdb.NewContext())
+            first = (await Trade(db, clock).BuyAsync(companyId, "EHAM", "coffee", 5, "trade-1")).Id;
+        using (var db = tdb.NewContext())
+            second = (await Trade(db, clock).BuyAsync(companyId, "EHAM", "coffee", 5, "trade-1")).Id; // retry, same token
+
+        Assert.Equal(first, second);
+        using (var db = tdb.NewContext())
+        {
+            var lot = await db.InventoryLots.SingleAsync(l => l.CompanyId == companyId);
+            Assert.Equal(5, lot.Quantity); // bought once, not 10
+            Assert.Equal(1, await db.LedgerEntries.CountAsync(e => e.Category == LedgerCategory.Trade));
+            Assert.Equal(10_000_000 - buyPrice * 5, (await db.Companies.FindAsync(companyId))!.CashCents);
+        }
+    }
 }

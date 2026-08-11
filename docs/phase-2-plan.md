@@ -43,9 +43,11 @@ These came out of the 2a adversarial review and are deliberately scheduled, not 
   change across updates instead of being wiped. Tests keep `EnsureCreated()` on throwaway DBs. New
   migrations: `dotnet ef migrations add <Name> --project src/Callsign.Core` (design-time factory
   included).
-- **Idempotent purchases.** Give money-committing endpoints a client idempotency token so a network
-  retry replays instead of double-charging (the UI already debounces; the `Company.Version`
-  concurrency token now stops the concurrent-race desync).
+- ✅ **Idempotent purchases.** Money-committing debit endpoints (aircraft buy, maintenance, base open,
+  trade buy) accept an `Idempotency-Key` header; the key drives the ledger dedupe, so a replayed
+  request returns the original outcome instead of charging twice. The web client sends a stable key
+  per action and retries it on a network drop. (The UI already debounces; `Company.Version` stops the
+  concurrent-race desync.) *Trade **sell** — a credit, not a charge — is a tracked follow-up.*
 
 ## Invariants (carried from Phase 1, enforced at every step)
 
