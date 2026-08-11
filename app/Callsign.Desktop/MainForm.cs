@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Drawing;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -33,14 +34,19 @@ internal sealed class MainForm : Form
             // Keep the browser cache/profile in the per-user data folder (the exe dir may be read-only).
             var env = await CoreWebView2Environment.CreateAsync(userDataFolder: _userDataFolder);
             await _web.EnsureCoreWebView2Async(env);
+            _web.CoreWebView2.Settings.AreDevToolsEnabled = false; // it's an app, not a browser tab
             _web.CoreWebView2.Navigate(_url);
         }
         catch (Exception ex)
         {
-            MessageBox.Show(
-                "Couldn't start the embedded browser (WebView2).\n\n" +
-                "Install the Microsoft Edge WebView2 Runtime and try again.\n\n" + ex.Message,
-                "Callsign", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            // Almost always: the WebView2 runtime isn't installed. Point the user at the free download.
+            var choice = MessageBox.Show(
+                "Callsign needs the Microsoft Edge WebView2 runtime, which doesn't seem to be installed.\n\n" +
+                "Click OK to open the free download page, then run Callsign again.\n\n(" + ex.Message + ")",
+                "Callsign — WebView2 required", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning);
+            if (choice == DialogResult.OK)
+                try { Process.Start(new ProcessStartInfo("https://developer.microsoft.com/microsoft-edge/webview2/") { UseShellExecute = true }); }
+                catch { /* the user can search for it manually */ }
             Close();
         }
     }

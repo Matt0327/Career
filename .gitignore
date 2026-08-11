@@ -44,6 +44,10 @@ vendor/simconnect/*.dll
 vendor/simconnect/*.lib
 vendor/simconnect/*.exp
 
+# ---- Packaging output (scripts/package.ps1) ----
+dist/
+installer/out/
+
 # ---- OS ----
 .DS_Store
 Thumbs.db

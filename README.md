@@ -90,6 +90,21 @@ dotnet run --project src/Callsign.Host -f net10.0-windows   # API + telemetry on
 cd ui && npm run dev                                        # Vite dev server, proxies to :5199
 ```
 
+### Packaging for release
+
+One script produces a **self-contained** build that runs on any Windows PC with **no .NET
+installed** (the runtime is bundled), a portable zip, and — if Inno Setup 6 is present — an installer:
+
+```powershell
+# build the UI in WSL first (cd ui && npm run build), then from Windows:
+pwsh scripts/package.ps1 -SkipUi
+```
+
+Outputs land in `dist/`: `callsign-standalone\` (folder), `Callsign-portable.zip` (unzip and run),
+and `Callsign-Setup-*.exe` (per-user installer that also prompts to install the WebView2 runtime).
+The installer script is [`installer/Callsign.iss`](installer/Callsign.iss). What ships and under what
+terms is recorded in [`docs/third-party-notices.md`](docs/third-party-notices.md).
+
 ### Fly a leg
 
 1. Start **MSFS 2024** and load into an aircraft on a runway.
