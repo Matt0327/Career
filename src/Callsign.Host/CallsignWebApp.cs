@@ -64,6 +64,7 @@ public static class CallsignWebApp
         builder.Services.AddScoped<GameSetupService>();
         builder.Services.AddScoped<TradeService>();
         builder.Services.AddScoped<QualificationService>();
+        builder.Services.AddScoped<CheckFlightService>();
         builder.Services.AddSingleton<MarketService>(); // pure pricing (IClock + EconomyConfig)
 
         builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
@@ -454,8 +455,9 @@ public static class CallsignWebApp
             return Results.Ok(new { begun = req.AssignmentId, aircraft = req.AircraftInstanceId });
         });
 
-        // Licence classes (Phase 3c): the full ladder, flagged with what the pilot holds — self-documenting.
-        app.MapGet("/api/quals", async (CallsignDbContext db, QualificationService quals) =>
+        // Licence classes (Phase 3c/3d): the full ladder, flagged with what the pilot holds + the
+        // check-flight fee to earn each — self-documenting.
+        app.MapGet("/api/quals", async (CallsignDbContext db, QualificationService quals, EconomyConfig cfg) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             var held = pilot is null
@@ -463,7 +465,39 @@ public static class CallsignWebApp
                 : await quals.GetHeldAsync(pilot.Id);
             var stars = held.ToDictionary(q => q.Class, q => q.Stars);
             return Results.Ok(QualificationClasses.All.Select(c => new QualClassDto(
-                c.Class.ToString(), c.DisplayName, c.Description, stars.ContainsKey(c.Class), stars.GetValueOrDefault(c.Class))));
+                c.Class.ToString(), c.DisplayName, c.Description, stars.ContainsKey(c.Class),
+                stars.GetValueOrDefault(c.Class), cfg.CheckFlightFeeCents(c.Class))));
+        });
+
+        // Begin a check-flight (Phase 3d): the next landing is graded and, on a pass, earns the class.
+        app.MapPost("/api/checkflights/begin", async (CheckFlightBeginRequest req, CallsignDbContext db, FlightSessionService session) =>
+        {
+            if (!Enum.TryParse<QualClass>(req.Class, ignoreCase: true, out var cls))
+                return Results.BadRequest(new { error = $"Unknown class '{req.Class}'." });
+            if (await db.Pilots.FirstOrDefaultAsync() is null)
+                return Results.NotFound();
+            session.BeginCheckFlight(cls);
+            return Results.Ok(new { begun = cls.ToString() });
+        });
+
+        // Grade a submitted check-flight result directly (used by tests / a manual submit path).
+        app.MapPost("/api/checkflights/attempt", async (CheckFlightAttemptRequest req, CallsignDbContext db, CheckFlightService check) =>
+        {
+            if (!Enum.TryParse<QualClass>(req.Class, ignoreCase: true, out var cls))
+                return Results.BadRequest(new { error = $"Unknown class '{req.Class}'." });
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var d = req.Flight;
+            var record = new Callsign.Core.Flight.FlightRecord(
+                d.AircraftTitle, d.DepartedAt, d.ArrivedAt, d.TouchdownFpm, d.MaxAltitudeFt,
+                d.DepartureLat, d.DepartureLon, d.ArrivalLat, d.ArrivalLon, d.DistanceNm, d.FuelUsedLbs, []);
+            try
+            {
+                var r = await check.AttemptAsync(pilot.CompanyId, pilot.Id, cls, record);
+                return Results.Ok(new CheckFlightResultDto(r.Passed, r.Class.ToString(),
+                    QualificationClasses.Def(r.Class).DisplayName, r.Stars, r.FeeCents, r.TouchdownFpm));
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
         app.MapGet("/api/flight/live", (FlightSessionService session) =>

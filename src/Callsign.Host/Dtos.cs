@@ -41,7 +41,12 @@ public record OwnedAircraftDto(
     string RequiredClass, bool Rated);
 
 // --- Phase 3c: licence classes ---
-public record QualClassDto(string Class, string DisplayName, string Description, bool Held, int Stars);
+public record QualClassDto(string Class, string DisplayName, string Description, bool Held, int Stars, long CheckFlightFeeCents);
+
+// --- Phase 3d: check-flights ---
+public record CheckFlightBeginRequest(string Class);
+public record CheckFlightAttemptRequest(string Class, FlightResultDto Flight);
+public record CheckFlightResultDto(bool Passed, string Class, string ClassName, int Stars, long FeeCents, double TouchdownFpm);
 
 public record BuyAircraftRequest(Guid TypeId);
 

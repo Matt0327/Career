@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api, money,
-  type AircraftOffer, type Assignment, type BaseOffer, type BaseView, type Diverted, type FlightLog,
-  type Inventory, type Job, type LedgerEntry, type MarketQuote, type OwnedAircraft, type RankTier,
-  type ReconcileResult, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State,
-  type Telemetry, type WsEvent,
+  type AircraftOffer, type Assignment, type BaseOffer, type BaseView, type CheckFlightDone, type Diverted,
+  type FlightLog, type Inventory, type Job, type LedgerEntry, type MarketQuote, type OwnedAircraft,
+  type QualClass, type RankTier, type ReconcileResult, type Settled, type Staff, type StaffCandidate,
+  type StandingOrder, type State, type Telemetry, type WsEvent,
 } from './api'
 
 type Tab = 'dashboard' | 'jobs' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'logbook'
@@ -263,7 +263,7 @@ function Meta({ label, value }: { label: string; value: string }) {
 
 // ─── Flight (live HUD + settlement) ──────────────────────────────────────────
 
-function useTelemetry(onSettled: (s: Settled) => void, onDiverted: (d: Diverted) => void) {
+function useTelemetry(onSettled: (s: Settled) => void, onDiverted: (d: Diverted) => void, onCheckFlight: (c: CheckFlightDone) => void) {
   const [tele, setTele] = useState<Telemetry | null>(null)
   const [wsOpen, setWsOpen] = useState(false)
   const [link, setLink] = useState('Disconnected') // SimConnectionState from the server
@@ -271,6 +271,8 @@ function useTelemetry(onSettled: (s: Settled) => void, onDiverted: (d: Diverted)
   cb.current = onSettled
   const dcb = useRef(onDiverted)
   dcb.current = onDiverted
+  const ccb = useRef(onCheckFlight)
+  ccb.current = onCheckFlight
 
   useEffect(() => {
     let ws: WebSocket | null = null
@@ -290,6 +292,7 @@ function useTelemetry(onSettled: (s: Settled) => void, onDiverted: (d: Diverted)
         }
         else if (m.type === 'settled') cb.current(m)
         else if (m.type === 'diverted') dcb.current(m)
+        else if (m.type === 'checkflight') ccb.current(m)
       }
       ws.onclose = () => { setWsOpen(false); if (!closed) retry = setTimeout(connect, 1500) }
       ws.onerror = () => ws?.close()
@@ -320,8 +323,12 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
   const [fleet, setFleet] = useState<OwnedAircraft[]>([])
   const [aircraftId, setAircraftId] = useState('')
   const [beginErr, setBeginErr] = useState<string | null>(null)
+  const [quals, setQuals] = useState<QualClass[]>([])
+  const [checkPending, setCheckPending] = useState<string | null>(null) // class name of a check-flight in progress
+  const [checkResult, setCheckResult] = useState<CheckFlightDone | null>(null)
 
   const loadAssignments = useCallback(() => { api.assignments().then(setAssignments).catch(() => {}) }, [])
+  const loadQuals = useCallback(() => { api.quals().then(setQuals).catch(() => {}) }, [])
   const loadFleet = useCallback(() => {
     api.hangar().then(hs => {
       const avail = hs.filter(h => h.availability === 'Available')
@@ -330,7 +337,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
       setAircraftId(prev => prev || avail.find(h => h.rated)?.id || avail[0]?.id || '')
     }).catch(() => {})
   }, [])
-  useEffect(() => { loadAssignments(); loadFleet() }, [loadAssignments, loadFleet])
+  useEffect(() => { loadAssignments(); loadFleet(); loadQuals() }, [loadAssignments, loadFleet, loadQuals])
 
   const { tele, wsOpen, link } = useTelemetry(
     s => {
@@ -342,8 +349,21 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
       loadFleet() // the airframe moved to the destination + ticked hours
     },
     d => setDiverted(d), // landed away from the destination — the job stays open
+    c => { // a check-flight was graded on landing (3d)
+      setCheckResult(c)
+      setCheckPending(null)
+      onSettled()      // cash changed (the fee)
+      loadQuals()      // a pass adds/upgrades a class
+      loadFleet()      // newly-rated aircraft become flyable
+    },
   )
   const badge = linkBadge(wsOpen, link)
+
+  const beginCheck = async (cls: string, name: string) => {
+    setBeginErr(null); setCheckResult(null)
+    try { await api.beginCheckFlight(cls); setCheckPending(name) }
+    catch (e) { setBeginErr(cleanErr(e)) }
+  }
 
   const begin = async (a: Assignment) => {
     setSettled(null)
@@ -379,6 +399,8 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
       </section>
 
       {settled && <SettlementCard settled={settled} />}
+      {checkPending && <div className="banner ok">Check-flight for <b>{checkPending}</b> in progress — fly a clean landing (≤ 200 fpm) and it grades automatically.</div>}
+      {checkResult && <CheckFlightCard result={checkResult} />}
 
       <section className="card">
         <div className="row-head">
@@ -413,7 +435,46 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
           )}
         <p className="hint muted">Signed in as {state.name} · flying out of {state.currentIcao}.</p>
       </section>
+
+      <section className="card">
+        <div className="row-head"><h2>Earn a rating</h2><span className="hint">Fly a clean landing (≤ 200 fpm) to pass</span></div>
+        {quals.filter(q => !q.held || q.stars < 5).length === 0
+          ? <div className="empty">You hold every rating at full marks.</div>
+          : (
+            <ul className="assign-list">
+              {quals.filter(q => !q.held || q.stars < 5).map(q => (
+                <li key={q.class} className="assign">
+                  <div className="leg">{q.displayName}{q.held && <span className="muted"> · held {q.stars}★</span>}</div>
+                  <div className="assign-meta">
+                    <span className="muted">{q.description}</span>
+                    <span className="num">{money(q.checkFlightFeeCents)}</span>
+                  </div>
+                  <button className="primary" disabled={checkPending !== null || state.cashCents < q.checkFlightFeeCents}
+                          title={state.cashCents < q.checkFlightFeeCents ? 'Not enough cash' : ''}
+                          onClick={() => beginCheck(q.class, q.displayName)}>
+                    {q.held ? 'Re-test' : 'Begin check-flight'}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+      </section>
     </div>
+  )
+}
+
+function CheckFlightCard({ result }: { result: CheckFlightDone }) {
+  return (
+    <section className={`card settled-card ${result.passed ? '' : 'failed-card'}`}>
+      <h2>{result.passed ? 'Check-flight passed ✓' : 'Check-flight failed'}</h2>
+      <div className="settled-meta">
+        <span>{result.className}</span>
+        {result.passed && <span className="pos">{'★'.repeat(result.stars)}</span>}
+        <span>touchdown <b className="num">{signed(Math.round(result.touchdownFpm))} fpm</b> ({landingWord(result.touchdownFpm)})</span>
+        <span className="neg">−{money(result.feeCents)} fee</span>
+      </div>
+      {!result.passed && <div className="hint">Too firm — a check-flight needs ≤ 200 fpm. Book another attempt when you're ready.</div>}
+    </section>
   )
 }
 

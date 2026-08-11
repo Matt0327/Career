@@ -43,10 +43,13 @@ wipe). Everything stays **server-ready**.
    server-side. *Verified live:* a Class-A pilot flew the starter but got `400 "…not rated… needs Class C ·
    Turboprop"` on a bought turboprop. (Stars/earning come with 3d.)
 
-4. **3d — Check-flights (earn a rating).** A `CheckFlight` attempt: pay a `CheckFlightFee` (ledger debit)
-   to fly a scored profile (touchdown within limits, no exceedances) that earns or upgrades a
-   `PilotQualification` (drives `Stars`, records `BestTouchdownFpm`). Reuses the flight-tracker + settlement
-   scoring already built. *Playable:* buy a class-B check-ride, fly it clean, unlock class-B aircraft & jobs.
+4. ✅ **3d — Check-flights (earn a rating).** Pay a `CheckFlightFee` (ledger debit, rising by class) to fly
+   a scored landing that earns or upgrades a `PilotQualification` — `CheckFlightService` grades the touchdown
+   (≤200 fpm passes, 3–5 stars by how clean), keeps the best fpm, and bills the fee pass *or* fail. The live
+   loop grades a check-ride on landing (`BeginCheckFlight` → a `checkflight` WS event), with a manual submit
+   endpoint alongside; the Flight tab lists check-rides to book and shows the result. *Verified live:* a
+   greaser passed Class C at 5★ ($8k fee), a slam failed Class D (fee still charged), and the earned Class C
+   flipped a bought turboprop to **rated**.
 
 5. **3e — The full mission roster.** Add the remaining mission generators + settlement modifiers —
    Express, Tourist, Sensitive, Hazardous, Emergency/SAR, VIP (and Illicit as reputation-negative) — each

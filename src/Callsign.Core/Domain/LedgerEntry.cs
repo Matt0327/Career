@@ -19,6 +19,7 @@ public enum LedgerCategory
     AircraftRental,
     BaseRent,
     StaffWage,
+    CheckFlightFee,
     LoanPrincipal,
     LoanInterest,
     LoanPayment,

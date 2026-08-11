@@ -2,9 +2,11 @@ using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text.Json;
 using Callsign.Core.Data;
+using Callsign.Core.Domain;
 using Callsign.Core.Economy;
 using Callsign.Core.Flight;
 using Callsign.Core.Geo;
+using Callsign.Core.Progression;
 using Callsign.SimConnect;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -31,6 +33,7 @@ public sealed class FlightSessionService : IDisposable
     private FlightTracker _tracker = new();
     private Guid? _assignmentId;
     private Guid? _aircraftInstanceId; // the owned airframe flown this leg, if any
+    private QualClass? _checkClass;    // a check-flight in progress for this class (Phase 3d), if any
     private bool _settling; // guards the async settle so one landing is resolved at a time
 
     public TelemetrySnapshot? Latest { get; private set; }
@@ -74,6 +77,19 @@ public sealed class FlightSessionService : IDisposable
             _tracker = new FlightTracker();
             _assignmentId = assignmentId;
             _aircraftInstanceId = aircraftInstanceId;
+            _checkClass = null; // a job flight and a check-flight are mutually exclusive
+        }
+    }
+
+    /// <summary>Begin a check-flight for a licence class (Phase 3d): the next landing is graded, not settled.</summary>
+    public void BeginCheckFlight(QualClass cls)
+    {
+        lock (_gate)
+        {
+            _tracker = new FlightTracker();
+            _assignmentId = null;
+            _aircraftInstanceId = null;
+            _checkClass = cls;
         }
     }
 
@@ -83,18 +99,28 @@ public sealed class FlightSessionService : IDisposable
         FlightRecord? completed = null;
         Guid assignmentToSettle = default;
         Guid? aircraftToSettle = null;
+        QualClass? checkToGrade = null;
 
         lock (_gate)
         {
             Latest = t;
             _tracker.Observe(t);
             Phase = _tracker.Phase;
-            if (_tracker.Result is { } record && _assignmentId is { } aid && !_settling)
+            if (_tracker.Result is { } record && !_settling)
             {
-                completed = record;
-                assignmentToSettle = aid;
-                aircraftToSettle = _aircraftInstanceId;
-                _settling = true; // resolve this landing before accepting another
+                if (_assignmentId is { } aid)
+                {
+                    completed = record;
+                    assignmentToSettle = aid;
+                    aircraftToSettle = _aircraftInstanceId;
+                    _settling = true; // resolve this landing before accepting another
+                }
+                else if (_checkClass is { } cls)
+                {
+                    completed = record;
+                    checkToGrade = cls;
+                    _settling = true;
+                }
             }
         }
 
@@ -115,7 +141,52 @@ public sealed class FlightSessionService : IDisposable
         });
 
         if (completed is not null)
-            await ResolveLandingAsync(assignmentToSettle, aircraftToSettle, completed);
+        {
+            if (checkToGrade is { } cls)
+                await ResolveCheckFlightAsync(cls, completed);
+            else
+                await ResolveLandingAsync(assignmentToSettle, aircraftToSettle, completed);
+        }
+    }
+
+    /// <summary>A check-flight landing finished: grade it, award the class on a pass, tell the UI.</summary>
+    private async Task ResolveCheckFlightAsync(QualClass cls, FlightRecord completed)
+    {
+        CheckFlightResult? result = null;
+        try
+        {
+            using var scope = _scopes.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<CallsignDbContext>();
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is not null)
+            {
+                var check = scope.ServiceProvider.GetRequiredService<CheckFlightService>();
+                result = await check.AttemptAsync(pilot.CompanyId, pilot.Id, cls, completed);
+            }
+        }
+        catch
+        {
+            result = null; // never let a grading error kill the telemetry loop
+        }
+
+        lock (_gate)
+        {
+            _tracker = new FlightTracker();
+            if (result is not null) _checkClass = null; // graded → done; on error keep for retry
+            _settling = false;
+        }
+
+        if (result is not null)
+            await BroadcastAsync(new
+            {
+                type = "checkflight",
+                @class = cls.ToString(),
+                className = QualificationClasses.Def(cls).DisplayName,
+                passed = result.Passed,
+                stars = result.Stars,
+                feeCents = result.FeeCents,
+                touchdownFpm = completed.TouchdownFpm,
+            });
     }
 
     /// <summary>

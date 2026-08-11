@@ -101,6 +101,7 @@ export interface QualClass {
   description: string
   held: boolean
   stars: number
+  checkFlightFeeCents: number
 }
 
 /** A live telemetry frame pushed over the WebSocket. */
@@ -155,7 +156,18 @@ export interface Diverted {
   distanceNm: number
 }
 
-export type WsEvent = Telemetry | Settled | LinkState | Diverted
+/** A check-flight was graded on landing (Phase 3d). */
+export interface CheckFlightDone {
+  type: 'checkflight'
+  class: string
+  className: string
+  passed: boolean
+  stars: number
+  feeCents: number
+  touchdownFpm: number
+}
+
+export type WsEvent = Telemetry | Settled | LinkState | Diverted | CheckFlightDone
 
 export interface StaffCandidate {
   seed: number
@@ -291,6 +303,7 @@ export const api = {
   market: () => fetch('/api/aircraft/market').then(ok<AircraftOffer[]>),
   hangar: () => fetch('/api/aircraft').then(ok<OwnedAircraft[]>),
   quals: () => fetch('/api/quals').then(ok<QualClass[]>),
+  beginCheckFlight: (cls: string) => POST('/api/checkflights/begin', { class: cls }).then(ok),
   buyAircraft: (typeId: string) => POST_IDEM('/api/aircraft/buy', { typeId }).then(ok),
   maintain: (id: string) => POST_IDEM(`/api/aircraft/${id}/maintain`).then(ok),
   staffCandidates: () => fetch('/api/staff/candidates').then(ok<StaffCandidate[]>),

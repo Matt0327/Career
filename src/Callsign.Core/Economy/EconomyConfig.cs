@@ -66,6 +66,23 @@ public sealed record EconomyConfig
         return PilotRank.Trainee;
     }
 
+    // --- Check-flights (Phase 3d): pay to fly a scored landing and earn a class rating ---
+    public long CheckFlightBaseFeeCents { get; init; } = 200_000;    // $2,000 to book the examiner
+    public long CheckFlightPerClassFeeCents { get; init; } = 300_000; // + $3,000 per class step up the ladder
+
+    /// <summary>The fee to attempt a check-flight for a class (harder classes cost more).</summary>
+    public long CheckFlightFeeCents(QualClass cls) => CheckFlightBaseFeeCents + (long)cls * CheckFlightPerClassFeeCents;
+
+    /// <summary>Stars (3..5) earned by the touchdown, or 0 = failed (firmer than the pass floor).</summary>
+    public int CheckFlightStars(double touchdownFpm)
+    {
+        double f = Math.Abs(touchdownFpm);
+        if (f <= 60) return 5;   // greaser
+        if (f <= 120) return 4;  // smooth
+        if (f <= 200) return 3;  // a pass
+        return 0;                // too firm — failed
+    }
+
     // --- Settlement: landing quality (as a fraction of base reward) and payload bonus ---
     public double PayloadMatchXpBonusPct { get; init; } = 0.5;
 
