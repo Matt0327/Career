@@ -26,7 +26,8 @@ builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton(EconomyConfig.Default);
 builder.Services.AddSingleton<IJobSource>(sp => new CargoJobSource(sp.GetRequiredService<EconomyConfig>()));
 builder.Services.AddSingleton<AircraftScanner>();
-builder.Services.AddSingleton<ISimTelemetrySource>(_ => new FakeTelemetrySource()); // real SimConnect adapter wired in 1h
+builder.Services.AddSingleton<ISimTelemetrySource>(sp =>
+    SimTelemetryFactory.Create(sp.GetRequiredService<ILoggerFactory>().CreateLogger("Telemetry")));
 builder.Services.AddSingleton<FlightSessionService>();
 
 // --- Scoped services (per request) ---
@@ -59,7 +60,8 @@ if (Directory.Exists(uiPath))
 using (var scope = app.Services.CreateScope())
     scope.ServiceProvider.GetRequiredService<CallsignDbContext>().Database.EnsureCreated();
 
-// Start streaming telemetry into the flight session (fake source until the real adapter is wired in 1h).
+// Start streaming telemetry into the flight session (live SimConnect on the Windows build,
+// synthetic source on the portable build or when SimConnect isn't available).
 _ = app.Services.GetRequiredService<FlightSessionService>().StartAsync();
 
 app.MapGet("/api/health", () => Results.Ok(new { ok = true }));
