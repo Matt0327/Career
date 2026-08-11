@@ -95,14 +95,17 @@ pick home airport, grant starting cash (a ledger entry), detect aircraft — tun
 
 ## Build order (each step independently verifiable)
 
-1. **1a** Core + EF Core + SQLite migrations; `LedgerEntry` + `Pilot`; seed a pilot with starting cash (via ledger). Unit-tested.
-2. **1b** OurAirports import → airport queries.
-3. **1c** Installed-aircraft scanner → `AircraftType` roster; reconcile the live PoC title.
-4. **1d** Cargo job generation at the home airport.
-5. **1e** Flight-tracker state machine over `ISimTelemetrySource` (fake profiles first, then live) → a `Flight` with touchdown fpm + events. Extend telemetry SimVars here.
-6. **1f** Settlement + itemised payout + ledger writes.
-7. **1g** Host (REST + WS) + minimal React UI.
-8. **1h** End-to-end: accept a Cargo job, fly it in MSFS, land, get paid, see the log. **Ship.**
+1. ✅ **1a** Core + EF Core + SQLite migrations; `LedgerEntry` + `Pilot`; seed a pilot with starting cash (via ledger). Unit-tested.
+2. ✅ **1b** OurAirports import → airport queries.
+3. ✅ **1c** Installed-aircraft scanner → `AircraftType` roster; reconcile the live PoC title.
+4. ✅ **1d** Cargo job generation at the home airport.
+5. ✅ **1e** Flight-tracker state machine over `ISimTelemetrySource` (fake profiles first, then live) → a `Flight` with touchdown fpm + events. Extend telemetry SimVars here.
+6. ✅ **1f** Settlement + itemised payout + ledger writes. (+ adversarial money-path audit.)
+7. ✅ **1g** Host + minimal React UI.
+   - ✅ **1g-a** REST API (game/jobs/assignments/settle/roster/ledger/flights).
+   - ✅ **1g-b** Live flight session + `/ws/telemetry` WebSocket + auto-settle on landing.
+   - ✅ **1g-c** Vite + React + TS UI (dashboard · jobs · live HUD · logbook), served by the Host. Verified live end-to-end.
+8. ⏳ **1h** End-to-end: wire the real SimConnect adapter into the Host, accept a Cargo job, fly it in MSFS, land, get paid, see the log. **Ship.**
 
 ## Testing
 
