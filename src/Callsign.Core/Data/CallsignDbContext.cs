@@ -13,6 +13,9 @@ public sealed class CallsignDbContext : DbContext
     public DbSet<LedgerEntry> LedgerEntries => Set<LedgerEntry>();
     public DbSet<Airport> Airports => Set<Airport>();
     public DbSet<Runway> Runways => Set<Runway>();
+    public DbSet<AircraftType> AircraftTypes => Set<AircraftType>();
+    public DbSet<AircraftTitleAlias> AircraftTitleAliases => Set<AircraftTitleAlias>();
+    public DbSet<InstalledPackage> InstalledPackages => Set<InstalledPackage>();
 
     protected override void OnModelCreating(ModelBuilder model)
     {
@@ -68,5 +71,33 @@ public sealed class CallsignDbContext : DbContext
         runway.Property(r => r.HeIdent).HasMaxLength(8);
         runway.HasIndex(r => r.AirportIdent);
         runway.HasOne<Airport>().WithMany().HasForeignKey(r => r.AirportIdent).OnDelete(DeleteBehavior.Cascade);
+
+        // --- Aircraft: shared type identity + machine-local install state (foreclosure audit #10) ---
+        var type = model.Entity<AircraftType>();
+        type.HasKey(a => a.Id);
+        type.HasIndex(a => a.Key).IsUnique();
+        type.Property(a => a.Key).IsRequired().HasMaxLength(80);
+        type.Property(a => a.CanonicalName).IsRequired().HasMaxLength(160);
+        type.Property(a => a.Manufacturer).HasMaxLength(80);
+        type.Property(a => a.IcaoTypeDesignator).HasMaxLength(12);
+        type.Property(a => a.IcaoModel).HasMaxLength(40);
+        type.Property(a => a.Category).HasConversion<string>().HasMaxLength(20);
+        type.Property(a => a.UiTypeRole).HasMaxLength(60);
+        type.HasMany(a => a.Aliases).WithOne().HasForeignKey(x => x.AircraftTypeId).OnDelete(DeleteBehavior.Cascade);
+
+        var alias = model.Entity<AircraftTitleAlias>();
+        alias.HasKey(x => x.Id);
+        alias.Property(x => x.Id).ValueGeneratedOnAdd();
+        alias.Property(x => x.Title).IsRequired().HasMaxLength(200);
+        alias.Property(x => x.TitleNormalized).IsRequired().HasMaxLength(200);
+        alias.HasIndex(x => x.TitleNormalized);
+
+        var installed = model.Entity<InstalledPackage>();
+        installed.HasKey(x => x.Id);
+        installed.Property(x => x.Source).IsRequired().HasMaxLength(40);
+        installed.Property(x => x.PackageFolder).IsRequired().HasMaxLength(200);
+        installed.Property(x => x.AircraftFolder).IsRequired().HasMaxLength(200);
+        installed.HasIndex(x => x.AircraftTypeId);
+        installed.HasOne<AircraftType>().WithMany().HasForeignKey(x => x.AircraftTypeId).OnDelete(DeleteBehavior.Cascade);
     }
 }
