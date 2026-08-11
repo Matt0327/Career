@@ -51,11 +51,14 @@ wipe). Everything stays **server-ready**.
    greaser passed Class C at 5★ ($8k fee), a slam failed Class D (fee still charged), and the earned Class C
    flipped a bought turboprop to **rated**.
 
-5. **3e — The full mission roster.** Add the remaining mission generators + settlement modifiers —
-   Express, Tourist, Sensitive, Hazardous, Emergency/SAR, VIP (and Illicit as reputation-negative) — each
-   with its own `M_type` / `X_type` multiplier, reputation base, and gate (rank / class / reputation) per
-   the mission table in §6.10. They mix onto the board through the existing `CompositeJobSource`; each is
-   still priced by the one economy engine. *Playable:* a living board of varied, gated work.
+5. ✅ **3e — The full mission roster.** A data-driven `MissionCatalog` (per-type reward/XP multipliers,
+   reputation reward, board share, rank gate, labels) drives one generic `MissionJobSource`, mixed by the
+   existing `CompositeJobSource`. Ships the rank/aircraft-gated types — **Express, Tourist, Sensitive,
+   Hazardous, VIP** — alongside cargo & passenger; each is priced off the one economy engine × its
+   multiplier, and its rank gate is the harder of the leg's distance rank and the mission minimum. The
+   reputation gate is wired (board lock + accept), dormant at 0. *Verified live:* a 24-job Trainee board
+   mixed all seven types, locked-with-reason, with a 96 nm Hazardous correctly floored to Captain.
+   (Reputation-gated **Emergency/SAR** and **Illicit** arrive with 3f.)
 
 6. **3f — Reputation in motion.** `Pilot.ReputationMilli` gains a tiny amount per delivered flight (the
    `+0.028`-scale model, which is why it's stored in thousandths), itemised via an append-only

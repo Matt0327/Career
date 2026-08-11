@@ -40,10 +40,11 @@ public static class CallsignWebApp
         builder.Services.AddSingleton<IJobSource>(sp =>
         {
             var cfg = sp.GetRequiredService<EconomyConfig>();
-            // The board mixes freelance cargo runs and passenger charters (Phase 2f).
-            return new CompositeJobSource(
-                (new CargoJobSource(cfg), cfg.CargoJobShare),
-                (new PassengerJobSource(cfg), cfg.PassengerJobShare));
+            // The board mixes the full mission roster (Phase 3e), each type by its catalogue share.
+            var sources = MissionCatalog.Generated
+                .Select(d => ((IJobSource)new MissionJobSource(d, cfg), d.BoardShare))
+                .ToArray();
+            return new CompositeJobSource(sources);
         });
         builder.Services.AddSingleton<AircraftScanner>();
         builder.Services.AddSingleton<ISimTelemetrySource>(sp =>
@@ -167,11 +168,17 @@ public static class CallsignWebApp
             var names = await AirportNamesAsync(db, jobs.Select(j => j.DestIcao));
             return Results.Ok(jobs.Select(j =>
             {
-                bool locked = pilot.Rank < j.RequiredRank; // shown on the board, but locked with the reason (3b)
+                // Shown on the board, but locked with the reason (rank — 3b, or reputation — 3e/3f).
+                var def = MissionCatalog.Def(j.Type);
+                bool rankLocked = pilot.Rank < j.RequiredRank;
+                bool repLocked = pilot.ReputationMilli < def.MinReputationMilli;
                 var reqName = RankTiers.Def(j.RequiredRank).DisplayName;
+                string? reason = rankLocked ? $"Requires {reqName}"
+                    : repLocked ? $"Requires reputation {def.MinReputationMilli / 1000.0:0.0}"
+                    : null;
                 return new JobDto(j.Id, j.Type.ToString(), j.OriginIcao, j.DestIcao,
                     names.GetValueOrDefault(j.DestIcao, j.DestIcao), j.Commodity, j.WeightLbs, j.Pax, j.DistanceNm,
-                    j.RewardCents, j.Xp, reqName, locked, locked ? $"Requires {reqName}" : null, j.ExpiresAt);
+                    j.RewardCents, j.Xp, reqName, rankLocked || repLocked, reason, j.ExpiresAt);
             }));
         });
 

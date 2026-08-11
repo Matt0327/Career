@@ -30,6 +30,10 @@ public sealed class JobAssignmentService
         if (pilot.Rank < job.RequiredRank)
             throw new InvalidOperationException(
                 $"{RankTiers.Def(job.RequiredRank).DisplayName} required — you're a {RankTiers.Def(pilot.Rank).DisplayName}.");
+        var def = MissionCatalog.Def(job.Type);
+        if (pilot.ReputationMilli < def.MinReputationMilli)
+            throw new InvalidOperationException(
+                $"Reputation {def.MinReputationMilli / 1000.0:0.0} required — yours is {pilot.ReputationMilli / 1000.0:0.0}.");
 
         var assignment = new JobAssignment
         {
