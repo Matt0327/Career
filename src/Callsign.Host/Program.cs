@@ -64,6 +64,15 @@ using (var scope = app.Services.CreateScope())
 // synthetic source on the portable build or when SimConnect isn't available).
 _ = app.Services.GetRequiredService<FlightSessionService>().StartAsync();
 
+// Look up human airport names for a set of idents (so the UI can show "EHRD · Rotterdam The Hague").
+static async Task<Dictionary<string, string>> AirportNamesAsync(CallsignDbContext db, IEnumerable<string> idents)
+{
+    var set = idents.Distinct().ToList();
+    if (set.Count == 0)
+        return new Dictionary<string, string>();
+    return await db.Airports.Where(a => set.Contains(a.Ident)).ToDictionaryAsync(a => a.Ident, a => a.Name);
+}
+
 app.MapGet("/api/health", () => Results.Ok(new { ok = true }));
 
 app.MapPost("/api/game/new", async (NewCareerRequest req, GameSetupService setup) =>
@@ -101,8 +110,9 @@ app.MapGet("/api/jobs", async (string? origin, CallsignDbContext db, JobBoardSer
     if (pilot is null) return Results.NotFound();
     var icao = string.IsNullOrWhiteSpace(origin) ? pilot.CurrentIcao : origin!;
     var jobs = await board.GetAvailableAsync(icao);
+    var names = await AirportNamesAsync(db, jobs.Select(j => j.DestIcao));
     return Results.Ok(jobs.Select(j => new JobDto(j.Id, j.Type.ToString(), j.OriginIcao, j.DestIcao,
-        j.Commodity, j.WeightLbs, j.DistanceNm, j.RewardCents, j.Xp, j.ExpiresAt)));
+        names.GetValueOrDefault(j.DestIcao, j.DestIcao), j.Commodity, j.WeightLbs, j.DistanceNm, j.RewardCents, j.Xp, j.ExpiresAt)));
 });
 
 app.MapPost("/api/jobs/{id:guid}/accept", async (Guid id, CallsignDbContext db, JobAssignmentService svc) =>
@@ -116,8 +126,9 @@ app.MapPost("/api/jobs/{id:guid}/accept", async (Guid id, CallsignDbContext db, 
 app.MapGet("/api/assignments", async (CallsignDbContext db) =>
 {
     var list = await db.JobAssignments.Where(a => a.Status == AssignmentStatus.Accepted).ToListAsync();
-    return Results.Ok(list.Select(a => new AssignmentDto(a.Id, a.OriginIcao, a.DestIcao, a.Commodity,
-        a.WeightLbs, a.DistanceNm, a.RewardQuoteCents, a.XpQuote, a.Status.ToString())));
+    var names = await AirportNamesAsync(db, list.Select(a => a.DestIcao));
+    return Results.Ok(list.Select(a => new AssignmentDto(a.Id, a.OriginIcao, a.DestIcao,
+        names.GetValueOrDefault(a.DestIcao, a.DestIcao), a.Commodity, a.WeightLbs, a.DistanceNm, a.RewardQuoteCents, a.XpQuote, a.Status.ToString())));
 });
 
 app.MapPost("/api/assignments/{id:guid}/settle", async (Guid id, FlightResultDto dto, SettlementService svc) =>

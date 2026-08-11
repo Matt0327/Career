@@ -11,7 +11,7 @@ namespace Callsign.Core.Tests;
 public class JobBoardServiceTests
 {
     private static Airport A(string id, string name, double lat, double lon, AirportKind kind)
-        => new() { Ident = id, Name = name, Latitude = lat, Longitude = lon, Kind = kind };
+        => new() { Ident = id, IcaoCode = id, Name = name, Latitude = lat, Longitude = lon, Kind = kind };
 
     private static async Task SeedAirportsAsync(CallsignDbContext db)
     {
@@ -21,7 +21,10 @@ public class JobBoardServiceTests
             A("EHEH", "Eindhoven", 51.4501, 5.3745, AirportKind.LargeAirport),
             A("EHGG", "Groningen", 53.1197, 6.5794, AirportKind.MediumAirport),
             A("EGLL", "London Heathrow", 51.4706, -0.4619, AirportKind.LargeAirport),
-            A("EHHELI", "Rotterdam Heliport", 51.95, 4.45, AirportKind.Heliport)); // not landable
+            A("EHHELI", "Rotterdam Heliport", 51.95, 4.45, AirportKind.Heliport), // not landable
+            // A nearby field with no ICAO code (OurAirports placeholder): must never be a destination,
+            // even though it's the closest landable airport.
+            new Airport { Ident = "NL-0099", IcaoCode = null, Name = "Tiny Airstrip", Latitude = 52.50, Longitude = 4.95, Kind = AirportKind.SmallAirport });
         await db.SaveChangesAsync();
     }
 
@@ -50,6 +53,7 @@ public class JobBoardServiceTests
                 Assert.Equal("EHAM", j.OriginIcao);
                 Assert.NotEqual("EHAM", j.DestIcao);
                 Assert.NotEqual("EHHELI", j.DestIcao); // heliport is not landable
+                Assert.NotEqual("NL-0099", j.DestIcao); // no ICAO code -> not a real destination
                 Assert.True(j.RewardCents > 0);
                 Assert.True(j.Xp > 0);
                 Assert.True(j.WeightLbs is >= 200 and <= 3000);

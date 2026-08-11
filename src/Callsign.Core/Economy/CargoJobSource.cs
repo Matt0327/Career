@@ -29,9 +29,14 @@ public sealed class CargoJobSource : IJobSource
 
         var rng = new Random(request.Seed);
         var jobs = new List<GeneratedJob>(request.Count);
+        var available = new List<JobCandidate>(eligible); // draw without replacement so destinations don't repeat
         for (int i = 0; i < request.Count; i++)
         {
-            var dest = eligible[NearBiasedIndex(rng, eligible.Count)];
+            if (available.Count == 0)
+                available.AddRange(eligible); // more jobs than distinct destinations — allow repeats
+            int idx = NearBiasedIndex(rng, available.Count);
+            var dest = available[idx];
+            available.RemoveAt(idx);
             int weight = rng.Next(_cfg.MinCargoWeightLbs, _cfg.MaxCargoWeightLbs + 1);
             var commodity = Commodities[rng.Next(Commodities.Length)];
 

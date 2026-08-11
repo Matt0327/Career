@@ -129,7 +129,7 @@ function Dashboard({ state, go }: { state: State; go: (t: Tab) => void }) {
           <ul className="assign-list">
             {assignments.map(a => (
               <li key={a.id} className="assign">
-                <div className="leg"><b>{a.origin}</b> → <b>{a.dest}</b><span className="muted"> · {a.commodity}</span></div>
+                <div className="leg"><b>{a.origin}</b> → <b>{a.dest}</b> <span className="muted">{a.destName} · {a.commodity}</span></div>
                 <div className="assign-meta">
                   <span>{Math.round(a.distanceNm)} nm</span>
                   <span>{a.weightLbs.toLocaleString()} lb</span>
@@ -204,6 +204,7 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
                     <div className="leg"><b>{j.origin}</b> → <b>{j.dest}</b></div>
                     <div className="tag">{j.type}</div>
                   </div>
+                  <div className="dest-name">{j.destName}</div>
                   <div className="commodity">{j.commodity}</div>
                   <div className="job-meta">
                     <Meta label="Distance" value={`${Math.round(j.distanceNm)} nm`} />
@@ -312,7 +313,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
           <Gauge label="Ground" value={tele ? (tele.onGround ? 'ON' : 'AIR') : '—'} unit={tele?.title?.split('(')[0].trim() ?? ''} />
         </div>
         {begun
-          ? <div className="banner ok">Flying <b>{begun.origin} → {begun.dest}</b> — land at {begun.dest} and Callsign settles it automatically.</div>
+          ? <div className="banner ok">Flying <b>{begun.origin} → {begun.dest}</b> · {begun.destName} — land at {begun.dest} and Callsign settles it automatically.</div>
           : <div className="hint">Begin a leg below, then fly it. The next landing settles the accepted job.</div>}
       </section>
 
@@ -326,7 +327,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
             <ul className="assign-list">
               {assignments.map(a => (
                 <li key={a.id} className="assign">
-                  <div className="leg"><b>{a.origin}</b> → <b>{a.dest}</b><span className="muted"> · {a.commodity}</span></div>
+                  <div className="leg"><b>{a.origin}</b> → <b>{a.dest}</b> <span className="muted">{a.destName} · {a.commodity}</span></div>
                   <div className="assign-meta">
                     <span>{Math.round(a.distanceNm)} nm</span>
                     <span className="pos">{money(a.rewardQuoteCents)}</span>

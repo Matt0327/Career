@@ -39,7 +39,7 @@ public sealed class JobBoardService
         _db.Jobs.RemoveRange(await _db.Jobs.Where(j => j.OriginIcao == originIcao).ToListAsync(ct));
 
         var candidates = (await _airports.WithinRadiusAsync(origin.Latitude, origin.Longitude, _cfg.MaxJobDistanceNm, ct))
-            .Where(x => x.Airport.Ident != originIcao && IsLandable(x.Airport))
+            .Where(x => x.Airport.Ident != originIcao && IsLandable(x.Airport) && HasRealIcao(x.Airport))
             .Select(x => new JobCandidate(x.Airport.Ident, x.DistanceNm))
             .ToList();
 
@@ -81,4 +81,8 @@ public sealed class JobBoardService
 
     private static bool IsLandable(Airport a)
         => a.Kind is AirportKind.SmallAirport or AirportKind.MediumAirport or AirportKind.LargeAirport;
+
+    // Only send pilots to airports with a real ICAO code. The OurAirports snapshot fills in placeholder
+    // idents (e.g. "NL-0029") for minor fields that have no ICAO — you can't find those in the sim.
+    private static bool HasRealIcao(Airport a) => !string.IsNullOrWhiteSpace(a.IcaoCode);
 }
