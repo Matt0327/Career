@@ -28,6 +28,8 @@ jobs:
         run: dotnet test -c Release tests/Callsign.SimConnect.Tests/Callsign.SimConnect.Tests.csproj
       - name: Test Core
         run: dotnet test -c Release tests/Callsign.Core.Tests/Callsign.Core.Tests.csproj
+      - name: Test Host (API integration)
+        run: dotnet test -c Release tests/Callsign.Host.Tests/Callsign.Host.Tests.csproj
 
   windows:
     name: Windows — full solution (stub SimConnect) + tests
@@ -44,3 +46,4 @@ jobs:
         run: |
           dotnet test -c Release --no-build tests/Callsign.SimConnect.Tests/Callsign.SimConnect.Tests.csproj
           dotnet test -c Release --no-build tests/Callsign.Core.Tests/Callsign.Core.Tests.csproj
+          dotnet test -c Release --no-build tests/Callsign.Host.Tests/Callsign.Host.Tests.csproj

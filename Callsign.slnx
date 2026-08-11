@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Callsign.Core/Callsign.Core.csproj" />
+    <Project Path="src/Callsign.Host/Callsign.Host.csproj" />
     <Project Path="src/Callsign.SimConnect/Callsign.SimConnect.csproj" />
     <Project Path="src/Callsign.SimConnect.Windows/Callsign.SimConnect.Windows.csproj" />
   </Folder>
@@ -9,6 +10,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Callsign.Core.Tests/Callsign.Core.Tests.csproj" />
+    <Project Path="tests/Callsign.Host.Tests/Callsign.Host.Tests.csproj" />
     <Project Path="tests/Callsign.SimConnect.Tests/Callsign.SimConnect.Tests.csproj" />
   </Folder>
 </Solution>
