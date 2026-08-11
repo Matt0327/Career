@@ -43,6 +43,38 @@ public class AircraftRosterServiceTests
     }
 
     [Fact]
+    public async Task Rebuild_EnrichesScannedTypeWithCuratedSpecs_AndAddsStreamedDefaultFleet()
+    {
+        using var tdb = new TestDb();
+        CuratedAircraft[] curated =
+        [
+            new("PC12", "Pilatus PC-12", "Pilatus", AircraftCategory.Turboprop, 9, 2100, 2704, 270, 2600, ["Pilatus PC-12"]),
+            new("C172", "Cessna 172 Skyhawk", "Cessna", AircraftCategory.LightSingle, 4, 878, 336, 124, 1600, ["Cessna Skyhawk G1000 Asobo"]),
+        ];
+
+        using (var db = tdb.NewContext())
+            await new AircraftRosterService(db, new FakeClock()).RebuildAsync([Sample()], curated);
+
+        using (var db = tdb.NewContext())
+        {
+            // scanned PC-12 gains curated specs but stays on-disk
+            var pc12 = await db.AircraftTypes.SingleAsync(t => t.Key == "PC12");
+            Assert.Equal(270, pc12.CruiseKtas);
+            Assert.Equal(9, pc12.Seats);
+            var pc12Install = await db.InstalledPackages.SingleAsync(i => i.AircraftTypeId == pc12.Id);
+            Assert.True(pc12Install.IsOnDisk);
+            Assert.Equal("Community2024", pc12Install.Source);
+
+            // curated-only C172 appears as the streamed default fleet
+            var c172 = await db.AircraftTypes.SingleAsync(t => t.Key == "C172");
+            Assert.Equal(124, c172.CruiseKtas);
+            var c172Install = await db.InstalledPackages.SingleAsync(i => i.AircraftTypeId == c172.Id);
+            Assert.False(c172Install.IsOnDisk);
+            Assert.Equal("Default2024", c172Install.Source);
+        }
+    }
+
+    [Fact]
     public async Task Replace_IsWholesale_OnRescan()
     {
         using var tdb = new TestDb();
