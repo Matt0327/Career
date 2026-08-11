@@ -51,6 +51,7 @@ public static class CallsignWebApp
         builder.Services.AddScoped<AircraftDealerService>();
         builder.Services.AddScoped<JobBoardService>();
         builder.Services.AddScoped<OperationsService>();
+        builder.Services.AddScoped<BaseService>();
         builder.Services.AddScoped<GameSetupService>();
 
         builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
@@ -302,7 +303,37 @@ public static class CallsignWebApp
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             var d = await ops.ReconcileAsync(pilot.CompanyId);
-            return Results.Ok(new ReconcileDto(d.Trips, d.GrossIncomeCents, d.FeesCents, d.WagesCents, d.NetCents));
+            return Results.Ok(new ReconcileDto(d.Trips, d.GrossIncomeCents, d.FeesCents, d.WagesCents, d.RentCents, d.NetCents));
+        });
+
+        // --- Bases (Phase 2e) ---
+        app.MapGet("/api/bases", async (CallsignDbContext db, BaseService bases) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var list = await bases.GetBasesAsync(pilot.CompanyId);
+            return Results.Ok(list.Select(b => new BaseViewDto(b.Id, b.Icao, b.Name, b.IsHome, b.RentPerDayCents)));
+        });
+
+        app.MapGet("/api/bases/candidates", async (CallsignDbContext db, BaseService bases) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var offers = await bases.GetCandidatesAsync(pilot.CompanyId);
+            return Results.Ok(offers.Select(o => new BaseOfferDto(o.Icao, o.Name, o.Kind, o.DistanceNm, o.OpenCents, o.RentPerDayCents)));
+        });
+
+        app.MapPost("/api/bases/open", async (OpenBaseRequest req, CallsignDbContext db, BaseService bases) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                var b = await bases.OpenBaseAsync(pilot.CompanyId, req.AirportIcao);
+                return Results.Ok(new { id = b.Id, icao = b.AirportIcao });
+            }
+            catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "Cash changed at the same time — try again." }); }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
         app.MapGet("/api/ledger", async (int? limit, CallsignDbContext db) =>

@@ -21,7 +21,9 @@ Build order — each step independently playable, finish before the next:
 4. ✅ **2d — Staff.** Hire pilots (economy-set wages); assign a pilot + an owned aircraft to a repeating
    route (reward frozen at economy price); trips + landing fees + wages are reconciled deterministically
    from elapsed wall-clock on reopen, all through the ledger. The airframe ticks hours/condition too.
-5. **2e — Bases.** Open/close bases; home-basing, parking, and where your fleet lives.
+5. ✅ **2e — Bases.** A free home base at career start; open more for a setup fee + recurring rent
+   (billed in the reconcile pass); landing fees are waived at your own bases. Nearby airports are
+   offered as priced base candidates.
 6. **2f — More mission types.** Passengers first (manifest + seats), then express/tourist/etc.
 7. **2g — Trade.** Buy low / sell high across airports; goods as assets with a cost basis.
 

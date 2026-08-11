@@ -48,6 +48,13 @@ public sealed class NewGameService
         await _ledger.PostAsync(company.Id, LedgerCategory.StartingBalance, startingCash,
             "New career starting balance", ct: ct);
 
+        // Open the home base for free — it's where the fleet lives and lands fee-free.
+        _db.Bases.Add(new Base
+        {
+            Id = Guid.NewGuid(), CompanyId = company.Id, AirportIcao = homeIcao, IsHome = true,
+            RentPerDayCents = 0, OpenedAt = now, LastRentBilledAt = now, IsActive = true, UpdatedAt = now,
+        });
+
         // Grant a starter airframe so a fresh career can fly straight away (a gifted asset — the
         // ledger tracks CASH, and no cash moves for a gift; buying a real fleet is the Hangar).
         var starter = await _db.AircraftTypes
@@ -63,9 +70,9 @@ public sealed class NewGameService
                 Ownership = OwnershipKind.Owned, Availability = AircraftAvailability.Available,
                 LocationIcao = homeIcao, AcquiredAt = now, UpdatedAt = now,
             });
-            await _db.SaveChangesAsync(ct);
         }
 
+        await _db.SaveChangesAsync(ct);
         return (company, pilot);
     }
 }

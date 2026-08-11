@@ -75,8 +75,10 @@ public sealed class SettlementService
         }
 
         // Landing/handling fee at the destination — a running cost, itemised like everything else.
+        // Waived if you own a base there.
         var destAirport = await _db.Airports.FirstOrDefaultAsync(x => x.Ident == a.DestIcao, ct);
-        long landingFee = destAirport is not null ? _cfg.LandingFeeCents(destAirport.Kind) : 0;
+        bool ownBaseAtDest = await _db.Bases.AnyAsync(b => b.CompanyId == a.AccountId && b.AirportIcao == a.DestIcao && b.IsActive, ct);
+        long landingFee = destAirport is not null && !ownBaseAtDest ? _cfg.LandingFeeCents(destAirport.Kind) : 0;
         if (landingFee > 0)
         {
             postings.Add(new(LedgerCategory.AirportFee, -(landingFee / 100m), $"Landing fee at {a.DestIcao}",

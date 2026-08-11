@@ -10,7 +10,7 @@ namespace Callsign.Core.Economy;
 public sealed record StaffCandidate(int Seed, string Name, long WagePerDayCents, int SkillMilli);
 
 /// <summary>What a reconcile produced (for the reopen digest).</summary>
-public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long NetCents);
+public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long NetCents);
 
 /// <summary>
 /// Staff + standing orders (Phase 2d): hire pilots, set repeating autonomous routes, and reconcile the
@@ -131,7 +131,11 @@ public sealed class OperationsService
     {
         var now = _clock.UtcNow;
         int totalTrips = 0;
-        long grossIncome = 0, totalFees = 0, totalWages = 0;
+        long grossIncome = 0, totalFees = 0, totalWages = 0, totalRent = 0;
+
+        // Airports where we own a base — landings there are fee-free.
+        var baseIcaos = (await _db.Bases.Where(b => b.CompanyId == companyId && b.IsActive && !b.IsDeleted)
+            .Select(b => b.AirportIcao).ToListAsync(ct)).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         foreach (var o in await _db.StandingOrders.Where(o => o.CompanyId == companyId && o.IsActive && !o.IsDeleted).ToListAsync(ct))
         {
@@ -142,8 +146,8 @@ public sealed class OperationsService
 
             var oAir = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == o.OriginIcao, ct);
             var dAir = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == o.DestIcao, ct);
-            long feePerTrip = (oAir is not null ? _cfg.LandingFeeCents(oAir.Kind) : 0)
-                            + (dAir is not null ? _cfg.LandingFeeCents(dAir.Kind) : 0);
+            long feePerTrip = (oAir is not null && !baseIcaos.Contains(o.OriginIcao) ? _cfg.LandingFeeCents(oAir.Kind) : 0)
+                            + (dAir is not null && !baseIcaos.Contains(o.DestIcao) ? _cfg.LandingFeeCents(dAir.Kind) : 0);
             long income = trips * o.RewardPerTripCents;
             long fees = trips * feePerTrip;
             var stamp = o.LastReconciledAt.UtcTicks;
@@ -192,7 +196,24 @@ public sealed class OperationsService
             totalWages += wage;
         }
 
+        foreach (var b in await _db.Bases.Where(b => b.CompanyId == companyId && b.IsActive && !b.IsDeleted).ToListAsync(ct))
+        {
+            double days = (now - b.LastRentBilledAt).TotalDays;
+            long rent = (long)Math.Round(days * b.RentPerDayCents);
+            if (rent <= 0)
+                continue;
+            await _ledger.StageBatchAsync(companyId, new[]
+            {
+                new LedgerPosting(LedgerCategory.BaseRent, -(rent / 100m), $"Base rent — {b.AirportIcao}",
+                    BaseId: b.Id, DedupeKey: $"rent:{b.Id}:{b.LastRentBilledAt.UtcTicks}"),
+            }, ct);
+            b.LastRentBilledAt = now;
+            b.UpdatedAt = now;
+            totalRent += rent;
+        }
+
         await _db.SaveChangesAsync(ct);
-        return new ReconcileDigest(totalTrips, grossIncome, totalFees, totalWages, grossIncome - totalFees - totalWages);
+        return new ReconcileDigest(totalTrips, grossIncome, totalFees, totalWages, totalRent,
+            grossIncome - totalFees - totalWages - totalRent);
     }
 }

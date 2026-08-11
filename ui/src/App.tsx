@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api, money,
-  type AircraftOffer, type Assignment, type Diverted, type FlightLog, type Job, type LedgerEntry,
-  type OwnedAircraft, type ReconcileResult, type Settled, type Staff, type StaffCandidate,
-  type StandingOrder, type State, type Telemetry, type WsEvent,
+  type AircraftOffer, type Assignment, type BaseOffer, type BaseView, type Diverted, type FlightLog,
+  type Job, type LedgerEntry, type OwnedAircraft, type ReconcileResult, type Settled, type Staff,
+  type StaffCandidate, type StandingOrder, type State, type Telemetry, type WsEvent,
 } from './api'
 
-type Tab = 'dashboard' | 'jobs' | 'flight' | 'hangar' | 'ops' | 'logbook'
+type Tab = 'dashboard' | 'jobs' | 'flight' | 'hangar' | 'ops' | 'bases' | 'logbook'
 
 export function App() {
   const [state, setState] = useState<State | null | undefined>(undefined) // undefined = still loading
@@ -36,6 +36,7 @@ export function App() {
         {tab === 'flight' && <Flight state={state} onSettled={reload} />}
         {tab === 'hangar' && <Hangar state={state} onChanged={reload} />}
         {tab === 'ops' && <Ops onChanged={reload} />}
+        {tab === 'bases' && <Bases state={state} onChanged={reload} />}
         {tab === 'logbook' && <Logbook />}
       </main>
     </div>
@@ -46,7 +47,7 @@ export function App() {
 
 function TopBar({ state, tab, setTab }: { state: State; tab: Tab; setTab: (t: Tab) => void }) {
   const tabs: [Tab, string][] = [
-    ['dashboard', 'Dashboard'], ['jobs', 'Jobs'], ['flight', 'Flight'], ['hangar', 'Hangar'], ['ops', 'Staff'], ['logbook', 'Logbook'],
+    ['dashboard', 'Dashboard'], ['jobs', 'Jobs'], ['flight', 'Flight'], ['hangar', 'Hangar'], ['ops', 'Staff'], ['bases', 'Bases'], ['logbook', 'Logbook'],
   ]
   return (
     <header className="topbar">
@@ -546,9 +547,9 @@ function Ops({ onChanged }: { onChanged: () => void }) {
     try {
       const d: ReconcileResult = await api.reconcile()
       await load(); onChanged()
-      setMsg(d.trips > 0
-        ? `Booked ${d.trips} trip${d.trips === 1 ? '' : 's'}: ${money(d.grossIncomeCents)} gross − ${money(d.feesCents)} fees − ${money(d.wagesCents)} wages = ${money(d.netCents)} net.`
-        : `Up to date — no new trips${d.wagesCents ? ` (wages ${money(d.wagesCents)})` : ''}.`)
+      setMsg(d.trips > 0 || d.wagesCents > 0 || d.rentCents > 0
+        ? `Booked ${d.trips} trip${d.trips === 1 ? '' : 's'}: ${money(d.grossIncomeCents)} gross − ${money(d.feesCents)} fees − ${money(d.wagesCents)} wages − ${money(d.rentCents)} rent = ${money(d.netCents)} net.`
+        : 'Up to date — nothing new.')
     } catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
 
@@ -609,6 +610,73 @@ function Ops({ onChanged }: { onChanged: () => void }) {
             </div>
           ))}
         </div>
+      </section>
+    </div>
+  )
+}
+
+// ─── Bases ───────────────────────────────────────────────────────────────────
+
+function Bases({ state, onChanged }: { state: State; onChanged: () => void }) {
+  const [bases, setBases] = useState<BaseView[]>([])
+  const [offers, setOffers] = useState<BaseOffer[]>([])
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    try { setBases(await api.bases()); setOffers(await api.baseCandidates()) } catch (e) { setMsg(cleanErr(e)) }
+  }, [])
+  useEffect(() => { void load() }, [load])
+
+  const open = async (o: BaseOffer) => {
+    setBusy(true); setMsg(null)
+    try { await api.openBase(o.icao); await load(); onChanged(); setMsg(`Opened a base at ${o.icao} · ${o.name}.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="grid">
+      <section className="card">
+        <h2>Your bases</h2>
+        {bases.length === 0 ? <div className="empty">No bases.</div> : (
+          <table className="tbl">
+            <thead><tr><th>Airport</th><th>Name</th><th className="r">Rent / day</th></tr></thead>
+            <tbody>{bases.map(b => (
+              <tr key={b.id}>
+                <td><span className="loc">{b.icao}</span>{b.isHome && <span className="tag" style={{ marginLeft: 8 }}>home</span>}</td>
+                <td>{b.name}</td>
+                <td className="r num muted">{b.rentPerDayCents ? money(b.rentPerDayCents) : 'free'}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        )}
+      </section>
+
+      <section className="card">
+        <div className="row-head"><h2>Open a base</h2><span className="hint">Land fee-free at your own bases</span></div>
+        {msg && <div className="banner">{msg}</div>}
+        {offers.length === 0 ? <div className="empty">No nearby airports to base at.</div> : (
+          <div className="jobs">
+            {offers.map(o => {
+              const afford = state.cashCents >= o.openCents
+              return (
+                <div className="card job" key={o.icao}>
+                  <div className="job-top"><div className="leg"><b>{o.icao}</b></div><div className="tag">{spaced(o.kind).replace(' Airport', '')}</div></div>
+                  <div className="dest-name">{o.name}</div>
+                  <div className="job-meta">
+                    <Meta label="Distance" value={`${Math.round(o.distanceNm)} nm`} />
+                    <Meta label="Rent/day" value={money(o.rentPerDayCents)} />
+                  </div>
+                  <div className="price num">{money(o.openCents)}</div>
+                  <div className="job-foot">
+                    <span className="hint">{afford ? '' : 'over budget'}</span>
+                    <button className="primary" disabled={busy || !afford} onClick={() => open(o)}>Open base</button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </section>
     </div>
   )

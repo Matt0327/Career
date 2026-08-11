@@ -161,7 +161,25 @@ export interface ReconcileResult {
   grossIncomeCents: number
   feesCents: number
   wagesCents: number
+  rentCents: number
   netCents: number
+}
+
+export interface BaseView {
+  id: string
+  icao: string
+  name: string
+  isHome: boolean
+  rentPerDayCents: number
+}
+
+export interface BaseOffer {
+  icao: string
+  name: string
+  kind: string
+  distanceNm: number
+  openCents: number
+  rentPerDayCents: number
 }
 
 async function ok<T>(r: Response): Promise<T> {
@@ -205,6 +223,9 @@ export const api = {
     POST('/api/ops/orders', { staffId, aircraftInstanceId, destIcao }).then(ok),
   cancelOrder: (id: string) => POST(`/api/ops/orders/${id}/cancel`).then(ok),
   reconcile: () => POST('/api/ops/reconcile').then(ok<ReconcileResult>),
+  bases: () => fetch('/api/bases').then(ok<BaseView[]>),
+  baseCandidates: () => fetch('/api/bases/candidates').then(ok<BaseOffer[]>),
+  openBase: (airportIcao: string) => POST('/api/bases/open', { airportIcao }).then(ok),
 }
 
 /** Whole-dollar, sign-aware money from integer cents: 147000 -> "$1,470". */

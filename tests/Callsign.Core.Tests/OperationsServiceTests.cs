@@ -49,7 +49,7 @@ public class OperationsServiceTests
             digest = await new OperationsService(db, new LedgerService(db, clock), clock, Cfg).ReconcileAsync(companyId);
 
         Assert.True(digest.Trips > 0);
-        Assert.Equal(digest.GrossIncomeCents - digest.FeesCents - digest.WagesCents, digest.NetCents);
+        Assert.Equal(digest.GrossIncomeCents - digest.FeesCents - digest.WagesCents - digest.RentCents, digest.NetCents);
         Assert.True(digest.WagesCents > 0);
 
         using (var db = tdb.NewContext())

@@ -23,6 +23,7 @@ public sealed class CallsignDbContext : DbContext
     public DbSet<AircraftInstance> AircraftInstances => Set<AircraftInstance>();
     public DbSet<Staff> Staff => Set<Staff>();
     public DbSet<StandingOrder> StandingOrders => Set<StandingOrder>();
+    public DbSet<Base> Bases => Set<Base>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -171,5 +172,11 @@ public sealed class CallsignDbContext : DbContext
         order.HasOne<Company>().WithMany().HasForeignKey(o => o.CompanyId).OnDelete(DeleteBehavior.Restrict);
         order.HasOne<Staff>().WithMany().HasForeignKey(o => o.StaffId).OnDelete(DeleteBehavior.Restrict);
         order.HasOne<AircraftInstance>().WithMany().HasForeignKey(o => o.AircraftInstanceId).OnDelete(DeleteBehavior.Restrict);
+
+        var companyBase = model.Entity<Base>();
+        companyBase.HasKey(b => b.Id);
+        companyBase.Property(b => b.AirportIcao).IsRequired().HasMaxLength(12);
+        companyBase.HasIndex(b => new { b.CompanyId, b.AirportIcao }).IsUnique(); // one base per airport per company
+        companyBase.HasOne<Company>().WithMany().HasForeignKey(b => b.CompanyId).OnDelete(DeleteBehavior.Restrict);
     }
 }

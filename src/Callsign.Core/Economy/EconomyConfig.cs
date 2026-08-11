@@ -88,5 +88,21 @@ public sealed record EconomyConfig
     public int ConditionWearMilliPerHour { get; init; } = 400;     // hull + engine wear per airframe hour (0..100000)
     public int HardLandingWearMilli { get; init; } = 1_500;        // extra hull wear on a hard touchdown
 
+    // --- Bases: one-off setup + recurring rent, by airport size (§4.8) ---
+    public long BaseOpenCents(AirportKind kind) => kind switch
+    {
+        AirportKind.LargeAirport => 5_000_000,   // $50k
+        AirportKind.MediumAirport => 2_000_000,  // $20k
+        AirportKind.SmallAirport => 500_000,     // $5k
+        _ => 1_000_000,                           // $10k
+    };
+    public long BaseRentPerDayCents(AirportKind kind) => kind switch
+    {
+        AirportKind.LargeAirport => 20_000,   // $200/day
+        AirportKind.MediumAirport => 8_000,   // $80/day
+        AirportKind.SmallAirport => 2_000,    // $20/day
+        _ => 4_000,                            // $40/day
+    };
+
     public static EconomyConfig Default { get; } = new();
 }

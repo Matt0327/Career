@@ -45,7 +45,12 @@ public record StandingOrderDto(
     Guid Id, string StaffName, string Tail, string Origin, string Dest,
     double DistanceNm, double RoundTripHours, long RewardPerTripCents);
 public record StandingOrderRequest(Guid StaffId, Guid AircraftInstanceId, string DestIcao);
-public record ReconcileDto(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long NetCents);
+public record ReconcileDto(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long NetCents);
+
+// --- Phase 2e: bases ---
+public record BaseViewDto(Guid Id, string Icao, string Name, bool IsHome, long RentPerDayCents);
+public record BaseOfferDto(string Icao, string Name, string Kind, double DistanceNm, long OpenCents, long RentPerDayCents);
+public record OpenBaseRequest(string AirportIcao);
 
 public record FlightDto(Guid Id, string AircraftTitle, double TouchdownFpm, long PayoutCents, int Xp, DateTimeOffset SettledAt);
 
