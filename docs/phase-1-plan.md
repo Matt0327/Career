@@ -105,7 +105,7 @@ pick home airport, grant starting cash (a ledger entry), detect aircraft — tun
    - ✅ **1g-a** REST API (game/jobs/assignments/settle/roster/ledger/flights).
    - ✅ **1g-b** Live flight session + `/ws/telemetry` WebSocket + auto-settle on landing.
    - ✅ **1g-c** Vite + React + TS UI (dashboard · jobs · live HUD · logbook), served by the Host. Verified live end-to-end.
-8. ⏳ **1h** End-to-end: wire the real SimConnect adapter into the Host, accept a Cargo job, fly it in MSFS, land, get paid, see the log. **Ship.**
+8. ✅ **1h** Real SimConnect wired into the Host (multi-target `net10.0;net10.0-windows`, real→synthetic fallback). Windows build verified to select the live adapter and degrade gracefully with the sim closed. Flying a real paid leg in MSFS is the manual acceptance step — see README "Fly a leg". **Phase 1 shipped.**
 
 ## Testing
 

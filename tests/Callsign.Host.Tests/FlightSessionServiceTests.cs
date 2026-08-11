@@ -7,6 +7,7 @@ using Callsign.SimConnect;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace Callsign.Host.Tests;
@@ -65,7 +66,8 @@ public class FlightSessionServiceTests
         }
 
         await using var source = new FakeTelemetrySource();
-        using var session = new FlightSessionService(source, sp.GetRequiredService<IServiceScopeFactory>());
+        using var session = new FlightSessionService(source, sp.GetRequiredService<IServiceScopeFactory>(),
+            NullLogger<FlightSessionService>.Instance);
         session.BeginFlight(assignmentId);
 
         // parked -> takeoff -> short final (-120 fpm) -> touchdown -> stop

@@ -134,6 +134,7 @@ input { font: inherit; }
 .hud-head { display: flex; align-items: center; justify-content: space-between; }
 .conn { font-size: 12px; padding: 3px 10px; border-radius: 999px; }
 .conn.up { background: color-mix(in srgb, var(--pos) 16%, var(--panel)); color: var(--pos); }
+.conn.warn { background: color-mix(in srgb, #b8860b 20%, var(--panel)); color: #b8860b; }
 .conn.down { background: color-mix(in srgb, var(--neg) 16%, var(--panel)); color: var(--neg); }
 .phase { font-size: 13px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); margin: 4px 0 16px; }
 .gauges { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 16px; }

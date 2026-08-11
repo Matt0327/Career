@@ -41,6 +41,7 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
 
     private readonly TimeSpan _interval;
     private readonly TimeSpan _reconnectDelay = TimeSpan.FromSeconds(5);
+    private readonly Action<string>? _log;
 
     private Microsoft.FlightSimulator.SimConnect.SimConnect? _sc;
     private EventWaitHandle? _hEvent;
@@ -49,8 +50,16 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
     private long _seq;
     private SimConnectionState _state = SimConnectionState.Disconnected;
 
-    public SimConnectTelemetrySource(int hz = 4)
-        => _interval = TimeSpan.FromSeconds(1.0 / Math.Clamp(hz, 1, 30));
+    /// <param name="log">
+    /// Optional diagnostic sink. The benign "sim not running yet" case stays quiet, but genuine,
+    /// permanent failures (missing/wrong-bitness native SimConnect.dll, a SimConnect protocol
+    /// exception) are surfaced here so live telemetry never fails silently.
+    /// </param>
+    public SimConnectTelemetrySource(int hz = 4, Action<string>? log = null)
+    {
+        _interval = TimeSpan.FromSeconds(1.0 / Math.Clamp(hz, 1, 30));
+        _log = log;
+    }
 
     public SimConnectionState State => _state;
     public event Action<SimConnectionState>? StateChanged;
@@ -110,11 +119,15 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
             }
             catch (COMException)
             {
-                // sim not running yet, or the connection dropped — fall through to reconnect
+                // sim not running yet, or the connection dropped — expected; reconnect quietly
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // defensive: never let the pump thread die on an unexpected error
+                // Unexpected and usually permanent (missing/wrong-bitness native SimConnect.dll,
+                // an unloadable managed interop, a bad data definition). Never let the pump thread
+                // die — but don't swallow it silently, or a broken install is indistinguishable
+                // from a closed sim (both just report Disconnected forever).
+                _log?.Invoke($"unexpected error: {ex.GetType().Name}: {ex.Message}");
             }
             finally
             {
@@ -142,9 +155,10 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
             _sc = null;
             old?.Dispose();
         };
-        sc.OnRecvException += (_, _) =>
+        sc.OnRecvException += (_, e) =>
         {
-            // a bad request shouldn't kill telemetry; surface via logging later
+            // a bad request shouldn't kill telemetry, but name the SimConnect exception that fired
+            _log?.Invoke($"protocol exception: {(SIMCONNECT_EXCEPTION)e.dwException}");
         };
         sc.OnRecvSimobjectData += OnData;
     }
@@ -229,7 +243,7 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
 /// </summary>
 public sealed class SimConnectTelemetrySource : ISimTelemetrySource
 {
-    public SimConnectTelemetrySource(int hz = 4)
+    public SimConnectTelemetrySource(int hz = 4, Action<string>? log = null)
         => throw new PlatformNotSupportedException(
             "SimConnect binaries not found. Install the MSFS 2024 SDK, run " +
             "scripts/fetch-simconnect.ps1, then rebuild to enable live telemetry.");

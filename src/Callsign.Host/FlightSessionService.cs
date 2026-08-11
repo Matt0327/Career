@@ -18,7 +18,9 @@ public sealed class FlightSessionService : IDisposable
 {
     private readonly ISimTelemetrySource _source;
     private readonly IServiceScopeFactory _scopes;
+    private readonly ILogger<FlightSessionService> _logger;
     private readonly Action<TelemetrySnapshot> _handler;
+    private readonly Action<SimConnectionState> _stateHandler;
     private readonly object _gate = new();
     private readonly ConcurrentDictionary<Guid, WebSocket> _clients = new();
 
@@ -30,12 +32,26 @@ public sealed class FlightSessionService : IDisposable
     public SimConnectionState Connection => _source.State;
     public Guid? CurrentAssignmentId => _assignmentId;
 
-    public FlightSessionService(ISimTelemetrySource source, IServiceScopeFactory scopes)
+    public FlightSessionService(ISimTelemetrySource source, IServiceScopeFactory scopes, ILogger<FlightSessionService> logger)
     {
         _source = source;
         _scopes = scopes;
+        _logger = logger;
         _handler = t => _ = FeedAsync(t);
+        _stateHandler = OnStateChanged;
         _source.TelemetryReceived += _handler;
+        _source.StateChanged += _stateHandler;
+    }
+
+    /// <summary>
+    /// The link state (Connecting / Connected / Disconnected / SimExited) changed. Push it to the UI
+    /// so the HUD reflects reality even when no telemetry frames are flowing — the live SimConnect
+    /// source sends nothing until the sim is up, so the HUD must not assume "connected == frames".
+    /// </summary>
+    private void OnStateChanged(SimConnectionState state)
+    {
+        _logger.LogInformation("Telemetry link: {State}", state);
+        _ = BroadcastAsync(new { type = "state", connection = state.ToString(), phase = Phase.ToString() });
     }
 
     /// <summary>Start the telemetry source (idempotent at the source level).</summary>
@@ -121,6 +137,10 @@ public sealed class FlightSessionService : IDisposable
     {
         var id = Guid.NewGuid();
         _clients[id] = ws;
+        // hand the just-connected client the current link state right away, so a HUD opened while
+        // the sim is closed shows "no link" immediately instead of waiting for a frame that never comes
+        try { await SendAsync(ws, new { type = "state", connection = Connection.ToString(), phase = Phase.ToString() }); }
+        catch { /* client already gone */ }
         try
         {
             var buffer = new byte[256];
@@ -135,6 +155,14 @@ public sealed class FlightSessionService : IDisposable
         {
             _clients.TryRemove(id, out _);
         }
+    }
+
+    private static async Task SendAsync(WebSocket ws, object message)
+    {
+        if (ws.State != WebSocketState.Open)
+            return;
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(message);
+        await ws.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, CancellationToken.None);
     }
 
     private async Task BroadcastAsync(object message)
@@ -161,5 +189,9 @@ public sealed class FlightSessionService : IDisposable
         }
     }
 
-    public void Dispose() => _source.TelemetryReceived -= _handler;
+    public void Dispose()
+    {
+        _source.TelemetryReceived -= _handler;
+        _source.StateChanged -= _stateHandler;
+    }
 }

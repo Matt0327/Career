@@ -79,7 +79,15 @@ export interface Settled {
   touchdownFpm: number
 }
 
-export type WsEvent = Telemetry | Settled
+/** A link-state change (Connecting / Connected / Disconnected / SimExited), pushed even when no
+ *  telemetry frames are flowing — the live SimConnect source is silent until the sim is up. */
+export interface LinkState {
+  type: 'state'
+  connection: string
+  phase: string
+}
+
+export type WsEvent = Telemetry | Settled | LinkState
 
 async function ok<T>(r: Response): Promise<T> {
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${await r.text()}`)

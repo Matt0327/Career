@@ -230,7 +230,8 @@ function Meta({ label, value }: { label: string; value: string }) {
 
 function useTelemetry(onSettled: (s: Settled) => void) {
   const [tele, setTele] = useState<Telemetry | null>(null)
-  const [connected, setConnected] = useState(false)
+  const [wsOpen, setWsOpen] = useState(false)
+  const [link, setLink] = useState('Disconnected') // SimConnectionState from the server
   const cb = useRef(onSettled)
   cb.current = onSettled
 
@@ -242,20 +243,35 @@ function useTelemetry(onSettled: (s: Settled) => void) {
     const connect = () => {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws'
       ws = new WebSocket(`${proto}://${location.host}/ws/telemetry`)
-      ws.onopen = () => setConnected(true)
+      ws.onopen = () => setWsOpen(true)
       ws.onmessage = e => {
         const m = JSON.parse(e.data) as WsEvent
-        if (m.type === 'telemetry') setTele(m)
+        if (m.type === 'telemetry') { setTele(m); setLink(m.connection) }
+        else if (m.type === 'state') {
+          setLink(m.connection)
+          if (m.connection !== 'Connected') setTele(null) // sim gone → reset the gauges to —
+        }
         else if (m.type === 'settled') cb.current(m)
       }
-      ws.onclose = () => { setConnected(false); if (!closed) retry = setTimeout(connect, 1500) }
+      ws.onclose = () => { setWsOpen(false); if (!closed) retry = setTimeout(connect, 1500) }
       ws.onerror = () => ws?.close()
     }
     connect()
     return () => { closed = true; clearTimeout(retry); ws?.close() }
   }, [])
 
-  return { tele, connected }
+  return { tele, wsOpen, link }
+}
+
+/** Map the server link state to an honest HUD badge — never a green "connected" without frames. */
+function linkBadge(wsOpen: boolean, link: string): { text: string; tone: string } {
+  if (!wsOpen) return { text: 'reconnecting…', tone: 'down' }
+  switch (link) {
+    case 'Connected': return { text: 'live', tone: 'up' }
+    case 'Connecting': return { text: 'connecting…', tone: 'warn' }
+    case 'SimExited': return { text: 'sim closed', tone: 'down' }
+    default: return { text: 'waiting for sim', tone: 'warn' } // Disconnected
+  }
 }
 
 function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
@@ -266,12 +282,13 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
   const loadAssignments = useCallback(() => { api.assignments().then(setAssignments).catch(() => {}) }, [])
   useEffect(() => { loadAssignments() }, [loadAssignments])
 
-  const { tele, connected } = useTelemetry(s => {
+  const { tele, wsOpen, link } = useTelemetry(s => {
     setSettled(s)
     setBegun(null)
     onSettled()
     loadAssignments()
   })
+  const badge = linkBadge(wsOpen, link)
 
   const begin = async (a: Assignment) => {
     setSettled(null)
@@ -284,7 +301,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
       <section className="card hud">
         <div className="hud-head">
           <h2>Live flight</h2>
-          <span className={`conn ${connected ? 'up' : 'down'}`}>{connected ? tele?.connection ?? 'link up' : 'no link'}</span>
+          <span className={`conn ${badge.tone}`}>{badge.text}</span>
         </div>
         <div className="phase num">{tele?.phase ?? '—'}</div>
         <div className="gauges">
