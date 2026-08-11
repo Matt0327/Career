@@ -18,6 +18,13 @@ public sealed class Company : ISyncable
     /// <summary>Cached balance in integer cents. Mutated only via <see cref="ApplyCashDelta"/>.</summary>
     public long CashCents { get; private set; }
 
+    /// <summary>
+    /// Optimistic-concurrency token, bumped on every cash move (configured <c>IsConcurrencyToken</c>).
+    /// Two money movements that race on the cached balance conflict instead of one silently clobbering
+    /// the other — which would desync <see cref="CashCents"/> from the ledger sum (domain-notes §4.1).
+    /// </summary>
+    public int Version { get; set; }
+
     // Sync hooks (dormant until the Phase-4 shared-world ADR).
     public DateTimeOffset UpdatedAt { get; set; }
     public bool IsDeleted { get; set; }
@@ -27,5 +34,9 @@ public sealed class Company : ISyncable
     public decimal Cash => CashCents / 100m;
 
     /// <summary>Adjust the cached balance. Internal so only the ledger can move money.</summary>
-    internal void ApplyCashDelta(long deltaCents) => CashCents += deltaCents;
+    internal void ApplyCashDelta(long deltaCents)
+    {
+        CashCents += deltaCents;
+        Version++;
+    }
 }

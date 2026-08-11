@@ -34,6 +34,7 @@ public sealed class CallsignDbContext : DbContext
         var company = model.Entity<Company>();
         company.HasKey(c => c.Id);
         company.Property(c => c.Name).IsRequired().HasMaxLength(120);
+        company.Property(c => c.Version).IsConcurrencyToken(); // races on the cash cache conflict, not clobber
 
         var pilot = model.Entity<Pilot>();
         pilot.HasKey(p => p.Id);
@@ -148,5 +149,6 @@ public sealed class CallsignDbContext : DbContext
         instance.Property(a => a.LocationIcao).IsRequired().HasMaxLength(12);
         instance.HasIndex(a => a.CompanyId);
         instance.HasOne<AircraftType>().WithMany().HasForeignKey(a => a.TypeId).OnDelete(DeleteBehavior.Restrict);
+        instance.HasOne<Company>().WithMany().HasForeignKey(a => a.CompanyId).OnDelete(DeleteBehavior.Restrict);
     }
 }

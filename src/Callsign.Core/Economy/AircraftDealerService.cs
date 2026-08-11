@@ -51,7 +51,11 @@ public sealed class AircraftDealerService
             .ToListAsync(ct);
         var typeIds = owned.Select(a => a.TypeId).Distinct().ToList();
         var types = await _db.AircraftTypes.Where(t => typeIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id, ct);
-        return owned.Select(a => new OwnedAircraft(a, types[a.TypeId])).ToList();
+        // Defensive: a missing type must never 500 the whole hangar (types are kept stable by the roster
+        // upsert, so this shouldn't trigger — but one orphaned row shouldn't hide the rest of the fleet).
+        return owned.Where(a => types.ContainsKey(a.TypeId))
+            .Select(a => new OwnedAircraft(a, types[a.TypeId]))
+            .ToList();
     }
 
     /// <summary>Buy an aircraft type at <paramref name="atIcao"/>: creates an owned airframe and debits the ledger.</summary>
@@ -87,6 +91,6 @@ public sealed class AircraftDealerService
         return instance;
     }
 
-    // A friendly, unique-enough tail: "CS-" + 4 hex from a fresh guid.
-    private static string NewTail() => "CS-" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant();
+    // A friendly tail: "CS-" + 6 hex from a fresh guid (~16.7M space; collisions negligible per fleet).
+    private static string NewTail() => "CS-" + Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
 }

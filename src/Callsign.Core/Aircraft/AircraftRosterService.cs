@@ -33,12 +33,17 @@ public sealed class AircraftRosterService
         IReadOnlyList<CuratedAircraft> curated,
         CancellationToken ct = default)
     {
+        // Aliases + install state are derived/machine-local and unreferenced — safe to rebuild wholesale.
+        // AircraftType rows, however, are referenced by OWNED aircraft (AircraftInstance.TypeId), so they
+        // are UPSERTED by Key: a rescan keeps each type's Id stable, and never deletes a type you own.
         _db.InstalledPackages.RemoveRange(await _db.InstalledPackages.ToListAsync(ct));
         _db.AircraftTitleAliases.RemoveRange(await _db.AircraftTitleAliases.ToListAsync(ct));
-        _db.AircraftTypes.RemoveRange(await _db.AircraftTypes.ToListAsync(ct));
         await _db.SaveChangesAsync(ct);
 
         var now = _clock.UtcNow;
+        var existing = (await _db.AircraftTypes.ToListAsync(ct))
+            .GroupBy(t => t.Key, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
         var scannedByKey = scanned.ToDictionary(s => s.Key, StringComparer.OrdinalIgnoreCase);
         var curatedByKey = curated.ToDictionary(c => c.IcaoTypeDesignator.ToUpperInvariant(), StringComparer.OrdinalIgnoreCase);
 
@@ -58,56 +63,49 @@ public sealed class AircraftRosterService
                 ? c.Category
                 : s?.Category ?? AircraftCategory.Unknown;
 
-            var type = new AircraftType
+            if (!existing.TryGetValue(key, out var type))
             {
-                Id = Guid.NewGuid(),
-                Key = key,
-                CanonicalName = s?.CanonicalName ?? c!.CanonicalName,
-                Manufacturer = c?.Manufacturer ?? s?.Manufacturer,
-                IcaoTypeDesignator = s?.IcaoTypeDesignator ?? c?.IcaoTypeDesignator,
-                IcaoModel = s?.IcaoModel,
-                Category = category,
-                UiTypeRole = s?.UiTypeRole,
-                Seats = c?.Seats,
-                UsefulLoadLbs = c?.UsefulLoadLbs,
-                FuelCapacityLbs = c?.FuelCapacityLbs,
-                CruiseKtas = c?.CruiseKtas,
-                MinRunwayFt = c?.MinRunwayFt,
-                Aliases = titles
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .Select(t => new AircraftTitleAlias { Title = t, TitleNormalized = AircraftTitle.Normalize(t) })
-                    .ToList(),
-            };
-            _db.AircraftTypes.Add(type);
+                type = new AircraftType { Id = Guid.NewGuid(), Key = key };
+                _db.AircraftTypes.Add(type);
+            }
+            // Refresh identity + specs in place, preserving the (referenced) Id.
+            type.CanonicalName = s?.CanonicalName ?? c!.CanonicalName;
+            type.Manufacturer = c?.Manufacturer ?? s?.Manufacturer;
+            type.IcaoTypeDesignator = s?.IcaoTypeDesignator ?? c?.IcaoTypeDesignator;
+            type.IcaoModel = s?.IcaoModel;
+            type.Category = category;
+            type.UiTypeRole = s?.UiTypeRole;
+            type.Seats = c?.Seats;
+            type.UsefulLoadLbs = c?.UsefulLoadLbs;
+            type.FuelCapacityLbs = c?.FuelCapacityLbs;
+            type.CruiseKtas = c?.CruiseKtas;
+            type.MinRunwayFt = c?.MinRunwayFt;
+
+            foreach (var t in titles.Distinct(StringComparer.OrdinalIgnoreCase))
+                _db.AircraftTitleAliases.Add(new AircraftTitleAlias
+                {
+                    AircraftTypeId = type.Id,
+                    Title = t,
+                    TitleNormalized = AircraftTitle.Normalize(t),
+                });
 
             if (s is not null)
             {
                 foreach (var loc in s.Locations)
-                {
                     _db.InstalledPackages.Add(new InstalledPackage
                     {
-                        Id = Guid.NewGuid(),
-                        AircraftTypeId = type.Id,
-                        Source = loc.Source,
-                        PackageFolder = loc.PackageFolder,
-                        AircraftFolder = loc.AircraftFolder,
-                        IsOnDisk = true,
-                        ScannedAt = now,
+                        Id = Guid.NewGuid(), AircraftTypeId = type.Id, Source = loc.Source,
+                        PackageFolder = loc.PackageFolder, AircraftFolder = loc.AircraftFolder,
+                        IsOnDisk = true, ScannedAt = now,
                     });
-                }
             }
             else
             {
                 // Curated-only: available to the player via cloud streaming, not a local file.
                 _db.InstalledPackages.Add(new InstalledPackage
                 {
-                    Id = Guid.NewGuid(),
-                    AircraftTypeId = type.Id,
-                    Source = "Default2024",
-                    PackageFolder = "(streamed default fleet)",
-                    AircraftFolder = "",
-                    IsOnDisk = false,
-                    ScannedAt = now,
+                    Id = Guid.NewGuid(), AircraftTypeId = type.Id, Source = "Default2024",
+                    PackageFolder = "(streamed default fleet)", AircraftFolder = "", IsOnDisk = false, ScannedAt = now,
                 });
             }
         }

@@ -23,6 +23,18 @@ Build order — each step independently playable, finish before the next:
 6. **2f — More mission types.** Passengers first (manifest + seats), then express/tourist/etc.
 7. **2g — Trade.** Buy low / sell high across airports; goods as assets with a cost basis.
 
+## Pre-ship infrastructure (tracked, before any real save ships)
+
+These came out of the 2a adversarial review and are deliberately scheduled, not skipped:
+
+- **EF Core migrations.** The app builds its schema with `EnsureCreated`, so a *new* save gets new
+  tables/columns but an *existing* save does not. Replace with an `InitialCreate` baseline + a
+  `Database.Migrate()` on startup before we ship a save anyone keeps. (Pre-release, dev DBs are
+  disposable — delete `%LOCALAPPDATA%\Callsign\callsign.db` after a schema change.)
+- **Idempotent purchases.** Give money-committing endpoints a client idempotency token so a network
+  retry replays instead of double-charging (the UI already debounces; the `Company.Version`
+  concurrency token now stops the concurrent-race desync).
+
 ## Invariants (carried from Phase 1, enforced at every step)
 
 - Every money movement is a `LedgerEntry`; `Company.CashCents` is only a cache of the ledger.

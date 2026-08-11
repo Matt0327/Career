@@ -197,6 +197,11 @@ public static class CallsignWebApp
                 var inst = await dealer.BuyAsync(pilot.CompanyId, req.TypeId, pilot.CurrentIcao);
                 return Results.Ok(new { id = inst.Id, tail = inst.Tail });
             }
+            catch (DbUpdateConcurrencyException)
+            {
+                // Another money movement committed first (the Company version token conflicted).
+                return Results.Conflict(new { error = "Cash changed at the same time — try again." });
+            }
             catch (InvalidOperationException ex)
             {
                 return Results.BadRequest(new { error = ex.Message });

@@ -85,4 +85,31 @@ public class AircraftDealerServiceTests
             Assert.Equal(10_000, (await db.Companies.FindAsync(companyId))!.CashCents);
         }
     }
+
+    [Fact]
+    public void Pricing_NullSpecs_IsBaseCategoryOnly()
+    {
+        var t = new AircraftType { Id = Guid.NewGuid(), Key = "X", CanonicalName = "Mystery", Category = AircraftCategory.Turboprop };
+        var q = AircraftPricing.Quote(Cfg, t);
+        Assert.Single(q.Factors); // just the category base, no spec premiums
+        Assert.Equal(Cfg.AircraftBaseCents(AircraftCategory.Turboprop), q.TotalCents);
+    }
+
+    [Fact]
+    public async Task ConcurrentCashMoves_Conflict_InsteadOfClobbering()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var companyId = await SeedCompanyWithCashAsync(tdb, clock, 1_000_000, C172());
+
+        // Two independent contexts both load the company at the same version and stage a debit.
+        using var db1 = tdb.NewContext();
+        using var db2 = tdb.NewContext();
+        await new LedgerService(db1, clock).StageBatchAsync(companyId, new[] { new LedgerPosting(LedgerCategory.Adjustment, -100m, "a") });
+        await new LedgerService(db2, clock).StageBatchAsync(companyId, new[] { new LedgerPosting(LedgerCategory.Adjustment, -200m, "b") });
+
+        await db1.SaveChangesAsync(); // first writer wins, bumps the version token
+        // The second writer's version is now stale — it conflicts instead of silently clobbering the cache.
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => db2.SaveChangesAsync());
+    }
 }
