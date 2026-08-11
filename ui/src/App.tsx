@@ -419,6 +419,12 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
 
+  const maintain = async (a: OwnedAircraft) => {
+    setBusy(true); setMsg(null)
+    try { await api.maintain(a.id); await load(); onChanged(); setMsg(`Serviced ${a.tail} — good as new.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+
   return (
     <div className="grid">
       <section className="card">
@@ -427,17 +433,25 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
           : owned.length === 0 ? <div className="empty">No aircraft yet — buy one below.</div>
             : (
               <table className="tbl">
-                <thead><tr><th>Tail</th><th>Aircraft</th><th>At</th><th className="r">Hours</th><th className="r">Paid</th></tr></thead>
+                <thead><tr><th>Tail</th><th>Aircraft</th><th>At</th><th className="r">Hours</th><th className="r">Condition</th><th className="r">Maintenance</th></tr></thead>
                 <tbody>
-                  {owned.map(a => (
-                    <tr key={a.id}>
-                      <td className="num">{a.tail}</td>
-                      <td>{a.name} <span className="muted">· {spaced(a.category)}</span></td>
-                      <td className="loc">{a.locationIcao}</td>
-                      <td className="r num">{a.airframeHours.toFixed(1)}</td>
-                      <td className="r num muted">{a.purchasePriceCents != null ? money(a.purchasePriceCents) : '—'}</td>
-                    </tr>
-                  ))}
+                  {owned.map(a => {
+                    const cond = Math.round(Math.min(a.hullConditionMilli, a.engineConditionMilli) / 1000)
+                    return (
+                      <tr key={a.id}>
+                        <td className="num">{a.tail}</td>
+                        <td>{a.name} <span className="muted">· {spaced(a.category)}</span></td>
+                        <td className="loc">{a.locationIcao}</td>
+                        <td className="r num">{a.airframeHours.toFixed(1)}</td>
+                        <td className={`r num ${cond < 40 ? 'neg' : cond < 70 ? '' : 'pos'}`}>{cond}%</td>
+                        <td className="r">
+                          {a.maintenanceDue
+                            ? <button className="primary small" disabled={busy} onClick={() => maintain(a)}>Service · {money(a.maintenanceQuoteCents)}</button>
+                            : <span className="muted num">{money(a.maintenanceQuoteCents)}</span>}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             )}

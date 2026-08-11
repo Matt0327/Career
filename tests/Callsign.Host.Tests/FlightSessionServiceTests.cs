@@ -204,6 +204,8 @@ public class FlightSessionServiceTests
         using var scope = sp.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CallsignDbContext>();
         Assert.Equal(AssignmentStatus.Settled, (await db.JobAssignments.FindAsync(assignmentId))!.Status);
-        Assert.Equal(210_000, (await db.Companies.FindAsync(companyId))!.CashCents);
+        // 200000 base + 5% landing bonus (10000) - $250 landing fee at EHRD (a large airport) = 185000
+        Assert.Equal(185_000, (await db.Companies.FindAsync(companyId))!.CashCents);
+        Assert.Contains(await db.LedgerEntries.ToListAsync(), e => e.Category == LedgerCategory.AirportFee);
     }
 }

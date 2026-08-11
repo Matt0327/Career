@@ -24,6 +24,7 @@ public sealed class AircraftInstance : ISyncable
     public int HullConditionMilli { get; set; } = 100_000;   // 0..100000; full at purchase
     public int EngineConditionMilli { get; set; } = 100_000;
     public double AirframeHours { get; set; }
+    public double MaintenanceHoursWatermark { get; set; }    // airframe hours at the last maintenance (§6.6)
     public long? PurchasePriceCents { get; set; }
     public DateTimeOffset? AcquiredAt { get; set; }
 

@@ -91,6 +91,42 @@ public sealed class AircraftDealerService
         return instance;
     }
 
+    /// <summary>What a maintenance service costs now: a base plus per-hour since the last service.</summary>
+    public long MaintenanceQuoteCents(AircraftInstance inst)
+        => _cfg.MaintenanceBaseCents
+         + (long)Math.Round(Math.Max(0, inst.AirframeHours - inst.MaintenanceHoursWatermark) * _cfg.MaintenancePerHourCents);
+
+    /// <summary>True once enough airframe hours have accrued since the last service.</summary>
+    public bool MaintenanceDue(AircraftInstance inst)
+        => inst.AirframeHours - inst.MaintenanceHoursWatermark >= _cfg.MaintenanceIntervalHours;
+
+    /// <summary>Service an owned airframe: bill via the ledger, restore condition, reset the watermark.</summary>
+    public async Task<long> MaintainAsync(Guid companyId, Guid instanceId, CancellationToken ct = default)
+    {
+        var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId, ct)
+                      ?? throw new InvalidOperationException($"Company {companyId} not found.");
+        var inst = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == instanceId && a.CompanyId == companyId, ct)
+                   ?? throw new InvalidOperationException("Aircraft not found in your fleet.");
+
+        var cost = MaintenanceQuoteCents(inst);
+        if (company.CashCents < cost)
+            throw new InvalidOperationException(
+                $"Not enough cash: maintenance costs {cost / 100m:C0}, you have {company.Cash:C0}.");
+
+        var now = _clock.UtcNow;
+        await _ledger.StageBatchAsync(companyId, new[]
+        {
+            new LedgerPosting(LedgerCategory.Repair, -(cost / 100m), $"Maintenance on {inst.Tail}",
+                AircraftInstanceId: inst.Id, DedupeKey: $"maint:{inst.Id}:{inst.AirframeHours:F1}"),
+        }, ct);
+        inst.HullConditionMilli = 100_000;
+        inst.EngineConditionMilli = 100_000;
+        inst.MaintenanceHoursWatermark = inst.AirframeHours;
+        inst.UpdatedAt = now;
+        await _db.SaveChangesAsync(ct);
+        return cost;
+    }
+
     // A friendly tail: "CS-" + 6 hex from a fresh guid (~16.7M space; collisions negligible per fleet).
     private static string NewTail() => "CS-" + Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
 }

@@ -185,7 +185,28 @@ public static class CallsignWebApp
             return Results.Ok(hangar.Select(h => new OwnedAircraftDto(
                 h.Instance.Id, h.Instance.Tail, h.Type.CanonicalName, h.Type.Category.ToString(),
                 h.Instance.LocationIcao, h.Instance.Availability.ToString(),
-                h.Instance.PurchasePriceCents, h.Instance.AirframeHours)));
+                h.Instance.PurchasePriceCents, h.Instance.AirframeHours,
+                h.Instance.HullConditionMilli, h.Instance.EngineConditionMilli,
+                dealer.MaintenanceDue(h.Instance), dealer.MaintenanceQuoteCents(h.Instance))));
+        });
+
+        app.MapPost("/api/aircraft/{id:guid}/maintain", async (Guid id, CallsignDbContext db, AircraftDealerService dealer) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                var cost = await dealer.MaintainAsync(pilot.CompanyId, id);
+                return Results.Ok(new { maintainedCents = cost });
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return Results.Conflict(new { error = "Cash changed at the same time — try again." });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
         });
 
         app.MapPost("/api/aircraft/buy", async (BuyAircraftRequest req, CallsignDbContext db, AircraftDealerService dealer) =>

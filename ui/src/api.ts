@@ -81,6 +81,10 @@ export interface OwnedAircraft {
   availability: string
   purchasePriceCents: number | null
   airframeHours: number
+  hullConditionMilli: number
+  engineConditionMilli: number
+  maintenanceDue: boolean
+  maintenanceQuoteCents: number
 }
 
 /** A live telemetry frame pushed over the WebSocket. */
@@ -159,6 +163,7 @@ export const api = {
   market: () => fetch('/api/aircraft/market').then(ok<AircraftOffer[]>),
   hangar: () => fetch('/api/aircraft').then(ok<OwnedAircraft[]>),
   buyAircraft: (typeId: string) => POST('/api/aircraft/buy', { typeId }).then(ok),
+  maintain: (id: string) => POST(`/api/aircraft/${id}/maintain`).then(ok),
 }
 
 /** Whole-dollar, sign-aware money from integer cents: 147000 -> "$1,470". */

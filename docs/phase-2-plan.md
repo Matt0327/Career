@@ -15,8 +15,9 @@ Build order — each step independently playable, finish before the next:
 2. ✅ **2b — Fly what you own.** A new career gets a gifted starter airframe; you pick which of your
    aircraft flies a leg; on landing at the destination the airframe (and the pilot) move there and it
    ticks airframe hours. The airframe binding is optional, so the synthetic/test path still works.
-3. **2c — Running costs.** Airframe hours → maintenance billing; hull/engine condition; parking &
-   landing fees on arrival — all itemised ledger rows, all shown before you commit.
+3. ✅ **2c — Running costs.** A landing/handling fee on every arrival (itemised in the payout); hull +
+   engine condition that wears with hours and hard landings; maintenance you pay for to restore it and
+   reset the interval — all itemised ledger rows.
 4. **2d — Staff.** Hire pilots; standing orders that fly routes autonomously while you're away
    (the "automate the busywork" promise), reconciled deterministically on reopen.
 5. **2e — Bases.** Open/close bases; home-basing, parking, and where your fleet lives.

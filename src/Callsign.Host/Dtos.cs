@@ -32,7 +32,8 @@ public record AircraftOfferDto(
 
 public record OwnedAircraftDto(
     Guid Id, string Tail, string Name, string Category, string LocationIcao,
-    string Availability, long? PurchasePriceCents, double AirframeHours);
+    string Availability, long? PurchasePriceCents, double AirframeHours,
+    int HullConditionMilli, int EngineConditionMilli, bool MaintenanceDue, long MaintenanceQuoteCents);
 
 public record BuyAircraftRequest(Guid TypeId);
 

@@ -106,6 +106,7 @@ input { font: inherit; }
 }
 .primary:hover { filter: brightness(1.06); }
 .primary:disabled { opacity: .55; cursor: default; }
+.primary.small { padding: 5px 10px; font-size: 12px; }
 
 /* ── Dashboard extras ── */
 .how ol { margin: 0 0 12px; padding-left: 20px; }

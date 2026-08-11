@@ -74,7 +74,17 @@ public sealed class SettlementService
             lines.Add(new($"Landing penalty ({flight.TouchdownFpm:F0} fpm)", landingDelta));
         }
 
-        long total = baseCents + landingDelta;
+        // Landing/handling fee at the destination — a running cost, itemised like everything else.
+        var destAirport = await _db.Airports.FirstOrDefaultAsync(x => x.Ident == a.DestIcao, ct);
+        long landingFee = destAirport is not null ? _cfg.LandingFeeCents(destAirport.Kind) : 0;
+        if (landingFee > 0)
+        {
+            postings.Add(new(LedgerCategory.AirportFee, -(landingFee / 100m), $"Landing fee at {a.DestIcao}",
+                LedgerRefType.Job, jobRef, DedupeKey: $"settle:{a.Id}:fee"));
+            lines.Add(new($"Landing fee ({a.DestIcao})", -landingFee));
+        }
+
+        long total = baseCents + landingDelta - landingFee;
         var breakdown = new PayoutBreakdown(total, lines);
 
         // Stage the ledger rows + cash delta (not saved), then commit them together with the Flight
@@ -111,9 +121,16 @@ public sealed class SettlementService
             var instance = await _db.AircraftInstances.FirstOrDefaultAsync(x => x.Id == aid, ct);
             if (instance is not null)
             {
+                var hours = Math.Max(0, flight.BlockTime.TotalHours);
                 instance.LocationIcao = a.DestIcao;
                 instance.Availability = AircraftAvailability.Available;
-                instance.AirframeHours += Math.Max(0, flight.BlockTime.TotalHours);
+                instance.AirframeHours += hours;
+
+                // Wear: hull + engine drop with hours; a hard touchdown adds extra hull wear.
+                int hourWear = (int)Math.Round(hours * _cfg.ConditionWearMilliPerHour);
+                int hullWear = hourWear + (_cfg.LandingModifierPct(flight.TouchdownFpm) < 0 ? _cfg.HardLandingWearMilli : 0);
+                instance.HullConditionMilli = Math.Max(0, instance.HullConditionMilli - hullWear);
+                instance.EngineConditionMilli = Math.Max(0, instance.EngineConditionMilli - hourWear);
                 instance.UpdatedAt = now;
             }
         }

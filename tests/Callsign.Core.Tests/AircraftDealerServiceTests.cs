@@ -112,4 +112,44 @@ public class AircraftDealerServiceTests
         // The second writer's version is now stale — it conflicts instead of silently clobbering the cache.
         await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => db2.SaveChangesAsync());
     }
+
+    [Fact]
+    public async Task Maintain_BillsViaLedger_AndRestoresCondition()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var type = C172();
+        var companyId = await SeedCompanyWithCashAsync(tdb, clock, 10_000_000, type); // $100k
+
+        Guid instId;
+        using (var db = tdb.NewContext())
+        {
+            var inst = new AircraftInstance
+            {
+                Id = Guid.NewGuid(), TypeId = type.Id, CompanyId = companyId, Tail = "CS-1", LocationIcao = "EHAM",
+                AirframeHours = 60, HullConditionMilli = 40_000, EngineConditionMilli = 50_000, MaintenanceHoursWatermark = 0,
+            };
+            db.AircraftInstances.Add(inst);
+            await db.SaveChangesAsync();
+            instId = inst.Id;
+        }
+
+        long cost;
+        using (var db = tdb.NewContext())
+            cost = await new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg).MaintainAsync(companyId, instId);
+
+        Assert.Equal(Cfg.MaintenanceBaseCents + 60 * Cfg.MaintenancePerHourCents, cost); // base + per-hour since watermark
+
+        using (var db = tdb.NewContext())
+        {
+            var inst = await db.AircraftInstances.FindAsync(instId);
+            Assert.Equal(100_000, inst!.HullConditionMilli);       // restored
+            Assert.Equal(100_000, inst.EngineConditionMilli);
+            Assert.Equal(60d, inst.MaintenanceHoursWatermark);     // watermark reset to current hours
+            var debit = await db.LedgerEntries.SingleAsync(e => e.Category == LedgerCategory.Repair);
+            Assert.Equal(-cost, debit.AmountCents);
+            Assert.Equal(instId, debit.AircraftInstanceId);
+            Assert.Equal(10_000_000 - cost, (await db.Companies.FindAsync(companyId))!.CashCents);
+        }
+    }
 }

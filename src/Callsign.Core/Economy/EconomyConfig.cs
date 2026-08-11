@@ -72,5 +72,21 @@ public sealed record EconomyConfig
         _                            => 50_000_000,     // $500k
     };
 
+    // --- Running costs: landing fee on arrival + maintenance & condition (§6.6) ---
+    /// <summary>The landing/handling fee charged on arrival, by airport size.</summary>
+    public long LandingFeeCents(AirportKind kind) => kind switch
+    {
+        AirportKind.LargeAirport => 25_000,   // $250
+        AirportKind.MediumAirport => 8_000,   // $80
+        AirportKind.SmallAirport => 2_500,    // $25
+        _ => 4_000,                            // $40 (heliport / other)
+    };
+
+    public double MaintenanceIntervalHours { get; init; } = 50;    // maintenance is "due" this long after the last
+    public long MaintenanceBaseCents { get; init; } = 50_000;      // $500 fixed to open the cowlings
+    public long MaintenancePerHourCents { get; init; } = 20_000;   // $200 per airframe hour since the last service
+    public int ConditionWearMilliPerHour { get; init; } = 400;     // hull + engine wear per airframe hour (0..100000)
+    public int HardLandingWearMilli { get; init; } = 1_500;        // extra hull wear on a hard touchdown
+
     public static EconomyConfig Default { get; } = new();
 }
