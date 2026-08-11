@@ -70,5 +70,7 @@ static void Print(TelemetrySnapshot t)
         $"ias {t.IndicatedAirspeedKts,5:F0} kt  " +
         $"gs {t.GroundSpeedKts,5:F0} kt  " +
         $"vs {t.VerticalSpeedFpm,7:F0} fpm  " +
+        $"fuel {t.FuelQuantityLbs,6:F0} lb  " +
+        $"{t.LatitudeDeg,8:F3},{t.LongitudeDeg,8:F3}  " +
         $"{(t.OnGround ? "GND" : "AIR")}  " +
         $"\"{t.AircraftTitle}\"");

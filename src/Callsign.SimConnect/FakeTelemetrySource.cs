@@ -62,10 +62,14 @@ public sealed class FakeTelemetrySource : ISimTelemetrySource
                 TelemetryReceived?.Invoke(new TelemetrySnapshot
                 {
                     Sequence = seq++,
+                    CapturedAt = DateTimeOffset.UtcNow,
                     AltitudeFt = altitude,
                     IndicatedAirspeedKts = ias,
                     GroundSpeedKts = gs,
                     VerticalSpeedFpm = onGround ? 0 : vs,
+                    LatitudeDeg = 52.0 + frac * 1.5,   // drift a synthetic ground track
+                    LongitudeDeg = 4.0 + frac * 2.5,
+                    FuelQuantityLbs = 500 - frac * 120,
                     OnGround = onGround,
                     AircraftTitle = _title,
                 });

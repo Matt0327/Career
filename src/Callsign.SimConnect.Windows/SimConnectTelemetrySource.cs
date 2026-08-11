@@ -9,14 +9,13 @@ using Microsoft.FlightSimulator.SimConnect;
 /// <summary>
 /// Live telemetry from MSFS via the official SimConnect managed interop.
 ///
-/// Windows-only; requires <c>Microsoft.FlightSimulator.SimConnect.dll</c> and the
-/// native <c>SimConnect.dll</c> (fetched into /vendor by scripts/fetch-simconnect.ps1).
+/// Windows-only; requires <c>Microsoft.FlightSimulator.SimConnect.dll</c> and the native
+/// <c>SimConnect.dll</c> (fetched into /vendor by scripts/fetch-simconnect.ps1).
 ///
-/// Headless design: SimConnect is pumped on a dedicated background thread that waits
-/// on an <see cref="EventWaitHandle"/> (no window/message loop needed for a console
-/// or service). The source owns its reconnect loop and survives the sim exiting and
-/// restarting (brief §10.3). All SimConnect calls happen on the pump thread, since
-/// the managed wrapper is not thread-safe.
+/// Headless design: SimConnect is pumped on a dedicated background thread that waits on an
+/// <see cref="EventWaitHandle"/> (no window/message loop needed for a console or service). The
+/// source owns its reconnect loop and survives the sim exiting and restarting (brief §10.3). All
+/// SimConnect calls happen on the pump thread, since the managed wrapper is not thread-safe.
 /// </summary>
 public sealed class SimConnectTelemetrySource : ISimTelemetrySource
 {
@@ -32,6 +31,9 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
         public double IndicatedAirspeedKts;
         public double GroundSpeedKts;
         public double VerticalSpeedFpm;
+        public double LatitudeDeg;
+        public double LongitudeDeg;
+        public double FuelQuantityLbs;
         public int OnGround;
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
         public string Title;
@@ -158,6 +160,12 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
             SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
         sc.AddToDataDefinition(Definitions.AircraftData, "VERTICAL SPEED", "feet per minute",
             SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "PLANE LATITUDE", "degrees",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "PLANE LONGITUDE", "degrees",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "FUEL TOTAL QUANTITY WEIGHT", "pounds",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
         sc.AddToDataDefinition(Definitions.AircraftData, "SIM ON GROUND", "bool",
             SIMCONNECT_DATATYPE.INT32, 0f, unused);
         sc.AddToDataDefinition(Definitions.AircraftData, "TITLE", null,
@@ -176,10 +184,14 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
         TelemetryReceived?.Invoke(new TelemetrySnapshot
         {
             Sequence = Interlocked.Increment(ref _seq),
+            CapturedAt = DateTimeOffset.UtcNow,
             AltitudeFt = d.AltitudeFt,
             IndicatedAirspeedKts = d.IndicatedAirspeedKts,
             GroundSpeedKts = d.GroundSpeedKts,
             VerticalSpeedFpm = d.VerticalSpeedFpm,
+            LatitudeDeg = d.LatitudeDeg,
+            LongitudeDeg = d.LongitudeDeg,
+            FuelQuantityLbs = d.FuelQuantityLbs,
             OnGround = d.OnGround != 0,
             AircraftTitle = d.Title ?? string.Empty,
         });
@@ -211,9 +223,9 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
 
 /// <summary>
 /// Build-time stub used when the SimConnect binaries are absent from /vendor
-/// (see scripts/fetch-simconnect.ps1). Lets the whole solution compile on any
-/// machine; the real implementation lights up once the DLLs exist. Constructing it
-/// throws, so callers fall back to <see cref="FakeTelemetrySource"/>.
+/// (see scripts/fetch-simconnect.ps1). Lets the whole solution compile on any machine; the real
+/// implementation lights up once the DLLs exist. Constructing it throws, so callers fall back to
+/// <see cref="FakeTelemetrySource"/>.
 /// </summary>
 public sealed class SimConnectTelemetrySource : ISimTelemetrySource
 {

@@ -11,6 +11,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The flight tracker consumes the telemetry contract (TelemetrySnapshot / ISimTelemetrySource). -->
+    <ProjectReference Include="..\Callsign.SimConnect\Callsign.SimConnect.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Callsign.Core.Tests" />
   </ItemGroup>
 
