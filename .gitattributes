@@ -26,6 +26,7 @@
 *.dll binary
 *.lib binary
 *.exp binary
+*.gz  binary
 *.png binary
 *.jpg binary
 *.ico binary

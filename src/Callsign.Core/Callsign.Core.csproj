@@ -13,4 +13,15 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Callsign.Core.Tests" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- Bundled OurAirports snapshot (public domain), gzipped and embedded so the app works
+         offline out of the box and never asks the user to place a file (brief §3.6). -->
+    <EmbeddedResource Include="Assets\ourairports\airports.csv.gz">
+      <LogicalName>Callsign.Core.ourairports.airports.csv.gz</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Assets\ourairports\runways.csv.gz">
+      <LogicalName>Callsign.Core.ourairports.runways.csv.gz</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
 </Project>

@@ -11,6 +11,8 @@ public sealed class CallsignDbContext : DbContext
     public DbSet<Company> Companies => Set<Company>();
     public DbSet<Pilot> Pilots => Set<Pilot>();
     public DbSet<LedgerEntry> LedgerEntries => Set<LedgerEntry>();
+    public DbSet<Airport> Airports => Set<Airport>();
+    public DbSet<Runway> Runways => Set<Runway>();
 
     protected override void OnModelCreating(ModelBuilder model)
     {
@@ -33,16 +35,38 @@ public sealed class CallsignDbContext : DbContext
         ledger.Property(e => e.Description).IsRequired().HasMaxLength(200);
         ledger.Property(e => e.RelatedEntityId).HasMaxLength(80);
         ledger.Property(e => e.DedupeKey).HasMaxLength(120);
-        // Global identity + per-account idempotency.
         ledger.HasIndex(e => e.EntryUid).IsUnique();
         ledger.HasIndex(e => new { e.AccountId, e.DedupeKey }).IsUnique();
-        // Running balance + per-asset P&L rollups.
         ledger.HasIndex(e => new { e.AccountId, e.At });
         ledger.HasIndex(e => new { e.AircraftInstanceId, e.At });
         ledger.HasIndex(e => new { e.StaffId, e.At });
         ledger.HasIndex(e => new { e.BaseId, e.At });
         ledger.HasIndex(e => new { e.RelatedEntityType, e.RelatedEntityId });
-        // Never cascade — deleting an account must never delete the source-of-truth ledger.
         ledger.HasOne<Company>().WithMany().HasForeignKey(e => e.AccountId).OnDelete(DeleteBehavior.Restrict);
+
+        // --- Reference data: bundled OurAirports snapshot, replaced wholesale on update ---
+        var airport = model.Entity<Airport>();
+        airport.HasKey(a => a.Ident);
+        airport.Property(a => a.Ident).HasMaxLength(12);
+        airport.Property(a => a.IcaoCode).HasMaxLength(12);
+        airport.Property(a => a.IataCode).HasMaxLength(4);
+        airport.Property(a => a.Kind).HasConversion<string>().HasMaxLength(20);
+        airport.Property(a => a.Name).IsRequired().HasMaxLength(200);
+        airport.Property(a => a.IsoCountry).HasMaxLength(4);
+        airport.Property(a => a.IsoRegion).HasMaxLength(8);
+        airport.Property(a => a.Municipality).HasMaxLength(120);
+        airport.HasIndex(a => a.IcaoCode);
+        airport.HasIndex(a => a.IsoCountry);
+        airport.HasIndex(a => new { a.Latitude, a.Longitude });
+
+        var runway = model.Entity<Runway>();
+        runway.HasKey(r => r.Id);
+        runway.Property(r => r.Id).ValueGeneratedOnAdd();
+        runway.Property(r => r.AirportIdent).IsRequired().HasMaxLength(12);
+        runway.Property(r => r.Surface).HasMaxLength(40);
+        runway.Property(r => r.LeIdent).HasMaxLength(8);
+        runway.Property(r => r.HeIdent).HasMaxLength(8);
+        runway.HasIndex(r => r.AirportIdent);
+        runway.HasOne<Airport>().WithMany().HasForeignKey(r => r.AirportIdent).OnDelete(DeleteBehavior.Cascade);
     }
 }
