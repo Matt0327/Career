@@ -33,5 +33,20 @@ public sealed record EconomyConfig
     public int JobXp(double distanceNm)
         => XpBase + (int)Math.Round(distanceNm * XpPerNm);
 
+    // --- Settlement: landing quality (as a fraction of base reward) and payload bonus ---
+    public double PayloadMatchXpBonusPct { get; init; } = 0.5;
+
+    /// <summary>Reward multiplier delta from the touchdown rate: a greaser earns a bonus, a slam a penalty.</summary>
+    public double LandingModifierPct(double touchdownFpm)
+    {
+        double m = Math.Abs(touchdownFpm);
+        if (m <= 100) return 0.10;   // greaser
+        if (m <= 200) return 0.05;   // good
+        if (m <= 400) return 0.00;   // acceptable
+        if (m <= 600) return -0.05;  // firm
+        if (m <= 1000) return -0.15; // hard
+        return -0.30;                // slammed
+    }
+
     public static EconomyConfig Default { get; } = new();
 }

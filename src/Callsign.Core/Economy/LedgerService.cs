@@ -57,6 +57,20 @@ public sealed class LedgerService
     public async Task<IReadOnlyList<LedgerEntry>> PostBatchAsync(
         Guid accountId, IReadOnlyCollection<LedgerPosting> postings, CancellationToken ct = default)
     {
+        var entries = await StageBatchAsync(accountId, postings, ct);
+        if (entries.Count > 0)
+            await _db.SaveChangesAsync(ct); // single transaction: N rows + the balance update
+        return entries;
+    }
+
+    /// <summary>
+    /// Stage the ledger entries + the account balance update on the context WITHOUT saving, so a
+    /// caller (e.g. settlement) can commit them together with its own side-effects — the Flight row,
+    /// XP, status — in a single transaction. Returns the (unsaved) entries.
+    /// </summary>
+    internal async Task<IReadOnlyList<LedgerEntry>> StageBatchAsync(
+        Guid accountId, IReadOnlyCollection<LedgerPosting> postings, CancellationToken ct = default)
+    {
         if (postings.Count == 0)
             return Array.Empty<LedgerEntry>();
 
@@ -90,7 +104,6 @@ public sealed class LedgerService
 
         _db.LedgerEntries.AddRange(entries);
         account.ApplyCashDelta(delta);
-        await _db.SaveChangesAsync(ct); // single transaction: N rows + the balance update
         return entries;
     }
 

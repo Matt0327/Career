@@ -18,6 +18,8 @@ public sealed class CallsignDbContext : DbContext
     public DbSet<AircraftTitleAlias> AircraftTitleAliases => Set<AircraftTitleAlias>();
     public DbSet<InstalledPackage> InstalledPackages => Set<InstalledPackage>();
     public DbSet<Job> Jobs => Set<Job>();
+    public DbSet<JobAssignment> JobAssignments => Set<JobAssignment>();
+    public DbSet<Callsign.Core.Domain.Flight> Flights => Set<Callsign.Core.Domain.Flight>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -117,5 +119,23 @@ public sealed class CallsignDbContext : DbContext
         job.Property(j => j.DestIcao).IsRequired().HasMaxLength(12);
         job.Property(j => j.Commodity).IsRequired().HasMaxLength(60);
         job.HasIndex(j => new { j.OriginIcao, j.ExpiresAt });
+
+        // --- Accepted jobs (frozen quote) and settled flights ---
+        var assignment = model.Entity<JobAssignment>();
+        assignment.HasKey(x => x.Id);
+        assignment.Property(x => x.Type).HasConversion<string>().HasMaxLength(20);
+        assignment.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
+        assignment.Property(x => x.OriginIcao).IsRequired().HasMaxLength(12);
+        assignment.Property(x => x.DestIcao).IsRequired().HasMaxLength(12);
+        assignment.Property(x => x.Commodity).IsRequired().HasMaxLength(60);
+        assignment.HasIndex(x => x.AccountId);
+        assignment.HasIndex(x => x.JobId);
+
+        var flight = model.Entity<Callsign.Core.Domain.Flight>();
+        flight.HasKey(f => f.Id);
+        flight.Property(f => f.AircraftTitle).IsRequired().HasMaxLength(200);
+        flight.Property(f => f.PayoutBreakdownJson).IsRequired();
+        flight.HasIndex(f => f.FlownByPilotId);
+        flight.HasIndex(f => f.JobAssignmentId);
     }
 }
