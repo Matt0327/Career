@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+
+jobs:
+  core:
+    name: Core (portable) — build & test on Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet --info
+      - name: Test (portable library)
+        run: dotnet test -c Release tests/Callsign.SimConnect.Tests/Callsign.SimConnect.Tests.csproj
+
+  windows:
+    name: Windows — full solution (stub SimConnect) + tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      # No SimConnect binaries in CI, so Callsign.SimConnect.Windows compiles as a
+      # stub — this proves the whole solution builds on Windows without them.
+      - name: Build solution
+        run: dotnet build -c Release Callsign.slnx
+      - name: Test
+        run: dotnet test -c Release --no-build tests/Callsign.SimConnect.Tests/Callsign.SimConnect.Tests.csproj

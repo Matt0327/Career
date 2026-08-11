@@ -1,0 +1,16 @@
+<Project>
+  <!-- The native SimConnect.dll must sit next to any executable that (transitively)
+       uses the SimConnect adapter. Content/None items do NOT flow across project
+       references, so copy it here for every exe output when the vendored binary
+       exists. Harmless no-op for library and test projects. -->
+  <PropertyGroup>
+    <SimConnectNativeDll>$(MSBuildThisFileDirectory)vendor\simconnect\SimConnect.dll</SimConnectNativeDll>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(OutputType)' == 'Exe' And Exists('$(SimConnectNativeDll)')">
+    <None Include="$(SimConnectNativeDll)">
+      <Link>SimConnect.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+</Project>

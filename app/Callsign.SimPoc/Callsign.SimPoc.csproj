@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>Callsign.SimPoc</RootNamespace>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Callsign.SimConnect\Callsign.SimConnect.csproj" />
+    <ProjectReference Include="..\..\src\Callsign.SimConnect.Windows\Callsign.SimConnect.Windows.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,50 @@
+# ---- .NET ----
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+*.user
+*.suo
+*.userprefs
+project.lock.json
+artifacts/
+.vs/
+*.dll.config
+
+# ---- Test / coverage ----
+[Tt]est[Rr]esult*/
+coverage/
+*.coverage
+*.trx
+
+# ---- Node / UI ----
+node_modules/
+ui/dist/
+ui/.vite/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---- Rider / VS Code (keep shared settings, ignore local) ----
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json.sample
+
+# ---- App data ----
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+
+# ---- SimConnect redistributables (fetched locally, never committed) ----
+vendor/simconnect/*.dll
+vendor/simconnect/*.lib
+vendor/simconnect/*.exp
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+desktop.ini

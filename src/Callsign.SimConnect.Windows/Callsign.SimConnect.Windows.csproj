@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>Callsign.SimConnect.Windows</RootNamespace>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+
+    <!-- SimConnect binaries are fetched into /vendor by scripts/fetch-simconnect.ps1
+         and are NOT committed. When present, the real adapter is compiled; when
+         absent, a throwing stub is compiled so the solution still builds anywhere. -->
+    <SimConnectManagedDll>$(MSBuildThisFileDirectory)..\..\vendor\simconnect\Microsoft.FlightSimulator.SimConnect.dll</SimConnectManagedDll>
+    <SimConnectNativeDll>$(MSBuildThisFileDirectory)..\..\vendor\simconnect\SimConnect.dll</SimConnectNativeDll>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="Exists('$(SimConnectManagedDll)')">
+    <DefineConstants>$(DefineConstants);SIMCONNECT_AVAILABLE</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup Condition="Exists('$(SimConnectManagedDll)')">
+    <Reference Include="Microsoft.FlightSimulator.SimConnect">
+      <HintPath>$(SimConnectManagedDll)</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+  <!-- Native SimConnect.dll is copied to exe outputs by Directory.Build.targets -->
+
+
+  <ItemGroup>
+    <ProjectReference Include="..\Callsign.SimConnect\Callsign.SimConnect.csproj" />
+  </ItemGroup>
+</Project>

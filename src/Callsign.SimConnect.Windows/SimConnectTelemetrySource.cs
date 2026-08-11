@@ -1,0 +1,232 @@
+using Callsign.SimConnect;
+
+namespace Callsign.SimConnect.Windows;
+
+#if SIMCONNECT_AVAILABLE
+using System.Runtime.InteropServices;
+using Microsoft.FlightSimulator.SimConnect;
+
+/// <summary>
+/// Live telemetry from MSFS via the official SimConnect managed interop.
+///
+/// Windows-only; requires <c>Microsoft.FlightSimulator.SimConnect.dll</c> and the
+/// native <c>SimConnect.dll</c> (fetched into /vendor by scripts/fetch-simconnect.ps1).
+///
+/// Headless design: SimConnect is pumped on a dedicated background thread that waits
+/// on an <see cref="EventWaitHandle"/> (no window/message loop needed for a console
+/// or service). The source owns its reconnect loop and survives the sim exiting and
+/// restarting (brief §10.3). All SimConnect calls happen on the pump thread, since
+/// the managed wrapper is not thread-safe.
+/// </summary>
+public sealed class SimConnectTelemetrySource : ISimTelemetrySource
+{
+    private const int WmUserSimConnect = 0x0402;
+
+    private enum Definitions { AircraftData }
+    private enum Requests { AircraftData }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi, Pack = 1)]
+    private struct AircraftData
+    {
+        public double AltitudeFt;
+        public double IndicatedAirspeedKts;
+        public double GroundSpeedKts;
+        public double VerticalSpeedFpm;
+        public int OnGround;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+        public string Title;
+    }
+
+    private readonly TimeSpan _interval;
+    private readonly TimeSpan _reconnectDelay = TimeSpan.FromSeconds(5);
+
+    private Microsoft.FlightSimulator.SimConnect.SimConnect? _sc;
+    private EventWaitHandle? _hEvent;
+    private Thread? _thread;
+    private CancellationTokenSource? _cts;
+    private long _seq;
+    private SimConnectionState _state = SimConnectionState.Disconnected;
+
+    public SimConnectTelemetrySource(int hz = 4)
+        => _interval = TimeSpan.FromSeconds(1.0 / Math.Clamp(hz, 1, 30));
+
+    public SimConnectionState State => _state;
+    public event Action<SimConnectionState>? StateChanged;
+    public event Action<TelemetrySnapshot>? TelemetryReceived;
+
+    private void SetState(SimConnectionState s)
+    {
+        if (_state == s)
+            return;
+        _state = s;
+        StateChanged?.Invoke(s);
+    }
+
+    public Task StartAsync(CancellationToken cancellationToken = default)
+    {
+        _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _thread = new Thread(() => PumpLoop(_cts.Token))
+        {
+            IsBackground = true,
+            Name = "SimConnect-Pump",
+        };
+        _thread.Start();
+        return Task.CompletedTask;
+    }
+
+    private void PumpLoop(CancellationToken ct)
+    {
+        _hEvent = new EventWaitHandle(false, EventResetMode.AutoReset);
+
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                SetState(SimConnectionState.Connecting);
+                _sc = new Microsoft.FlightSimulator.SimConnect.SimConnect(
+                    "Callsign", IntPtr.Zero, WmUserSimConnect, _hEvent, 0);
+                WireHandlers(_sc);
+                RegisterDataDefinition(_sc);
+                SetState(SimConnectionState.Connected);
+
+                long nextPoll = Environment.TickCount64;
+                while (!ct.IsCancellationRequested && _sc is not null)
+                {
+                    if (_hEvent.WaitOne(50))
+                        _sc?.ReceiveMessage();
+
+                    long now = Environment.TickCount64;
+                    if (_sc is not null && now >= nextPoll)
+                    {
+                        _sc.RequestDataOnSimObject(
+                            Requests.AircraftData, Definitions.AircraftData,
+                            Microsoft.FlightSimulator.SimConnect.SimConnect.SIMCONNECT_OBJECT_ID_USER,
+                            SIMCONNECT_PERIOD.ONCE, SIMCONNECT_DATA_REQUEST_FLAG.DEFAULT, 0, 0, 0);
+                        nextPoll = now + (long)_interval.TotalMilliseconds;
+                    }
+                }
+            }
+            catch (COMException)
+            {
+                // sim not running yet, or the connection dropped — fall through to reconnect
+            }
+            catch (Exception)
+            {
+                // defensive: never let the pump thread die on an unexpected error
+            }
+            finally
+            {
+                DisposeConnection();
+            }
+
+            if (ct.IsCancellationRequested)
+                break;
+
+            SetState(SimConnectionState.Disconnected);
+            ct.WaitHandle.WaitOne(_reconnectDelay); // back off before retrying while the sim is closed
+        }
+
+        _hEvent?.Dispose();
+        _hEvent = null;
+    }
+
+    private void WireHandlers(Microsoft.FlightSimulator.SimConnect.SimConnect sc)
+    {
+        sc.OnRecvQuit += (_, _) =>
+        {
+            // user closed the sim; drop the connection and let the loop reconnect
+            SetState(SimConnectionState.SimExited);
+            var old = _sc;
+            _sc = null;
+            old?.Dispose();
+        };
+        sc.OnRecvException += (_, _) =>
+        {
+            // a bad request shouldn't kill telemetry; surface via logging later
+        };
+        sc.OnRecvSimobjectData += OnData;
+    }
+
+    private static void RegisterDataDefinition(Microsoft.FlightSimulator.SimConnect.SimConnect sc)
+    {
+        uint unused = Microsoft.FlightSimulator.SimConnect.SimConnect.SIMCONNECT_UNUSED;
+        sc.AddToDataDefinition(Definitions.AircraftData, "PLANE ALTITUDE", "feet",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "AIRSPEED INDICATED", "knots",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "GROUND VELOCITY", "knots",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "VERTICAL SPEED", "feet per minute",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "SIM ON GROUND", "bool",
+            SIMCONNECT_DATATYPE.INT32, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "TITLE", null,
+            SIMCONNECT_DATATYPE.STRING256, 0f, unused);
+        sc.RegisterDataDefineStruct<AircraftData>(Definitions.AircraftData);
+    }
+
+    private void OnData(Microsoft.FlightSimulator.SimConnect.SimConnect sc, SIMCONNECT_RECV_SIMOBJECT_DATA data)
+    {
+        if ((Requests)data.dwRequestID != Requests.AircraftData)
+            return;
+        if (data.dwData is null || data.dwData.Length == 0)
+            return;
+
+        var d = (AircraftData)data.dwData[0];
+        TelemetryReceived?.Invoke(new TelemetrySnapshot
+        {
+            Sequence = Interlocked.Increment(ref _seq),
+            AltitudeFt = d.AltitudeFt,
+            IndicatedAirspeedKts = d.IndicatedAirspeedKts,
+            GroundSpeedKts = d.GroundSpeedKts,
+            VerticalSpeedFpm = d.VerticalSpeedFpm,
+            OnGround = d.OnGround != 0,
+            AircraftTitle = d.Title ?? string.Empty,
+        });
+    }
+
+    private void DisposeConnection()
+    {
+        var sc = _sc;
+        _sc = null;
+        try { sc?.Dispose(); }
+        catch { /* ignore */ }
+    }
+
+    public Task StopAsync()
+    {
+        _cts?.Cancel();
+        _thread?.Join(TimeSpan.FromSeconds(2));
+        SetState(SimConnectionState.Disconnected);
+        return Task.CompletedTask;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await StopAsync();
+        _cts?.Dispose();
+    }
+}
+#else
+
+/// <summary>
+/// Build-time stub used when the SimConnect binaries are absent from /vendor
+/// (see scripts/fetch-simconnect.ps1). Lets the whole solution compile on any
+/// machine; the real implementation lights up once the DLLs exist. Constructing it
+/// throws, so callers fall back to <see cref="FakeTelemetrySource"/>.
+/// </summary>
+public sealed class SimConnectTelemetrySource : ISimTelemetrySource
+{
+    public SimConnectTelemetrySource(int hz = 4)
+        => throw new PlatformNotSupportedException(
+            "SimConnect binaries not found. Install the MSFS 2024 SDK, run " +
+            "scripts/fetch-simconnect.ps1, then rebuild to enable live telemetry.");
+
+    public SimConnectionState State => SimConnectionState.Disconnected;
+    public event Action<SimConnectionState>? StateChanged { add { } remove { } }
+    public event Action<TelemetrySnapshot>? TelemetryReceived { add { } remove { } }
+    public Task StartAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task StopAsync() => Task.CompletedTask;
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+}
+#endif

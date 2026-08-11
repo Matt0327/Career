@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Callsign.SimConnect/Callsign.SimConnect.csproj" />
+    <Project Path="src/Callsign.SimConnect.Windows/Callsign.SimConnect.Windows.csproj" />
+  </Folder>
+  <Folder Name="/app/">
+    <Project Path="app/Callsign.SimPoc/Callsign.SimPoc.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Callsign.SimConnect.Tests/Callsign.SimConnect.Tests.csproj" />
+  </Folder>
+</Solution>

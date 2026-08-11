@@ -1,0 +1,31 @@
+# Normalise line endings. The repo lives on the WSL filesystem but is edited and
+# built from Windows (git core.autocrlf=true there), so be explicit to avoid churn.
+* text=auto eol=lf
+
+# Windows-native tooling wants CRLF
+*.sln   text eol=crlf
+*.ps1   text eol=crlf
+*.cmd   text eol=crlf
+*.bat   text eol=crlf
+
+# Everything else stays LF (including .slnx, which is XML)
+*.slnx    text eol=lf
+*.csproj  text eol=lf
+*.props   text eol=lf
+*.targets text eol=lf
+*.cs      text eol=lf
+*.ts      text eol=lf
+*.tsx     text eol=lf
+*.json    text eol=lf
+*.md      text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.sh      text eol=lf
+
+# Binaries
+*.dll binary
+*.lib binary
+*.exp binary
+*.png binary
+*.jpg binary
+*.ico binary
