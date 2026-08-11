@@ -134,12 +134,30 @@ public sealed class TradeService
     }
 
     /// <summary>Sell <paramref name="qty"/> units of a commodity you hold at <paramref name="icao"/>.</summary>
-    public async Task<TradeResult> SellAsync(Guid companyId, string icao, string goodKey, int qty, CancellationToken ct = default)
+    public async Task<TradeResult> SellAsync(
+        Guid companyId, string icao, string goodKey, int qty, string? idempotencyKey = null, CancellationToken ct = default)
     {
         if (qty <= 0)
             throw new InvalidOperationException("Quantity must be a positive whole number.");
         var good = TradeCatalog.Find(goodKey)
                    ?? throw new InvalidOperationException($"Unknown commodity '{goodKey}'.");
+
+        // A retried sale settles once: replay the realised result from the prior posting instead of
+        // crediting (and de-stocking) twice. Proceeds come straight from the ledger; the breakdown is
+        // rebuilt from the lot's cost basis (a sale leaves it unchanged) — exact for an immediate retry.
+        string? dedupe = idempotencyKey is null ? null : $"trade-sell:{idempotencyKey}";
+        async Task<TradeResult> ReplayAsync(LedgerEntry e)
+        {
+            int soldQty = ParseSoldQty(e.Description);
+            long basisPer = e.RelatedEntityId is string s && Guid.TryParse(s, out var lid)
+                ? (await _db.InventoryLots.FirstOrDefaultAsync(l => l.Id == lid, ct))?.UnitCostCents ?? 0
+                : 0;
+            long cost = basisPer * soldQty;
+            return new TradeResult(soldQty, e.AmountCents, cost, e.AmountCents - cost);
+        }
+        if (dedupe is not null && await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct) is { } prior)
+            return await ReplayAsync(prior);
+
         var lot = await _db.InventoryLots.FirstOrDefaultAsync(
             l => l.CompanyId == companyId && l.Good == good.Key && l.LocationIcao == icao && !l.IsDeleted, ct)
                   ?? throw new InvalidOperationException($"You have no {good.Name} at {icao} to sell.");
@@ -158,10 +176,32 @@ public sealed class TradeService
         await _ledger.StageBatchAsync(companyId, new[]
         {
             new LedgerPosting(LedgerCategory.Trade, proceeds / 100m, $"Sold {qty} × {good.Name} at {icao} (P&L {pnlText})",
-                LedgerRefType.StockLot, lot.Id.ToString()),
+                LedgerRefType.StockLot, lot.Id.ToString(), DedupeKey: dedupe),
         }, ct);
-        await _db.SaveChangesAsync(ct);
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException) when (dedupe is not null)
+        {
+            _db.ChangeTracker.Clear();
+            if (await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct) is { } raced)
+                return await ReplayAsync(raced);
+            throw;
+        }
         return new TradeResult(qty, proceeds, costBasis, pnl);
+    }
+
+    // Recover the sold quantity from our own posting description ("Sold {n} × …") for a replayed result.
+    private static int ParseSoldQty(string description)
+    {
+        const string prefix = "Sold ";
+        if (!description.StartsWith(prefix, StringComparison.Ordinal))
+            return 0;
+        int i = prefix.Length, n = 0;
+        while (i < description.Length && char.IsDigit(description[i]))
+            n = n * 10 + (description[i++] - '0');
+        return n;
     }
 
     /// <summary>The most a company can carry: its best owned airframe's useful load (or a fallback).</summary>

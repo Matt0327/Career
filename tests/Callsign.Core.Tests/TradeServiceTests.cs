@@ -234,4 +234,35 @@ public class TradeServiceTests
             Assert.Equal(10_000_000 - buyPrice * 5, (await db.Companies.FindAsync(companyId))!.CashCents);
         }
     }
+
+    [Fact]
+    public async Task Sell_SameIdempotencyKey_CreditsOnce_ReplaysExactResult()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var companyId = await SeedAsync(tdb, clock, 10_000_000);
+        long sell = new MarketService(clock, Cfg).Quote("EHAM", TradeCatalog.Find("coffee")!).SellCents;
+
+        using (var db = tdb.NewContext())
+            await Trade(db, clock).BuyAsync(companyId, "EHAM", "coffee", 5);
+
+        TradeResult r1, r2;
+        using (var db = tdb.NewContext())
+            r1 = await Trade(db, clock).SellAsync(companyId, "EHAM", "coffee", 3, "sell-1");
+        using (var db = tdb.NewContext())
+            r2 = await Trade(db, clock).SellAsync(companyId, "EHAM", "coffee", 3, "sell-1"); // retry, same token
+
+        Assert.Equal(sell * 3, r1.ProceedsCents);
+        Assert.Equal(r1.Quantity, r2.Quantity);          // replay reconstructs the same breakdown
+        Assert.Equal(r1.ProceedsCents, r2.ProceedsCents);
+        Assert.Equal(r1.CostBasisCents, r2.CostBasisCents);
+        Assert.Equal(r1.PnlCents, r2.PnlCents);
+
+        using (var db = tdb.NewContext())
+        {
+            var lot = await db.InventoryLots.SingleAsync(l => l.CompanyId == companyId);
+            Assert.Equal(2, lot.Quantity); // sold 3 once (5 -> 2), not twice
+            Assert.Equal(1, await db.LedgerEntries.CountAsync(e => e.Category == LedgerCategory.Trade && e.AmountCents > 0)); // one credit
+        }
+    }
 }

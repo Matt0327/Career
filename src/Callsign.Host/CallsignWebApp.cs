@@ -380,13 +380,13 @@ public static class CallsignWebApp
             catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
-        app.MapPost("/api/trade/sell", async (TradeRequest req, CallsignDbContext db, TradeService trade) =>
+        app.MapPost("/api/trade/sell", async (TradeRequest req, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, TradeService trade) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             try
             {
-                var r = await trade.SellAsync(pilot.CompanyId, pilot.CurrentIcao, req.Good, req.Qty);
+                var r = await trade.SellAsync(pilot.CompanyId, pilot.CurrentIcao, req.Good, req.Qty, idem);
                 return Results.Ok(new TradeResultDto(r.Quantity, r.ProceedsCents, r.CostBasisCents, r.PnlCents));
             }
             catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "Cash changed at the same time — try again." }); }

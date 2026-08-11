@@ -282,7 +282,7 @@ export const api = {
   tradeMarket: () => fetch('/api/trade/market').then(ok<MarketQuote[]>),
   inventory: () => fetch('/api/trade/inventory').then(ok<Inventory[]>),
   buyGood: (good: string, qty: number) => POST_IDEM('/api/trade/buy', { good, qty }).then(ok),
-  sellGood: (good: string, qty: number) => POST('/api/trade/sell', { good, qty }).then(ok<TradeResult>),
+  sellGood: (good: string, qty: number) => POST_IDEM('/api/trade/sell', { good, qty }).then(ok<TradeResult>),
 }
 
 /** Whole-dollar, sign-aware money from integer cents: 147000 -> "$1,470". */
