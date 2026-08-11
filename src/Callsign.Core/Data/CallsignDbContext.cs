@@ -1,5 +1,6 @@
 using Callsign.Core.Domain;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace Callsign.Core.Data;
 
@@ -16,6 +17,14 @@ public sealed class CallsignDbContext : DbContext
     public DbSet<AircraftType> AircraftTypes => Set<AircraftType>();
     public DbSet<AircraftTitleAlias> AircraftTitleAliases => Set<AircraftTitleAlias>();
     public DbSet<InstalledPackage> InstalledPackages => Set<InstalledPackage>();
+    public DbSet<Job> Jobs => Set<Job>();
+
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {
+        // SQLite has no native DateTimeOffset; store it as a chronologically-sortable long so that
+        // comparisons (job expiry, later offline-billing windows) translate to SQL.
+        configurationBuilder.Properties<DateTimeOffset>().HaveConversion<DateTimeOffsetToBinaryConverter>();
+    }
 
     protected override void OnModelCreating(ModelBuilder model)
     {
@@ -99,5 +108,14 @@ public sealed class CallsignDbContext : DbContext
         installed.Property(x => x.AircraftFolder).IsRequired().HasMaxLength(200);
         installed.HasIndex(x => x.AircraftTypeId);
         installed.HasOne<AircraftType>().WithMany().HasForeignKey(x => x.AircraftTypeId).OnDelete(DeleteBehavior.Cascade);
+
+        // --- Generated freelance job offers ---
+        var job = model.Entity<Job>();
+        job.HasKey(j => j.Id);
+        job.Property(j => j.Type).HasConversion<string>().HasMaxLength(20);
+        job.Property(j => j.OriginIcao).IsRequired().HasMaxLength(12);
+        job.Property(j => j.DestIcao).IsRequired().HasMaxLength(12);
+        job.Property(j => j.Commodity).IsRequired().HasMaxLength(60);
+        job.HasIndex(j => new { j.OriginIcao, j.ExpiresAt });
     }
 }
