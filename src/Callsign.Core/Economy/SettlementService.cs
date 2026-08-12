@@ -121,6 +121,25 @@ public sealed class SettlementService
         var earnedRank = RankTiers.ForXp(pilot.Xp);
         PilotRank? promotedTo = earnedRank > pilot.Rank ? earnedRank : null;
         pilot.Rank = earnedRank;
+
+        // Reputation (Phase 3f): a delivery nudges reputation by the mission's reward (Illicit is
+        // negative), clamped to [0, 100.0] and logged so the drift stays legible.
+        int repDelta = MissionCatalog.TryDef(a.Type)?.ReputationMilliReward ?? 0;
+        if (repDelta != 0)
+        {
+            int before = pilot.ReputationMilli;
+            int after = Math.Clamp(before + repDelta, 0, 100_000);
+            if (after != before)
+            {
+                pilot.ReputationMilli = after;
+                _db.ReputationEvents.Add(new ReputationEvent
+                {
+                    PilotId = pilot.Id, DeltaMilli = after - before, BalanceMilli = after,
+                    Reason = $"{a.Type} delivery to {a.DestIcao}", At = now,
+                });
+            }
+        }
+
         pilot.CurrentIcao = a.DestIcao; // the pilot ends the leg at the destination — the loop moves along
         a.Status = AssignmentStatus.Settled;
         a.SettledAt = now;

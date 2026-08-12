@@ -60,11 +60,14 @@ wipe). Everything stays **server-ready**.
    mixed all seven types, locked-with-reason, with a 96 nm Hazardous correctly floored to Captain.
    (Reputation-gated **Emergency/SAR** and **Illicit** arrive with 3f.)
 
-6. **3f — Reputation in motion.** `Pilot.ReputationMilli` gains a tiny amount per delivered flight (the
-   `+0.028`-scale model, which is why it's stored in thousandths), itemised via an append-only
-   `ReputationEvent` log so opaque drift is legible. Reputation-gated missions (Emergency/SAR unlock high,
-   Illicit sits low) lock/unlock by it. Dashboard surfaces reputation + recent events. *Playable:* a second
-   progression axis that opens the top and bottom of the mission table.
+6. ✅ **3f — Reputation in motion.** Settlement now nudges `Pilot.ReputationMilli` by the mission's
+   reputation reward (stored in thousandths so tiny gains survive), itemised into an append-only
+   `ReputationEvent` log (EF migration `AddReputationEvents`). The reputation-gated missions go live —
+   **Emergency** and **Search & Rescue** unlock once your reputation is high enough, **Illicit** is always
+   on offer but *tanks* it (a real trade-off) — enforced on the board lock and at accept. The dashboard
+   shows reputation + a recent-events card. *Verified live:* a delivery moved reputation and logged the
+   event; the rep-gated missions showed locked-with-reason. (A follow-up tracks making sure every refresh
+   offers a Trainee some accessible work.)
 
 ## Invariants (carried from Phases 1–2, enforced at every step)
 

@@ -3,8 +3,12 @@ namespace Callsign.Host;
 public record NewCareerRequest(string? Name, string? HomeIcao, decimal? StartingCash);
 
 public record StateDto(
-    string Name, string Rank, int Xp, string CurrentIcao, string HomeIcao,
+    string Name, string Rank, int Xp, int ReputationMilli, string CurrentIcao, string HomeIcao,
     long CashCents, decimal Cash, int Flights);
+
+// --- Phase 3f: reputation ---
+public record ReputationEventDto(int DeltaMilli, int BalanceMilli, string Reason, DateTimeOffset At);
+public record ReputationDto(int ReputationMilli, IReadOnlyList<ReputationEventDto> Events);
 
 public record JobDto(
     Guid Id, string Type, string Origin, string Dest, string DestName, string Commodity,

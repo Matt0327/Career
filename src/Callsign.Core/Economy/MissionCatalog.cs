@@ -48,10 +48,22 @@ public static class MissionCatalog
             ["Industrial chemicals", "Compressed gas", "Explosives", "Fuel drums", "Reactor components"]),
         new(MissionType.Vip,       "VIP",       1.60, 1.10, 90, true,  PilotRank.Captain,  0,  6,
             ["Executive", "Diplomatic party", "Corporate board", "Visiting dignitary", "Private client"]),
+
+        // Reputation-gated (Phase 3f): trusted only once your reputation is high enough.
+        new(MissionType.Emergency,       "Emergency", 1.70, 1.45, 150, false, PilotRank.Captain,       4_000, 3,
+            ["Medical supplies", "Disaster relief", "Blood units", "Emergency generators", "Rescue equipment"]),
+        new(MissionType.SearchAndRescue, "Search & Rescue", 1.75, 1.45, 180, true, PilotRank.SeniorCaptain, 6_000, 2,
+            ["Stranded hikers", "Downed pilot", "Flood survivors", "Lifeboat crew", "Lost climbers"]),
+        // Illicit is always on offer — but flying it costs you reputation.
+        new(MissionType.Illicit,   "Illicit",   2.20, 1.10, -200, false, PilotRank.Copilot, 0, 3,
+            ["Unmarked crates", "No questions asked", "Off-manifest cargo", "Discreet parcel", "Grey-market goods"]),
     ];
 
     /// <summary>The mission types currently mixed onto the board.</summary>
     public static IReadOnlyList<MissionDef> Generated => All;
 
     public static MissionDef Def(MissionType type) => All.First(d => d.Type == type);
+
+    /// <summary>The mission def, or null if the type isn't generated — a safe lookup for settlement.</summary>
+    public static MissionDef? TryDef(MissionType type) => All.FirstOrDefault(d => d.Type == type);
 }

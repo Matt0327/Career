@@ -5,11 +5,24 @@ export interface State {
   name: string
   rank: string
   xp: number
+  reputationMilli: number
   currentIcao: string
   homeIcao: string
   cashCents: number
   cash: number
   flights: number
+}
+
+export interface ReputationEvent {
+  deltaMilli: number
+  balanceMilli: number
+  reason: string
+  at: string
+}
+
+export interface Reputation {
+  reputationMilli: number
+  events: ReputationEvent[]
 }
 
 export interface Job {
@@ -292,6 +305,7 @@ export const api = {
   newCareer: (name: string, homeIcao: string, startingCash: number) =>
     POST('/api/game/new', { name, homeIcao, startingCash }).then(ok),
   ranks: () => fetch('/api/ranks').then(ok<RankTier[]>),
+  reputation: () => fetch('/api/reputation').then(ok<Reputation>),
   refreshJobs: (count = 8) => POST(`/api/jobs/refresh?count=${count}`).then(ok),
   jobs: () => fetch('/api/jobs').then(ok<Job[]>),
   accept: (id: string) => POST(`/api/jobs/${id}/accept`).then(ok),

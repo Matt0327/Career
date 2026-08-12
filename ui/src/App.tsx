@@ -3,8 +3,8 @@ import {
   api, money,
   type AircraftOffer, type Assignment, type BaseOffer, type BaseView, type CheckFlightDone, type Diverted,
   type FlightLog, type Inventory, type Job, type LedgerEntry, type MarketQuote, type OwnedAircraft,
-  type QualClass, type RankTier, type ReconcileResult, type Settled, type Staff, type StaffCandidate,
-  type StandingOrder, type State, type Telemetry, type WsEvent,
+  type QualClass, type RankTier, type ReconcileResult, type Reputation, type Settled, type Staff,
+  type StaffCandidate, type StandingOrder, type State, type Telemetry, type WsEvent,
 } from './api'
 
 type Tab = 'dashboard' | 'jobs' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'logbook'
@@ -114,9 +114,11 @@ function NewCareer({ onStarted }: { onStarted: () => void }) {
 function Dashboard({ state, go }: { state: State; go: (t: Tab) => void }) {
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [ranks, setRanks] = useState<RankTier[]>([])
+  const [rep, setRep] = useState<Reputation | null>(null)
   useEffect(() => {
     api.assignments().then(setAssignments).catch(() => {})
     api.ranks().then(setRanks).catch(() => {})
+    api.reputation().then(setRep).catch(() => {})
   }, [])
 
   return (
@@ -125,11 +127,13 @@ function Dashboard({ state, go }: { state: State; go: (t: Tab) => void }) {
         <Stat label="Cash" value={money(state.cashCents)} big />
         <Stat label="Experience" value={`${state.xp.toLocaleString()} XP`} />
         <Stat label="Rank" value={state.rank} />
+        <Stat label="Reputation" value={(state.reputationMilli / 1000).toFixed(1)} />
         <Stat label="Flights flown" value={String(state.flights)} />
         <Stat label="Location" value={state.currentIcao} />
       </section>
 
       {ranks.length > 0 && <RankCard state={state} ranks={ranks} />}
+      {rep && rep.events.length > 0 && <ReputationCard rep={rep} />}
 
       <section className="card">
         <h2>Active assignment</h2>
@@ -253,6 +257,23 @@ function RankCard({ state, ranks }: { state: State; ranks: RankTier[] }) {
       <p className="muted rank-desc">{current.description}</p>
       <div className="rank-bar"><div className="rank-fill" style={{ width: `${pct}%` }} /></div>
       <div className="rank-scale"><span className="num">{state.xp.toLocaleString()} XP</span><span className="num">{next ? `${next.minXp.toLocaleString()} XP` : ''}</span></div>
+    </section>
+  )
+}
+
+function ReputationCard({ rep }: { rep: Reputation }) {
+  return (
+    <section className="card">
+      <div className="row-head"><h2>Reputation</h2><span className="num rep-score">{(rep.reputationMilli / 1000).toFixed(1)}</span></div>
+      <ul className="rep-log">
+        {rep.events.map((e, i) => (
+          <li key={i}>
+            <span className={`num ${e.deltaMilli >= 0 ? 'pos' : 'neg'}`}>{e.deltaMilli >= 0 ? '+' : ''}{(e.deltaMilli / 1000).toFixed(2)}</span>
+            <span className="rep-reason">{e.reason}</span>
+            <span className="muted num">{(e.balanceMilli / 1000).toFixed(1)}</span>
+          </li>
+        ))}
+      </ul>
     </section>
   )
 }

@@ -136,8 +136,19 @@ public static class CallsignWebApp
                 return Results.NotFound(new { error = "No career. POST /api/game/new first." });
             var company = await db.Companies.FirstAsync(c => c.Id == pilot.CompanyId);
             var flights = await db.Flights.CountAsync();
-            return Results.Ok(new StateDto(pilot.Name, pilot.Rank.ToString(), pilot.Xp, pilot.CurrentIcao,
-                pilot.HomeIcao, company.CashCents, company.Cash, flights));
+            return Results.Ok(new StateDto(pilot.Name, pilot.Rank.ToString(), pilot.Xp, pilot.ReputationMilli,
+                pilot.CurrentIcao, pilot.HomeIcao, company.CashCents, company.Cash, flights));
+        });
+
+        // Reputation (Phase 3f): the current standing + the recent log so the drift is legible.
+        app.MapGet("/api/reputation", async (int? limit, CallsignDbContext db) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var events = await db.ReputationEvents.Where(e => e.PilotId == pilot.Id)
+                .OrderByDescending(e => e.Id).Take(Math.Clamp(limit ?? 15, 1, 100)).ToListAsync();
+            return Results.Ok(new ReputationDto(pilot.ReputationMilli,
+                events.Select(e => new ReputationEventDto(e.DeltaMilli, e.BalanceMilli, e.Reason, e.At)).ToList()));
         });
 
         // The rank ladder (Phase 3a), flagged against the player's current XP/rank — self-documenting.

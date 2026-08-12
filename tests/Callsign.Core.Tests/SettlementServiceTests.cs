@@ -372,6 +372,67 @@ public class SettlementServiceTests
         }
     }
 
+    [Fact]
+    public async Task Settle_MovesReputation_AndLogsAnEvent()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Seed s;
+        Guid assignmentId;
+        using (var db = tdb.NewContext())
+        {
+            s = await SeedAsync(db); // a Cargo job
+            assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, s.PilotId)).Id;
+        }
+        using (var db = tdb.NewContext())
+            await new SettlementService(db, new LedgerService(db, clock), clock, EconomyConfig.Default)
+                .SettleAsync(assignmentId, Flown(-100));
+
+        int rep = MissionCatalog.Def(MissionType.Cargo).ReputationMilliReward;
+        using (var db = tdb.NewContext())
+        {
+            Assert.Equal(rep, (await db.Pilots.FindAsync(s.PilotId))!.ReputationMilli); // gained the mission's reward
+            var ev = await db.ReputationEvents.SingleAsync(e => e.PilotId == s.PilotId);
+            Assert.Equal(rep, ev.DeltaMilli);
+            Assert.Equal(rep, ev.BalanceMilli);
+            Assert.Contains("Cargo", ev.Reason);
+        }
+    }
+
+    [Fact]
+    public async Task Settle_Illicit_CostsReputation()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Guid assignmentId, pilotId;
+        using (var db = tdb.NewContext())
+        {
+            var company = new Company { Id = Guid.NewGuid(), Name = "Co" };
+            var pilot = new Pilot
+            {
+                Id = Guid.NewGuid(), CompanyId = company.Id, Name = "A", HomeIcao = "EHAM", CurrentIcao = "EHAM",
+                Rank = PilotRank.Captain, ReputationMilli = 5_000,
+            };
+            var job = new Job
+            {
+                Id = Guid.NewGuid(), Type = MissionType.Illicit, OriginIcao = "EHAM", DestIcao = "EHRD",
+                Commodity = "Unmarked crates", WeightLbs = 500, RewardCents = 200_000, Xp = 20, DistanceNm = 120,
+                RequiredRank = PilotRank.Copilot, GeneratedAt = T0, ExpiresAt = T0.AddHours(6),
+            };
+            db.AddRange(company, pilot, job);
+            await db.SaveChangesAsync();
+            pilotId = pilot.Id;
+            assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(job.Id, company.Id, pilot.Id)).Id;
+        }
+        using (var db = tdb.NewContext())
+            await new SettlementService(db, new LedgerService(db, clock), clock, EconomyConfig.Default)
+                .SettleAsync(assignmentId, Flown(-100));
+
+        int rep = MissionCatalog.Def(MissionType.Illicit).ReputationMilliReward; // negative
+        using (var db = tdb.NewContext())
+            Assert.Equal(5_000 + rep, (await db.Pilots.FindAsync(pilotId))!.ReputationMilli); // reputation dropped
+    }
+
     [Theory]
     [InlineData(-50, 0.10)]
     [InlineData(-150, 0.05)]

@@ -26,6 +26,7 @@ public sealed class CallsignDbContext : DbContext
     public DbSet<Base> Bases => Set<Base>();
     public DbSet<InventoryLot> InventoryLots => Set<InventoryLot>();
     public DbSet<PilotQualification> PilotQualifications => Set<PilotQualification>();
+    public DbSet<ReputationEvent> ReputationEvents => Set<ReputationEvent>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -195,5 +196,13 @@ public sealed class CallsignDbContext : DbContext
         qual.Property(q => q.Class).HasConversion<string>().HasMaxLength(4);
         qual.HasIndex(q => new { q.PilotId, q.Class }).IsUnique(); // one row per class held
         qual.HasOne<Pilot>().WithMany().HasForeignKey(q => q.PilotId).OnDelete(DeleteBehavior.Cascade);
+
+        // --- Reputation log (Phase 3f), append-only ---
+        var rep = model.Entity<ReputationEvent>();
+        rep.HasKey(e => e.Id);
+        rep.Property(e => e.Id).ValueGeneratedOnAdd();
+        rep.Property(e => e.Reason).IsRequired().HasMaxLength(120);
+        rep.HasIndex(e => new { e.PilotId, e.At });
+        rep.HasOne<Pilot>().WithMany().HasForeignKey(e => e.PilotId).OnDelete(DeleteBehavior.Cascade);
     }
 }

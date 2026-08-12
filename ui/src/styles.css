@@ -180,6 +180,10 @@ input { font: inherit; }
 .rank-bar { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; }
 .rank-fill { height: 100%; border-radius: 999px; background: var(--accent); transition: width .4s ease; }
 .rank-scale { display: flex; justify-content: space-between; margin-top: 6px; font-size: 12px; color: var(--muted); }
+.rep-score { font-size: 20px; font-weight: 700; }
+.rep-log { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; font-size: 13.5px; }
+.rep-log li { display: grid; grid-template-columns: 64px 1fr auto; gap: 12px; align-items: baseline; }
+.rep-log .rep-reason { color: var(--ink); }
 .promo { margin-top: 12px; padding: 8px 12px; border-radius: 8px; font-weight: 700;
   background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
 

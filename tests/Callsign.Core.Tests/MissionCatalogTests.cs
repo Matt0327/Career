@@ -30,10 +30,12 @@ public class MissionCatalogTests
     }
 
     [Fact]
-    public void ReputationGatedTypes_AreNotOnTheBoardYet() // arrive with 3f
+    public void ReputationTypes_ArePresent_WithTheirGatesAndTradeoffs() // Phase 3f
     {
-        Assert.DoesNotContain(MissionCatalog.All, d => d.Type == MissionType.Illicit);
-        Assert.DoesNotContain(MissionCatalog.All, d => d.Type == MissionType.Emergency);
-        Assert.All(MissionCatalog.All, d => Assert.Equal(0, d.MinReputationMilli)); // no reputation gate live yet
+        Assert.True(MissionCatalog.Def(MissionType.Emergency).MinReputationMilli > 0);       // trusted only at high rep
+        Assert.True(MissionCatalog.Def(MissionType.SearchAndRescue).MinReputationMilli > 0);
+        Assert.True(MissionCatalog.Def(MissionType.Illicit).ReputationMilliReward < 0);      // flying it costs reputation
+        Assert.Equal(0, MissionCatalog.Def(MissionType.Illicit).MinReputationMilli);         // but always on offer
+        Assert.Null(MissionCatalog.TryDef((MissionType)999));                                // safe lookup for unknowns
     }
 }
