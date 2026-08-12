@@ -13,6 +13,7 @@ public sealed class ServerDbContext : DbContext
     public DbSet<AuthToken> Tokens => Set<AuthToken>();
     public DbSet<CloudSave> Saves => Set<CloudSave>();
     public DbSet<AircraftImage> Images => Set<AircraftImage>();
+    public DbSet<LeaderboardStat> Leaderboard => Set<LeaderboardStat>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -47,5 +48,10 @@ public sealed class ServerDbContext : DbContext
         image.Property(i => i.Attribution).IsRequired().HasMaxLength(400);
         image.Property(i => i.License).IsRequired().HasMaxLength(80);
         image.HasIndex(i => new { i.Key, i.Status });    // the serve lookup: approved images for a key
+
+        var board = model.Entity<LeaderboardStat>();
+        board.HasKey(l => l.UserId);                     // one standing per player
+        board.Property(l => l.DisplayName).IsRequired().HasMaxLength(40);
+        board.Property(l => l.RankKey).HasMaxLength(40);
     }
 }

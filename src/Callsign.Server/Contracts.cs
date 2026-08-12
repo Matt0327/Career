@@ -13,3 +13,12 @@ public record SaveMetaDto(bool Exists, long SizeBytes, string? Device, string? U
 
 /// <summary>An admin's decision on a pending aircraft image.</summary>
 public record ModerateRequest(bool Approve);
+
+/// <summary>The app's snapshot of a player's standing, pushed to the leaderboard.</summary>
+public record LeaderboardSubmit(long NetWorthCents, int Flights, int ReputationMilli, long Xp, string? RankKey);
+
+/// <summary>One ranked line on a board.</summary>
+public record LeaderboardRow(int Position, string DisplayName, long Value, string? RankKey, bool IsYou);
+
+/// <summary>A player's own position (1-based) on each board, or null if they haven't submitted.</summary>
+public record MyStanding(int? NetWorth, int? Flights, int? Reputation, int? Xp);

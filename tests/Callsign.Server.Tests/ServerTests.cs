@@ -185,3 +185,65 @@ public class ImageIndexTests
         Assert.Null(await BestApproved(db, "B738"));
     }
 }
+
+public class LeaderboardTests
+{
+    private static ServerDbContext NewDb(SqliteConnection conn)
+    {
+        var options = new DbContextOptionsBuilder<ServerDbContext>().UseSqlite(conn).Options;
+        var db = new ServerDbContext(options);
+        db.Database.EnsureCreated();
+        return db;
+    }
+
+    private static LeaderboardStat Player(string name, long netWorth, int flights) =>
+        new() { UserId = Guid.NewGuid(), DisplayName = name, NetWorthCents = netWorth, Flights = flights };
+
+    [Fact]
+    public async Task Networth_board_ranks_richest_first()
+    {
+        using var conn = new SqliteConnection("DataSource=:memory:"); conn.Open();
+        using var db = NewDb(conn);
+        db.Leaderboard.AddRange(Player("A", 500, 2), Player("B", 9000, 1), Player("C", 3000, 9));
+        await db.SaveChangesAsync();
+
+        var order = await db.Leaderboard.OrderByDescending(x => x.NetWorthCents).Select(x => x.DisplayName).ToListAsync();
+        Assert.Equal(new[] { "B", "C", "A" }, order);
+    }
+
+    [Fact]
+    public async Task Different_boards_rank_differently()
+    {
+        using var conn = new SqliteConnection("DataSource=:memory:"); conn.Open();
+        using var db = NewDb(conn);
+        db.Leaderboard.AddRange(Player("A", 500, 2), Player("B", 9000, 1), Player("C", 3000, 9));
+        await db.SaveChangesAsync();
+
+        var topFlights = await db.Leaderboard.OrderByDescending(x => x.Flights).Select(x => x.DisplayName).FirstAsync();
+        var topWorth = await db.Leaderboard.OrderByDescending(x => x.NetWorthCents).Select(x => x.DisplayName).FirstAsync();
+        Assert.Equal("C", topFlights);   // most flights
+        Assert.Equal("B", topWorth);     // richest
+    }
+
+    [Fact]
+    public async Task Resubmitting_updates_the_same_row_not_a_new_one()
+    {
+        using var conn = new SqliteConnection("DataSource=:memory:"); conn.Open();
+        using var db = NewDb(conn);
+        var userId = Guid.NewGuid();
+
+        async Task Submit(long netWorth)
+        {
+            var row = await db.Leaderboard.FindAsync(userId);
+            if (row is null) { row = new LeaderboardStat { UserId = userId, DisplayName = "Ace" }; db.Leaderboard.Add(row); }
+            row.NetWorthCents = netWorth;
+            await db.SaveChangesAsync();
+        }
+
+        await Submit(1000);
+        await Submit(5000);
+
+        Assert.Equal(1, await db.Leaderboard.CountAsync());
+        Assert.Equal(5000, (await db.Leaderboard.FindAsync(userId))!.NetWorthCents);
+    }
+}

@@ -235,6 +235,64 @@ app.MapPost("/api/images/{id:guid}/moderate", async (Guid id, ModerateRequest re
     return Results.Ok(new { id = image.Id, status = image.Status.ToString().ToLowerInvariant() });
 });
 
+// ── leaderboards (shared standings across players) ───────────────────────────────────────────────
+app.MapPost("/api/leaderboard", async (LeaderboardSubmit s, ServerDbContext db, HttpContext http) =>
+{
+    var user = await ResolveUserAsync(http, db);
+    if (user is null) return Results.Unauthorized();
+    var row = await db.Leaderboard.FindAsync(user.Id);
+    if (row is null) { row = new LeaderboardStat { UserId = user.Id }; db.Leaderboard.Add(row); }
+    row.DisplayName = user.DisplayName;
+    row.NetWorthCents = Math.Clamp(s.NetWorthCents, 0L, 100_000_000_000_000L);
+    row.Flights = Math.Clamp(s.Flights, 0, 10_000_000);
+    row.ReputationMilli = Math.Clamp(s.ReputationMilli, -1_000_000_000, 1_000_000_000);
+    row.Xp = Math.Clamp(s.Xp, 0L, 1_000_000_000_000L);
+    row.RankKey = (s.RankKey ?? "").Trim();
+    row.UpdatedAt = DateTimeOffset.UtcNow;
+    await db.SaveChangesAsync();
+    return Results.Ok(new { ok = true });
+});
+
+app.MapGet("/api/leaderboard", async (string? board, int? limit, ServerDbContext db, HttpContext http) =>
+{
+    int take = Math.Clamp(limit ?? 100, 1, 500);
+    string b = (board ?? "networth").ToLowerInvariant();
+    IQueryable<LeaderboardStat> q = b switch
+    {
+        "flights" => db.Leaderboard.OrderByDescending(x => x.Flights),
+        "reputation" => db.Leaderboard.OrderByDescending(x => x.ReputationMilli),
+        "xp" => db.Leaderboard.OrderByDescending(x => x.Xp),
+        _ => db.Leaderboard.OrderByDescending(x => x.NetWorthCents),
+    };
+    var me = await ResolveUserAsync(http, db); // optional: marks "you" only if a token is sent
+    var list = await q.Take(take).ToListAsync();
+    var rows = list.Select((x, i) => new LeaderboardRow(
+        i + 1, x.DisplayName, ValueForBoard(b, x), x.RankKey, me != null && x.UserId == me.Id)).ToList();
+    return Results.Ok(rows);
+});
+
+app.MapGet("/api/leaderboard/me", async (ServerDbContext db, HttpContext http) =>
+{
+    var user = await ResolveUserAsync(http, db);
+    if (user is null) return Results.Unauthorized();
+    var mine = await db.Leaderboard.FindAsync(user.Id);
+    if (mine is null) return Results.Ok(new MyStanding(null, null, null, null));
+    // Standard competition rank: 1 + however many players are strictly ahead.
+    int nw = 1 + await db.Leaderboard.CountAsync(x => x.NetWorthCents > mine.NetWorthCents);
+    int fl = 1 + await db.Leaderboard.CountAsync(x => x.Flights > mine.Flights);
+    int rp = 1 + await db.Leaderboard.CountAsync(x => x.ReputationMilli > mine.ReputationMilli);
+    int xp = 1 + await db.Leaderboard.CountAsync(x => x.Xp > mine.Xp);
+    return Results.Ok(new MyStanding(nw, fl, rp, xp));
+});
+
+static long ValueForBoard(string board, LeaderboardStat x) => board switch
+{
+    "flights" => x.Flights,
+    "reputation" => x.ReputationMilli,
+    "xp" => x.Xp,
+    _ => x.NetWorthCents,
+};
+
 // The preferred approved image for a key: highest SortRank, then newest.
 static Task<AircraftImage?> BestApproved(ServerDbContext db, string key) =>
     db.Images.Where(i => i.Key == key && i.Status == ImageStatus.Approved)
