@@ -1,0 +1,57 @@
+# Phase 4 plan — the balance sheet (finance, risk & scale)
+
+Phase 1 gave a flying loop; Phase 2 a company; Phase 3 a pilot's career. Phase 4 gives the company a
+**balance sheet and a horizon**: borrow to grow, see your true net worth, insure the fleet against a bad
+day, run **routes** instead of one-off jobs — and decide, in an ADR, whether the economy ever leaves this
+one machine. It's where "how much cash do I have" becomes "what is this company actually worth."
+
+The bones are already reserved. The ledger is the single source of truth for **cash**; assets (aircraft,
+inventory) and liabilities are their own entities, so **net worth is a computed view, never stored**
+(domain-notes §2). Every syncable aggregate already carries the dormant sync hooks
+(`UpdatedAt`/`IsDeleted`/`OriginClientId`) for the shared-world question. `LedgerCategory` already has the
+loan lines; the model for loans/insurance/routes is sketched in [`domain-notes.md`](domain-notes.md) §4.8.
+
+## Build order — each step independently playable, finish before the next
+
+1. **4a — Loans.** `LoanTierDef` (content: larger principal → lower APR, self-documenting) + a `Loan`
+   liability tracked **separately from cash**. Take a loan → the draw-down credits cash via a
+   `LoanPrincipal` ledger entry; interest accrues and payments are billed on reopen (the same offline
+   reconcile pass as base rent / wages), posting `LoanInterest` + `LoanPayment`; pay off early. The terms
+   (APR, next payment) are shown **before** you sign. *Playable:* borrow to buy a bigger aircraft, watch
+   the debt amortise.
+
+2. **4b — Net worth & P&L.** A **computed** balance sheet — cash (the ledger sum) + assets (each airframe's
+   residual value, inventory at cost/market) − liabilities (loan outstanding) — plus a profit-&-loss view
+   over a window (ledger income vs expenses, by category). No new money moves; it's the lens that makes 4a
+   and your fleet legible. *Playable:* a Finances screen that answers "am I actually ahead?"
+
+3. **4c — Insurance.** An `InsurancePolicy` is a **policy + claim path**, not just a premium: a recurring
+   `InsurancePremium` debit (billed in the reconcile pass) buys coverage (a fraction of hull value, minus a
+   deductible); a covered total loss or heavy incident files a claim that pays out via `InsuranceClaim`.
+   Ties into the condition/wear already modelled. *Playable:* insure the fleet, and a bad day costs the
+   deductible instead of the aircraft.
+
+4. **4d — Routes.** Scheduled, repeatable work between your bases — the network evolution of Phase 2d's
+   standing orders. Define a `Route` (origin → dest, preferred aircraft/mission); it produces recurring
+   autonomous income, reconciled offline, still **economy-priced** (you set the constraints, never the
+   reward). *Playable:* stand up a route network that earns while you're away.
+
+5. **4e — Shared-world ADR.** The architecture decision record (in `docs/adr`): does the ledger/economy
+   stay **local-authoritative** (read-mostly, sync as insurance) or become **server-authoritative** (a
+   shared world)? Weigh it against everything built, decide, and lay the *thin* groundwork the decision
+   implies — the sync hooks are already reserved, and `EntryUid` already doubles as the idempotency/merge
+   key. Deliverable: the ADR + any minimal scaffolding, not a multiplayer server.
+
+## Invariants (carried from Phases 1–3, enforced at every step)
+
+- The ledger is the single source of truth for **cash**; assets and liabilities are their own entities.
+- **Net worth is computed, never stored** — cash + assets − liabilities, derived on read.
+- Prices are always economy-computed (never player-set), including route and custom jobs.
+- Reference/content (`LoanTierDef`, insurance terms) is self-documenting and server-suppliable.
+- Schema changes ship as EF migrations; money endpoints stay idempotent; everything stays server-ready.
+
+## Explicitly deferred (Phase 5)
+
+Company/airline **identity** & reputation at scale, **campaigns** (authored story chains) + achievements,
+and **settings/backup/companion** features → **Phase 5**. An entitlement/registration concept remains an
+open question (§11), deliberately not baked into the domain.
