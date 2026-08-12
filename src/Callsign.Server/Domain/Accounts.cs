@@ -7,6 +7,7 @@ public sealed class AppUser
     public string Email { get; set; } = "";
     public string DisplayName { get; set; } = "";
     public string PasswordHash { get; set; } = "";
+    public bool IsAdmin { get; set; }                 // moderates the aircraft-image index
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 

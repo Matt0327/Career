@@ -166,6 +166,20 @@ public sealed class CloudGateway
         catch (Exception ex) { return new Result(false, ex.Message); }
     }
 
+    /// <summary>Fetch the approved index image for an aircraft key (public read, no auth). Null if none.</summary>
+    public async Task<(byte[] Data, string ContentType)?> GetTypeImageAsync(string key)
+    {
+        try
+        {
+            var resp = await _http.GetAsync("/api/images/" + Uri.EscapeDataString(key));
+            if (!resp.IsSuccessStatusCode) return null;
+            var data = await resp.Content.ReadAsByteArrayAsync();
+            var contentType = resp.Content.Headers.ContentType?.ToString() ?? "image/jpeg";
+            return data.Length == 0 ? null : (data, contentType);
+        }
+        catch { return null; }
+    }
+
     private HttpRequestMessage Authed(HttpMethod method, string path)
     {
         var req = new HttpRequestMessage(method, path);
@@ -184,5 +198,39 @@ public sealed class CloudGateway
         }
         catch { /* fall through to a generic message */ }
         return "Cloud request failed (" + (int)resp.StatusCode + ").";
+    }
+}
+
+/// <summary>A tiny on-disk cache of index images by aircraft key, so the app doesn't refetch on every render.</summary>
+public sealed class AircraftImageCache
+{
+    private readonly string _dir;
+    public AircraftImageCache(string dir) => _dir = dir;
+
+    private string PathFor(string key) => Path.Combine(_dir, Safe(key));
+    private static string Safe(string key) => string.Concat(key.Trim().ToUpperInvariant().Select(c => char.IsLetterOrDigit(c) ? c : '_'));
+
+    public byte[]? TryGet(string key)
+    {
+        try { var p = PathFor(key); return File.Exists(p) ? File.ReadAllBytes(p) : null; }
+        catch { return null; }
+    }
+
+    public void Put(string key, byte[] data)
+    {
+        try { Directory.CreateDirectory(_dir); File.WriteAllBytes(PathFor(key), data); }
+        catch { /* a cache miss next time is harmless */ }
+    }
+}
+
+/// <summary>Detect an image's content type from its magic bytes (default image/jpeg).</summary>
+public static class ImageSniff
+{
+    public static string ContentType(byte[] d)
+    {
+        if (d.Length >= 8 && d[0] == 0x89 && d[1] == 0x50 && d[2] == 0x4E && d[3] == 0x47) return "image/png";
+        if (d.Length >= 12 && d[0] == 0x52 && d[1] == 0x49 && d[2] == 0x46 && d[3] == 0x46 &&
+            d[8] == 0x57 && d[9] == 0x45 && d[10] == 0x42 && d[11] == 0x50) return "image/webp";
+        return "image/jpeg";
     }
 }

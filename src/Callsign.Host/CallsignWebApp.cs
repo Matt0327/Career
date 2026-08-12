@@ -45,6 +45,8 @@ public static class CallsignWebApp
         var cloudSessionPath = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(dbPath))!, "cloud-session.json");
         builder.Services.AddSingleton(new Callsign.Host.Cloud.CloudSession(cloudSessionPath));
         builder.Services.AddHttpClient<Callsign.Host.Cloud.CloudGateway>(c => c.BaseAddress = new Uri(cloudBaseUrl));
+        var imageCacheDir = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(dbPath))!, "image-cache");
+        builder.Services.AddSingleton(new Callsign.Host.Cloud.AircraftImageCache(imageCacheDir));
 
         // --- Web UI: the Vite build output (path overridable via config "Ui:Path" / env Ui__Path) ---
         var uiPath = builder.Configuration["Ui:Path"]
@@ -439,6 +441,29 @@ public static class CallsignWebApp
                 return Results.NotFound();
             var path = AircraftThumbnails.TryResolve(ipp, pkg.Source, pkg.PackageFolder, pkg.AircraftFolder);
             return path is null ? Results.NotFound() : Results.File(path, "image/jpeg");
+        });
+
+        // The fuller image cascade (B1): the player's own installed thumbnail first (their real livery), then
+        // the Callsign Cloud image index by the type's stable Key (cached on disk), else 404 -> UI silhouette.
+        app.MapGet("/api/aircraft/type/{typeId:guid}/image", async (Guid typeId, CallsignDbContext db, Callsign.Host.Cloud.CloudGateway cloud, Callsign.Host.Cloud.AircraftImageCache cache) =>
+        {
+            var pkg = await db.InstalledPackages.FirstOrDefaultAsync(p => p.AircraftTypeId == typeId && p.IsOnDisk);
+            if (pkg is not null && MsfsInstallLocator.TryGetInstalledPackagesPath(out var ipp))
+            {
+                var path = AircraftThumbnails.TryResolve(ipp, pkg.Source, pkg.PackageFolder, pkg.AircraftFolder);
+                if (path is not null) return Results.File(path, "image/jpeg");
+            }
+
+            var type = await db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == typeId);
+            if (type is null) return Results.NotFound();
+
+            var cached = cache.TryGet(type.Key);
+            if (cached is not null) return Results.File(cached, Callsign.Host.Cloud.ImageSniff.ContentType(cached));
+
+            var fetched = await cloud.GetTypeImageAsync(type.Key);
+            if (fetched is { } img) { cache.Put(type.Key, img.Data); return Results.File(img.Data, img.ContentType); }
+
+            return Results.NotFound();
         });
 
         app.MapPost("/api/aircraft/{id:guid}/maintain", async (Guid id, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, AircraftDealerService dealer) =>

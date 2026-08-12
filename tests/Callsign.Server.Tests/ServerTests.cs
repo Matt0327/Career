@@ -131,3 +131,57 @@ public class SchemaTests
         Assert.Equal(userId, found!.UserId);
     }
 }
+
+public class ImageIndexTests
+{
+    private static ServerDbContext NewDb(SqliteConnection conn)
+    {
+        var options = new DbContextOptionsBuilder<ServerDbContext>().UseSqlite(conn).Options;
+        var db = new ServerDbContext(options);
+        db.Database.EnsureCreated();
+        return db;
+    }
+
+    // Mirrors the server's serve query: the preferred APPROVED image for a key (highest rank, then newest).
+    private static Task<AircraftImage?> BestApproved(ServerDbContext db, string key) =>
+        db.Images.Where(i => i.Key == key && i.Status == ImageStatus.Approved)
+                 .OrderByDescending(i => i.SortRank).ThenByDescending(i => i.CreatedAt)
+                 .FirstOrDefaultAsync();
+
+    [Fact]
+    public async Task Pending_images_are_not_served()
+    {
+        using var conn = new SqliteConnection("DataSource=:memory:"); conn.Open();
+        using var db = NewDb(conn);
+        db.Images.Add(new AircraftImage { Key = "C172", Status = ImageStatus.Pending, License = "CC BY", Attribution = "x", Data = new byte[] { 1 } });
+        await db.SaveChangesAsync();
+        Assert.Null(await BestApproved(db, "C172"));
+    }
+
+    [Fact]
+    public async Task Highest_ranked_approved_image_wins_and_rejected_is_ignored()
+    {
+        using var conn = new SqliteConnection("DataSource=:memory:"); conn.Open();
+        using var db = NewDb(conn);
+        db.Images.Add(new AircraftImage { Key = "C172", Status = ImageStatus.Approved, SortRank = 1, License = "CC BY", Attribution = "a", Data = new byte[] { 1 } });
+        db.Images.Add(new AircraftImage { Key = "C172", Status = ImageStatus.Approved, SortRank = 5, License = "CC BY", Attribution = "b", Data = new byte[] { 2 } });
+        db.Images.Add(new AircraftImage { Key = "C172", Status = ImageStatus.Rejected, SortRank = 9, License = "CC BY", Attribution = "c", Data = new byte[] { 3 } });
+        await db.SaveChangesAsync();
+
+        var best = await BestApproved(db, "C172");
+        Assert.NotNull(best);
+        Assert.Equal(5, best!.SortRank);        // the rank-9 image is rejected, so it never serves
+        Assert.Equal("b", best.Attribution);
+    }
+
+    [Fact]
+    public async Task Images_are_isolated_by_key()
+    {
+        using var conn = new SqliteConnection("DataSource=:memory:"); conn.Open();
+        using var db = NewDb(conn);
+        db.Images.Add(new AircraftImage { Key = "C172", Status = ImageStatus.Approved, License = "CC0", Attribution = "a", Data = new byte[] { 1 } });
+        await db.SaveChangesAsync();
+        Assert.NotNull(await BestApproved(db, "C172"));
+        Assert.Null(await BestApproved(db, "B738"));
+    }
+}

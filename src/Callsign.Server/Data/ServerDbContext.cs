@@ -12,6 +12,7 @@ public sealed class ServerDbContext : DbContext
     public DbSet<AppUser> Users => Set<AppUser>();
     public DbSet<AuthToken> Tokens => Set<AuthToken>();
     public DbSet<CloudSave> Saves => Set<CloudSave>();
+    public DbSet<AircraftImage> Images => Set<AircraftImage>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -38,5 +39,13 @@ public sealed class ServerDbContext : DbContext
         var save = model.Entity<CloudSave>();
         save.HasKey(s => s.Id);
         save.HasIndex(s => s.UserId).IsUnique();         // latest-wins: one cloud save per user
+
+        var image = model.Entity<AircraftImage>();
+        image.HasKey(i => i.Id);
+        image.Property(i => i.Key).IsRequired().HasMaxLength(40);
+        image.Property(i => i.ContentType).IsRequired().HasMaxLength(40);
+        image.Property(i => i.Attribution).IsRequired().HasMaxLength(400);
+        image.Property(i => i.License).IsRequired().HasMaxLength(80);
+        image.HasIndex(i => new { i.Key, i.Status });    // the serve lookup: approved images for a key
     }
 }

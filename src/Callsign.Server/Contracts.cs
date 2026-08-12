@@ -10,3 +10,6 @@ public record ProfileDto(string Id, string Email, string DisplayName, string Cre
 
 /// <summary>What the client shows before deciding to pull: is there a cloud save, and how fresh is it.</summary>
 public record SaveMetaDto(bool Exists, long SizeBytes, string? Device, string? UpdatedAt);
+
+/// <summary>An admin's decision on a pending aircraft image.</summary>
+public record ModerateRequest(bool Approve);

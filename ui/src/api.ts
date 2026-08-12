@@ -526,6 +526,7 @@ export const api = {
   market: () => fetch('/api/aircraft/market').then(ok<AircraftOffer[]>),
   hangar: () => fetch('/api/aircraft').then(ok<OwnedAircraft[]>),
   aircraftThumbUrl: (typeId: string) => `/api/aircraft/type/${typeId}/thumbnail`,
+  aircraftImageUrl: (typeId: string) => `/api/aircraft/type/${typeId}/image`,
   quals: () => fetch('/api/quals').then(ok<QualClass[]>),
   beginCheckFlight: (cls: string) => POST('/api/checkflights/begin', { class: cls }).then(ok),
   buyAircraft: (typeId: string) => POST_IDEM('/api/aircraft/buy', { typeId }).then(ok),

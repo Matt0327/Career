@@ -598,7 +598,7 @@ function AircraftImage({ typeId, category, mini }: { typeId?: string; category?:
   return (
     <div className={`ac-img ${mini ? 'mini' : ''}`}>
       {typeId && !failed
-        ? <img src={api.aircraftThumbUrl(typeId)} alt="" loading="lazy" onError={() => setFailed(true)} />
+        ? <img src={api.aircraftImageUrl(typeId)} alt="" loading="lazy" onError={() => setFailed(true)} />
         : <AircraftSilhouette category={category} />}
     </div>
   )
