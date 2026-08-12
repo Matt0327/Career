@@ -29,6 +29,7 @@ public sealed class CallsignDbContext : DbContext
     public DbSet<ReputationEvent> ReputationEvents => Set<ReputationEvent>();
     public DbSet<Loan> Loans => Set<Loan>();
     public DbSet<InsurancePolicy> InsurancePolicies => Set<InsurancePolicy>();
+    public DbSet<Route> Routes => Set<Route>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -223,5 +224,17 @@ public sealed class CallsignDbContext : DbContext
         policy.HasIndex(p => p.CompanyId);
         policy.HasIndex(p => p.AircraftInstanceId);
         policy.HasOne<Company>().WithMany().HasForeignKey(p => p.CompanyId).OnDelete(DeleteBehavior.Restrict);
+
+        // --- Routes (Phase 4d): scheduled base-to-base lines ---
+        var route = model.Entity<Route>();
+        route.HasKey(r => r.Id);
+        route.Property(r => r.Name).IsRequired().HasMaxLength(80);
+        route.Property(r => r.OriginIcao).IsRequired().HasMaxLength(12);
+        route.Property(r => r.DestIcao).IsRequired().HasMaxLength(12);
+        route.Property(r => r.Mission).HasConversion<string>().HasMaxLength(20);
+        route.HasIndex(r => r.CompanyId);
+        route.HasOne<Company>().WithMany().HasForeignKey(r => r.CompanyId).OnDelete(DeleteBehavior.Restrict);
+        route.HasOne<AircraftInstance>().WithMany().HasForeignKey(r => r.AircraftInstanceId).OnDelete(DeleteBehavior.Restrict);
+        route.HasOne<Staff>().WithMany().HasForeignKey(r => r.StaffId).OnDelete(DeleteBehavior.Restrict);
     }
 }

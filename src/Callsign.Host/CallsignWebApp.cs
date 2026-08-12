@@ -69,6 +69,7 @@ public static class CallsignWebApp
         builder.Services.AddScoped<LoanService>();
         builder.Services.AddScoped<FinanceService>();
         builder.Services.AddScoped<InsuranceService>();
+        builder.Services.AddScoped<RouteService>();
         builder.Services.AddSingleton<MarketService>(); // pure pricing (IClock + EconomyConfig)
 
         builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
@@ -483,6 +484,46 @@ public static class CallsignWebApp
                 return Results.Ok(new { paidCents = paid });
             }
             catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        // --- Routes (Phase 4d) ---
+        app.MapGet("/api/routes", async (CallsignDbContext db, RouteService routes, BaseService bases) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var active = await routes.GetRoutesAsync(pilot.CompanyId);
+            var baseViews = await bases.GetBasesAsync(pilot.CompanyId);
+            var missions = MissionCatalog.All.Where(d => d.MinReputationMilli == 0 && d.ReputationMilliReward >= 0)
+                .Select(d => d.Type.ToString()).ToList();
+            return Results.Ok(new
+            {
+                routes = active.Select(r => new RouteDto(r.Id, r.Name, r.OriginIcao, r.DestIcao, r.Mission.ToString(),
+                    r.DistanceNm, r.RoundTripHours, r.RewardPerTripCents)),
+                bases = baseViews.Select(b => new RouteBaseDto(b.Icao, b.Name)),
+                missions,
+            });
+        });
+
+        app.MapPost("/api/routes", async (CreateRouteRequest req, CallsignDbContext db, RouteService routes) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            if (!Enum.TryParse<MissionType>(req.Mission, ignoreCase: true, out var mission))
+                return Results.BadRequest(new { error = $"Unknown mission '{req.Mission}'." });
+            try
+            {
+                var r = await routes.CreateRouteAsync(pilot.CompanyId, req.Name, req.OriginIcao, req.DestIcao, req.AircraftInstanceId, req.StaffId, mission);
+                return Results.Ok(new { id = r.Id, name = r.Name, rewardPerTripCents = r.RewardPerTripCents });
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        app.MapPost("/api/routes/{id:guid}/cancel", async (Guid id, CallsignDbContext db, RouteService routes) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            await routes.CancelRouteAsync(pilot.CompanyId, id);
+            return Results.Ok(new { cancelled = id });
         });
 
         // --- Bases (Phase 2e) ---

@@ -238,6 +238,36 @@ public sealed class OperationsService
             totalLoan += interest + principal;
         }
 
+        // Routes (Phase 4d): base-to-base scheduled trips — fee-free (both ends are your bases).
+        foreach (var route in await _db.Routes.Where(r => r.CompanyId == companyId && r.Active && !r.IsDeleted).ToListAsync(ct))
+        {
+            double elapsedH = (now - route.LastReconciledAt).TotalHours;
+            int trips = route.RoundTripHours > 0 ? (int)Math.Floor(elapsedH / route.RoundTripHours) : 0;
+            if (trips <= 0)
+                continue;
+            long income = trips * route.RewardPerTripCents;
+            await _ledger.StageBatchAsync(companyId, new[]
+            {
+                new LedgerPosting(LedgerCategory.JobPayout, income / 100m, $"Route {route.Name} ×{trips}",
+                    AircraftInstanceId: route.AircraftInstanceId, DedupeKey: $"route:{route.Id}:{route.LastReconciledAt.UtcTicks}"),
+            }, ct);
+
+            var aircraft = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == route.AircraftInstanceId, ct);
+            if (aircraft is not null)
+            {
+                double hours = trips * route.RoundTripHours;
+                aircraft.AirframeHours += hours;
+                int wear = (int)Math.Round(hours * _cfg.ConditionWearMilliPerHour);
+                aircraft.HullConditionMilli = Math.Max(0, aircraft.HullConditionMilli - wear);
+                aircraft.EngineConditionMilli = Math.Max(0, aircraft.EngineConditionMilli - wear);
+                aircraft.UpdatedAt = now;
+            }
+            route.LastReconciledAt = route.LastReconciledAt.AddHours(trips * route.RoundTripHours);
+            route.UpdatedAt = now;
+            totalTrips += trips;
+            grossIncome += income;
+        }
+
         // Insurance premiums (Phase 4c): the running cost of coverage, prorated by whole days.
         foreach (var policy in await _db.InsurancePolicies.Where(p => p.CompanyId == companyId && p.Active && !p.IsDeleted).ToListAsync(ct))
         {

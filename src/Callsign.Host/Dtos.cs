@@ -69,6 +69,11 @@ public record LoanOfferDto(int Tier, string Name, long MinPrincipalCents, long M
 public record LoanDto(Guid Id, int Tier, long PrincipalCents, long OutstandingCents, int AprBps, int TermDays, string Status, DateTimeOffset TakenAt);
 public record TakeLoanRequest(long PrincipalCents);
 
+// --- Phase 4d: routes ---
+public record RouteDto(Guid Id, string Name, string Origin, string Dest, string Mission, double DistanceNm, double RoundTripHours, long RewardPerTripCents);
+public record RouteBaseDto(string Icao, string Name);
+public record CreateRouteRequest(string? Name, string OriginIcao, string DestIcao, Guid AircraftInstanceId, Guid StaffId, string Mission);
+
 // --- Phase 4c: insurance ---
 public record InsurancePolicyDto(Guid Id, string Tail, string AircraftName, int ConditionMilli, int CoverageMilli,
     long PremiumPerWeekCents, long DeductibleCents, long ClaimPayoutCents, bool Claimable);

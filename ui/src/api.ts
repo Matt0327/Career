@@ -244,6 +244,23 @@ export interface Insurance {
   quotes: InsuranceQuote[]
 }
 
+export interface RouteInfo {
+  id: string
+  name: string
+  origin: string
+  dest: string
+  mission: string
+  distanceNm: number
+  roundTripHours: number
+  rewardPerTripCents: number
+}
+
+export interface RouteData {
+  routes: RouteInfo[]
+  bases: { icao: string; name: string }[]
+  missions: string[]
+}
+
 export interface LoanOffer {
   tier: number
   name: string
@@ -389,6 +406,10 @@ export const api = {
   loans: () => fetch('/api/loans').then(ok<Loans>),
   finances: () => fetch('/api/finances').then(ok<FinancesData>),
   insurance: () => fetch('/api/insurance').then(ok<Insurance>),
+  routes: () => fetch('/api/routes').then(ok<RouteData>),
+  createRoute: (body: { name?: string; originIcao: string; destIcao: string; aircraftInstanceId: string; staffId: string; mission: string }) =>
+    POST('/api/routes', body).then(ok),
+  cancelRoute: (id: string) => POST(`/api/routes/${id}/cancel`).then(ok),
   insure: (aircraftInstanceId: string) => POST_IDEM('/api/insurance/insure', { aircraftInstanceId }).then(ok),
   cancelInsurance: (id: string) => POST(`/api/insurance/${id}/cancel`).then(ok),
   claimInsurance: (id: string) => POST_IDEM(`/api/insurance/${id}/claim`).then(ok<{ paidCents: number }>),

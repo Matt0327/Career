@@ -36,10 +36,12 @@ loan lines; the model for loans/insurance/routes is sketched in [`domain-notes.m
    cancel) and quotes to insure. *Verified live:* insured the starter at $2,101/wk (payout $472,680); a
    claim on the healthy airframe was refused with the reason. Payout + write-off are unit-tested.
 
-4. **4d — Routes.** Scheduled, repeatable work between your bases — the network evolution of Phase 2d's
-   standing orders. Define a `Route` (origin → dest, preferred aircraft/mission); it produces recurring
-   autonomous income, reconciled offline, still **economy-priced** (you set the constraints, never the
-   reward). *Playable:* stand up a route network that earns while you're away.
+4. ✅ **4d — Routes.** Named, scheduled lines between two of your bases (EF migration `AddRoutes`), flown by
+   an owned aircraft + staff pilot with a chosen mission. The reward is economy-frozen at creation from the
+   mission's economics; trips book autonomously in the reconcile pass and are **fee-free** (both ends are
+   your bases — an incentive to grow the network). Reputation-gated / illicit missions can't be routed. A
+   Routes card in the Staff tab opens/cancels them. *Verified live:* opened a Cargo route EHAM→EHSE at
+   $1,523/trip; a route to a non-base was refused. Fee-free trip-booking is unit-tested.
 
 5. **4e — Shared-world ADR.** The architecture decision record (in `docs/adr`): does the ledger/economy
    stay **local-authoritative** (read-mostly, sync as insurance) or become **server-authoritative** (a

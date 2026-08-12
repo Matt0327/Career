@@ -3,8 +3,8 @@ import {
   api, money,
   type AircraftOffer, type Assignment, type BaseOffer, type BaseView, type CheckFlightDone, type Diverted,
   type FinancesData, type FlightLog, type Insurance, type Inventory, type Job, type LedgerEntry, type Loan, type LoanOffer, type Loans,
-  type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation, type Settled,
-  type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type WsEvent,
+  type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
+  type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type WsEvent,
 } from './api'
 
 type Tab = 'dashboard' | 'jobs' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'finances' | 'logbook'
@@ -636,6 +636,13 @@ function Ops({ onChanged }: { onChanged: () => void }) {
   const [oStaff, setOStaff] = useState('')
   const [oAircraft, setOAircraft] = useState('')
   const [oDest, setODest] = useState('')
+  const [routes, setRoutes] = useState<RouteData | null>(null)
+  const [rName, setRName] = useState('')
+  const [rOrigin, setROrigin] = useState('')
+  const [rDest, setRDest] = useState('')
+  const [rStaff, setRStaff] = useState('')
+  const [rAircraft, setRAircraft] = useState('')
+  const [rMission, setRMission] = useState('Cargo')
 
   const load = useCallback(async () => {
     try {
@@ -645,9 +652,24 @@ function Ops({ onChanged }: { onChanged: () => void }) {
       setFleet((await api.hangar()).filter(h => h.availability === 'Available'))
       const uniq = new Map((await api.jobs()).map(j => [j.dest, j.destName]))
       setDests(Array.from(uniq, ([icao, name]) => ({ icao, name })))
+      setRoutes(await api.routes())
     } catch (e) { setMsg(cleanErr(e)) }
   }, [])
   useEffect(() => { void load() }, [load])
+
+  const createRoute = async () => {
+    if (!rStaff || !rAircraft || !rOrigin || !rDest) { setMsg('A route needs a pilot, an aircraft, and two of your bases.'); return }
+    setBusy(true); setMsg(null)
+    try {
+      await api.createRoute({ name: rName.trim() || undefined, originIcao: rOrigin, destIcao: rDest, aircraftInstanceId: rAircraft, staffId: rStaff, mission: rMission })
+      setRName(''); setROrigin(''); setRDest(''); setRStaff(''); setRAircraft(''); await load(); onChanged(); setMsg('Route opened — it earns while you fly.')
+    } catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+  const cancelRoute = async (id: string) => {
+    setBusy(true); setMsg(null)
+    try { await api.cancelRoute(id); await load(); onChanged() }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
 
   const hire = async (c: StaffCandidate) => {
     setBusy(true); setMsg(null)
@@ -733,6 +755,37 @@ function Ops({ onChanged }: { onChanged: () => void }) {
             </div>
           ))}
         </div>
+      </section>
+
+      <section className="card">
+        <div className="row-head"><h2>Routes</h2><span className="hint">Base-to-base lines — fee-free, earning while you fly</span></div>
+        {routes && routes.routes.length > 0 && (
+          <div className="tbl-wrap"><table className="tbl">
+            <thead><tr><th>Route</th><th>Leg</th><th className="r">Reward/trip</th><th></th></tr></thead>
+            <tbody>{routes.routes.map(r => (
+              <tr key={r.id}>
+                <td>{r.name} <span className="muted">· {r.mission}</span></td>
+                <td><span className="loc">{r.origin}</span> → <span className="loc">{r.dest}</span> <span className="muted">· {Math.round(r.distanceNm)} nm</span></td>
+                <td className="r num pos">{money(r.rewardPerTripCents)}</td>
+                <td className="r"><button disabled={busy} onClick={() => cancelRoute(r.id)}>Cancel</button></td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        )}
+        <h3 className="sub-h">Open a route</h3>
+        {!routes || routes.bases.length < 2
+          ? <div className="hint">You need at least two bases (open more on the Bases tab), plus an available aircraft and a hired pilot.</div>
+          : (
+            <div className="order-form">
+              <input className="qty" style={{ width: 110 }} placeholder="Name" value={rName} onChange={e => setRName(e.target.value)} />
+              <select value={rOrigin} onChange={e => setROrigin(e.target.value)}><option value="">From base…</option>{routes.bases.map(b => <option key={b.icao} value={b.icao}>{b.icao} · {b.name}</option>)}</select>
+              <select value={rDest} onChange={e => setRDest(e.target.value)}><option value="">To base…</option>{routes.bases.map(b => <option key={b.icao} value={b.icao}>{b.icao} · {b.name}</option>)}</select>
+              <select value={rStaff} onChange={e => setRStaff(e.target.value)}><option value="">Pilot…</option>{staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+              <select value={rAircraft} onChange={e => setRAircraft(e.target.value)}><option value="">Aircraft…</option>{fleet.map(f => <option key={f.id} value={f.id}>{f.tail} — {f.locationIcao}</option>)}</select>
+              <select value={rMission} onChange={e => setRMission(e.target.value)}>{routes.missions.map(m => <option key={m} value={m}>{m}</option>)}</select>
+              <button className="primary" disabled={busy} onClick={createRoute}>Open route</button>
+            </div>
+          )}
       </section>
     </div>
   )
