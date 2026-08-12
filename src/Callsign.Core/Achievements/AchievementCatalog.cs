@@ -1,26 +1,19 @@
 using Callsign.Core.Domain;
+using Callsign.Core.Progression;
 
 namespace Callsign.Core.Achievements;
 
 /// <summary>
-/// The metrics an achievement can test — a cheap snapshot of the company's progress, gathered once per
-/// evaluation from data the game already keeps (no new bookkeeping).
-/// </summary>
-public sealed record AchievementMetrics(
-    int Flights, int SmoothLandings, int RankIndex, int Qualifications, int ReputationMilli,
-    int Aircraft, int Bases, int Routes, int LoansPaidOff, int Policies, long NetWorthCents);
-
-/// <summary>
-/// One earnable milestone. <see cref="Metric"/> pulls the tracked number out of the snapshot and the
-/// badge is earned once it reaches <see cref="Target"/> — so the same definition also yields a progress
-/// bar for the locked state. Definitions live in code and are self-documenting; only the *earning* of one
-/// is persisted (an <see cref="AchievementAward"/>).
+/// One earnable milestone. <see cref="Metric"/> pulls the tracked number out of the shared
+/// <see cref="ProgressMetrics"/> snapshot and the badge is earned once it reaches <see cref="Target"/> —
+/// so the same definition also yields a progress bar for the locked state. Definitions live in code and
+/// are self-documenting; only the *earning* of one is persisted (an <see cref="AchievementAward"/>).
 /// </summary>
 public sealed record AchievementDef(
-    string Key, string Name, string Description, string Category, long Target, Func<AchievementMetrics, long> Metric)
+    string Key, string Name, string Description, string Category, long Target, Func<ProgressMetrics, long> Metric)
 {
-    public long ProgressOf(AchievementMetrics m) => Math.Max(0, Metric(m));
-    public bool IsEarnedBy(AchievementMetrics m) => Metric(m) >= Target;
+    public long ProgressOf(ProgressMetrics m) => Math.Max(0, Metric(m));
+    public bool IsEarnedBy(ProgressMetrics m) => Metric(m) >= Target;
 }
 
 /// <summary>An achievement as shown to the player: the definition plus this company's state against it.</summary>

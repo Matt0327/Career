@@ -31,6 +31,7 @@ public sealed class CallsignDbContext : DbContext
     public DbSet<InsurancePolicy> InsurancePolicies => Set<InsurancePolicy>();
     public DbSet<Route> Routes => Set<Route>();
     public DbSet<AchievementAward> AchievementAwards => Set<AchievementAward>();
+    public DbSet<CampaignProgress> CampaignProgress => Set<CampaignProgress>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -244,5 +245,12 @@ public sealed class CallsignDbContext : DbContext
         award.Property(a => a.Key).IsRequired().HasMaxLength(40);
         award.HasIndex(a => new { a.CompanyId, a.Key }).IsUnique(); // earned once — idempotent awarding
         award.HasOne<Company>().WithMany().HasForeignKey(a => a.CompanyId).OnDelete(DeleteBehavior.Restrict);
+
+        // --- Campaigns (Phase 5b): one progress row per (company, catalog key) ---
+        var campaign = model.Entity<CampaignProgress>();
+        campaign.HasKey(c => c.Id);
+        campaign.Property(c => c.CampaignKey).IsRequired().HasMaxLength(40);
+        campaign.HasIndex(c => new { c.CompanyId, c.CampaignKey }).IsUnique();
+        campaign.HasOne<Company>().WithMany().HasForeignKey(c => c.CompanyId).OnDelete(DeleteBehavior.Restrict);
     }
 }

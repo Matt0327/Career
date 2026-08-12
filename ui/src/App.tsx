@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api, money,
-  type Achievement, type AircraftOffer, type Assignment, type BackupFile, type BaseOffer, type BaseView, type CheckFlightDone, type Diverted,
+  type Achievement, type AircraftOffer, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type CheckFlightDone, type Diverted,
   type FinancesData, type FlightLog, type Insurance, type Inventory, type Job, type LedgerEntry, type Loan, type LoanOffer, type Loans,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
   type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type VersionInfo, type WsEvent,
 } from './api'
 
-type Tab = 'dashboard' | 'jobs' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'finances' | 'awards' | 'logbook' | 'settings'
+type Tab = 'dashboard' | 'jobs' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'finances' | 'campaigns' | 'awards' | 'logbook' | 'settings'
 
 export function App() {
   const [state, setState] = useState<State | null | undefined>(undefined) // undefined = still loading
@@ -40,6 +40,7 @@ export function App() {
         {tab === 'bases' && <Bases state={state} onChanged={reload} />}
         {tab === 'trade' && <Trade state={state} onChanged={reload} />}
         {tab === 'finances' && <Finances state={state} onChanged={reload} />}
+        {tab === 'campaigns' && <Campaigns onChanged={reload} />}
         {tab === 'awards' && <Awards />}
         {tab === 'logbook' && <Logbook />}
         {tab === 'settings' && <Settings />}
@@ -52,7 +53,7 @@ export function App() {
 
 function TopBar({ state, tab, setTab }: { state: State; tab: Tab; setTab: (t: Tab) => void }) {
   const tabs: [Tab, string][] = [
-    ['dashboard', 'Dashboard'], ['jobs', 'Jobs'], ['flight', 'Flight'], ['hangar', 'Hangar'], ['ops', 'Staff'], ['bases', 'Bases'], ['trade', 'Trade'], ['finances', 'Finances'], ['awards', 'Awards'], ['logbook', 'Logbook'], ['settings', 'Settings'],
+    ['dashboard', 'Dashboard'], ['jobs', 'Jobs'], ['flight', 'Flight'], ['hangar', 'Hangar'], ['ops', 'Staff'], ['bases', 'Bases'], ['trade', 'Trade'], ['finances', 'Finances'], ['campaigns', 'Campaigns'], ['awards', 'Awards'], ['logbook', 'Logbook'], ['settings', 'Settings'],
   ]
   return (
     <header className="topbar">
@@ -1165,6 +1166,57 @@ function Logbook() {
         )}
       </section>
     </div>
+  )
+}
+
+// ─── Campaigns (authored story arcs) ─────────────────────────────────────────
+
+function Campaigns({ onChanged }: { onChanged: () => void }) {
+  const [items, setItems] = useState<Campaign[] | null>(null)
+  // Loading evaluates arcs server-side and may pay a completion reward, so refresh the top bar after.
+  useEffect(() => { api.campaigns().then(cs => { setItems(cs); onChanged() }).catch(() => setItems([])) }, [onChanged])
+
+  if (items === null) return <div className="empty">Loading…</div>
+
+  return (
+    <div className="grid">
+      <p className="hint">Story arcs — each a ladder of goals that pays out when you finish it. They track your real progress, so steps tick off as you play.</p>
+      {items.map(c => <CampaignCard key={c.key} c={c} />)}
+    </div>
+  )
+}
+
+function CampaignCard({ c }: { c: Campaign }) {
+  return (
+    <section className={`card campaign ${c.completed ? 'done' : ''}`}>
+      <div className="row-head">
+        <h2>{c.name}</h2>
+        {c.completed ? <span className="pill-done">Completed ✓</span> : <span className="hint num">{c.stepIndex} / {c.stepCount}</span>}
+      </div>
+      <p className="muted camp-desc">{c.description}</p>
+      <ol className="camp-steps">
+        {c.steps.map((s, i) => {
+          const current = !c.completed && i === c.stepIndex
+          const pct = s.target > 0 ? Math.min(100, (s.progress / s.target) * 100) : 0
+          return (
+            <li key={i} className={`camp-step ${s.done ? 'done' : current ? 'current' : 'locked'}`}>
+              <span className="camp-m">{s.done ? '✓' : current ? '▸' : '○'}</span>
+              <div className="camp-body">
+                <div className="camp-title">{s.title}</div>
+                <div className="camp-detail muted">{s.detail}</div>
+                {current && s.target > 1 && (
+                  <div className="camp-bar" title={`${s.progress} / ${s.target}`}><div className="camp-fill" style={{ width: `${pct}%` }} /></div>
+                )}
+              </div>
+            </li>
+          )
+        })}
+      </ol>
+      <div className="camp-foot">
+        <span className="hint">Reward on completion</span>
+        <span className={`num ${c.completed ? 'pos' : ''}`}>{money(c.rewardCents)}{c.completed ? ' · paid' : ''}</span>
+      </div>
+    </section>
   )
 }
 

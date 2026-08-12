@@ -1,6 +1,7 @@
 using Callsign.Core.Achievements;
 using Callsign.Core.Aircraft;
 using Callsign.Core.Airports;
+using Callsign.Core.Campaigns;
 using Callsign.Core.Data;
 using Callsign.Core.Domain;
 using Callsign.Core.Economy;
@@ -76,7 +77,9 @@ public static class CallsignWebApp
         builder.Services.AddScoped<FinanceService>();
         builder.Services.AddScoped<InsuranceService>();
         builder.Services.AddScoped<RouteService>();
+        builder.Services.AddScoped<ProgressMetricsService>();
         builder.Services.AddScoped<AchievementService>();
+        builder.Services.AddScoped<CampaignService>();
         builder.Services.AddSingleton<MarketService>(); // pure pricing (IClock + EconomyConfig)
 
         builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
@@ -787,6 +790,17 @@ public static class CallsignWebApp
             var views = await ach.EvaluateAsync(pilot.CompanyId, pilot.Id);
             return Results.Ok(views.Select(v => new AchievementDto(
                 v.Key, v.Name, v.Description, v.Category, v.Target, v.Progress, v.Earned, v.EarnedAt)));
+        });
+
+        // --- Campaigns (Phase 5b): evaluating on read advances arcs + pays completion rewards, then returns all ---
+        app.MapGet("/api/campaigns", async (CallsignDbContext db, CampaignService campaigns) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var views = await campaigns.EvaluateAsync(pilot.CompanyId, pilot.Id);
+            return Results.Ok(views.Select(v => new CampaignDto(
+                v.Key, v.Name, v.Description, v.RewardCents, v.StepIndex, v.StepCount, v.Completed, v.CompletedAt,
+                v.Steps.Select(s => new CampaignStepDto(s.Title, s.Detail, s.Target, s.Progress, s.Done)).ToList())));
         });
 
         // --- Build identity (the About line) ---

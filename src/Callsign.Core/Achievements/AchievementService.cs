@@ -1,6 +1,6 @@
 using Callsign.Core.Data;
 using Callsign.Core.Domain;
-using Callsign.Core.Economy;
+using Callsign.Core.Progression;
 using Callsign.Core.Time;
 using Microsoft.EntityFrameworkCore;
 
@@ -16,18 +16,18 @@ public sealed class AchievementService
 {
     private readonly CallsignDbContext _db;
     private readonly IClock _clock;
-    private readonly FinanceService _finance;
+    private readonly ProgressMetricsService _metrics;
 
-    public AchievementService(CallsignDbContext db, IClock clock, FinanceService finance)
+    public AchievementService(CallsignDbContext db, IClock clock, ProgressMetricsService metrics)
     {
         _db = db;
         _clock = clock;
-        _finance = finance;
+        _metrics = metrics;
     }
 
     public async Task<IReadOnlyList<AchievementView>> EvaluateAsync(Guid companyId, Guid pilotId, CancellationToken ct = default)
     {
-        var m = await GatherAsync(companyId, pilotId, ct);
+        var m = await _metrics.SnapshotAsync(companyId, pilotId, ct);
 
         var earnedAt = await _db.AchievementAwards
             .Where(a => a.CompanyId == companyId && !a.IsDeleted)
@@ -58,36 +58,5 @@ public sealed class AchievementService
             Math.Min(def.ProgressOf(m), def.Target),
             earnedAt.ContainsKey(def.Key),
             earnedAt.TryGetValue(def.Key, out var at) ? at : null)).ToList();
-    }
-
-    // A single cheap snapshot of everything the catalog reads. Counts are company-scoped; the flight log
-    // is the whole company's (one save = one company), matching the /api/game/state flight count.
-    private async Task<AchievementMetrics> GatherAsync(Guid companyId, Guid pilotId, CancellationToken ct)
-    {
-        var pilot = await _db.Pilots.FirstOrDefaultAsync(p => p.Id == pilotId, ct);
-
-        var flights = await _db.Flights.CountAsync(ct);
-        // Landing rate within ±60 fpm reads as "butter" in the UI; touchdowns are negative on descent.
-        var smooth = await _db.Flights.CountAsync(f => f.TouchdownFpm >= -60 && f.TouchdownFpm <= 60, ct);
-        var aircraft = await _db.AircraftInstances.CountAsync(a => a.CompanyId == companyId && !a.IsDeleted, ct);
-        var bases = await _db.Bases.CountAsync(b => b.CompanyId == companyId && !b.IsDeleted, ct);
-        var routes = await _db.Routes.CountAsync(r => r.CompanyId == companyId, ct); // "ever opened"
-        var loansPaid = await _db.Loans.CountAsync(l => l.CompanyId == companyId && l.Status == LoanStatus.PaidOff, ct);
-        var policies = await _db.InsurancePolicies.CountAsync(p => p.CompanyId == companyId, ct); // "ever insured"
-        var quals = pilot is null ? 0 : await _db.PilotQualifications.CountAsync(q => q.PilotId == pilot.Id, ct);
-        var netWorth = (await _finance.NetWorthAsync(companyId, ct)).NetWorthCents;
-
-        return new AchievementMetrics(
-            Flights: flights,
-            SmoothLandings: smooth,
-            RankIndex: (int)(pilot?.Rank ?? PilotRank.Trainee),
-            Qualifications: quals,
-            ReputationMilli: pilot?.ReputationMilli ?? 0,
-            Aircraft: aircraft,
-            Bases: bases,
-            Routes: routes,
-            LoansPaidOff: loansPaid,
-            Policies: policies,
-            NetWorthCents: netWorth);
     }
 }

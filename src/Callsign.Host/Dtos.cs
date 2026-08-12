@@ -118,3 +118,9 @@ public record RestoreRequest(string Name);
 public record AchievementDto(
     string Key, string Name, string Description, string Category, long Target, long Progress,
     bool Earned, DateTimeOffset? EarnedAt);
+
+// --- Phase 5b: campaigns ---
+public record CampaignStepDto(string Title, string Detail, long Target, long Progress, bool Done);
+public record CampaignDto(
+    string Key, string Name, string Description, long RewardCents, int StepIndex, int StepCount,
+    bool Completed, DateTimeOffset? CompletedAt, IReadOnlyList<CampaignStepDto> Steps);

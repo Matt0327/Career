@@ -379,6 +379,26 @@ export interface Achievement {
   earnedAt: string | null
 }
 
+export interface CampaignStep {
+  title: string
+  detail: string
+  target: number
+  progress: number
+  done: boolean
+}
+
+export interface Campaign {
+  key: string
+  name: string
+  description: string
+  rewardCents: number
+  stepIndex: number
+  stepCount: number
+  completed: boolean
+  completedAt: string | null
+  steps: CampaignStep[]
+}
+
 async function ok<T>(r: Response): Promise<T> {
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${await r.text()}`)
   return r.json() as Promise<T>
@@ -467,6 +487,7 @@ export const api = {
   buyGood: (good: string, qty: number) => POST_IDEM('/api/trade/buy', { good, qty }).then(ok),
   sellGood: (good: string, qty: number) => POST_IDEM('/api/trade/sell', { good, qty }).then(ok<TradeResult>),
   achievements: () => fetch('/api/achievements').then(ok<Achievement[]>),
+  campaigns: () => fetch('/api/campaigns').then(ok<Campaign[]>),
   version: () => fetch('/api/version').then(ok<VersionInfo>),
   backups: () => fetch('/api/save/backups').then(ok<BackupFile[]>),
   backup: () => POST('/api/save/backup').then(ok<BackupFile>),

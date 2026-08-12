@@ -26,6 +26,7 @@ public enum LedgerCategory
     InsurancePremium,
     InsuranceClaim,
     Trade,
+    CampaignReward,
     Transfer,
     Adjustment,
 }

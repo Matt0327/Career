@@ -2,6 +2,7 @@ using Callsign.Core.Achievements;
 using Callsign.Core.Data;
 using Callsign.Core.Domain;
 using Callsign.Core.Economy;
+using Callsign.Core.Progression;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
@@ -14,7 +15,7 @@ namespace Callsign.Core.Tests;
 public class AchievementServiceTests
 {
     private static AchievementService Svc(CallsignDbContext db, FakeClock clock)
-        => new(db, clock, new FinanceService(db, clock, EconomyConfig.Default));
+        => new(db, clock, new ProgressMetricsService(db, new FinanceService(db, clock, EconomyConfig.Default)));
 
     private static (Company Company, Pilot Pilot) Seed(CallsignDbContext db)
     {
