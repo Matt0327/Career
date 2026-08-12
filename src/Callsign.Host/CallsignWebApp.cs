@@ -1,5 +1,6 @@
 using Callsign.Core.Achievements;
 using Callsign.Core.Aircraft;
+using Callsign.Core.Airline;
 using Callsign.Core.Airports;
 using Callsign.Core.Campaigns;
 using Callsign.Core.Data;
@@ -80,6 +81,7 @@ public static class CallsignWebApp
         builder.Services.AddScoped<ProgressMetricsService>();
         builder.Services.AddScoped<AchievementService>();
         builder.Services.AddScoped<CampaignService>();
+        builder.Services.AddScoped<AirlineService>();
         builder.Services.AddSingleton<MarketService>(); // pure pricing (IClock + EconomyConfig)
 
         builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
@@ -801,6 +803,32 @@ public static class CallsignWebApp
             return Results.Ok(views.Select(v => new CampaignDto(
                 v.Key, v.Name, v.Description, v.RewardCents, v.StepIndex, v.StepCount, v.Completed, v.CompletedAt,
                 v.Steps.Select(s => new CampaignStepDto(s.Title, s.Detail, s.Target, s.Progress, s.Done)).ToList())));
+        });
+
+        // --- Airline identity + standing (Phase 5c) ---
+        app.MapGet("/api/airline", async (CallsignDbContext db, AirlineService airline) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var id = await airline.GetIdentityAsync(pilot.CompanyId);
+            var st = await airline.GetStandingAsync(pilot.CompanyId, pilot.Id);
+            return Results.Ok(new AirlineDto(
+                new AirlineIdentityDto(id.Name, id.TailCode, id.AccentColorHex, id.EmblemKey, id.Customised),
+                new AirlineStandingDto(st.Tier, st.TierName, st.Score, st.NextTierScore,
+                    st.Contributions.Select(c => new StandingContributionDto(c.Label, c.Points)).ToList()),
+                AirlineEmblems.All));
+        });
+
+        app.MapPost("/api/airline", async (SetAirlineRequest req, CallsignDbContext db, AirlineService airline) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                var id = await airline.SetIdentityAsync(pilot.CompanyId, req.Name, req.TailCode, req.AccentColorHex, req.EmblemKey);
+                return Results.Ok(new AirlineIdentityDto(id.Name, id.TailCode, id.AccentColorHex, id.EmblemKey, id.Customised));
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
         // --- Build identity (the About line) ---

@@ -124,3 +124,10 @@ public record CampaignStepDto(string Title, string Detail, long Target, long Pro
 public record CampaignDto(
     string Key, string Name, string Description, long RewardCents, int StepIndex, int StepCount,
     bool Completed, DateTimeOffset? CompletedAt, IReadOnlyList<CampaignStepDto> Steps);
+
+// --- Phase 5c: airline identity + standing ---
+public record AirlineIdentityDto(string Name, string TailCode, string AccentColorHex, string EmblemKey, bool Customised);
+public record StandingContributionDto(string Label, int Points);
+public record AirlineStandingDto(int Tier, string TierName, int Score, int? NextTierScore, IReadOnlyList<StandingContributionDto> Contributions);
+public record AirlineDto(AirlineIdentityDto Identity, AirlineStandingDto Standing, IReadOnlyList<string> Emblems);
+public record SetAirlineRequest(string? Name, string? TailCode, string? AccentColorHex, string? EmblemKey);

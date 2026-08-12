@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api, money,
-  type Achievement, type AircraftOffer, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type CheckFlightDone, type Diverted,
+  type Achievement, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type CheckFlightDone, type Diverted,
   type FinancesData, type FlightLog, type Insurance, type Inventory, type Job, type LedgerEntry, type Loan, type LoanOffer, type Loans,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
   type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type VersionInfo, type WsEvent,
 } from './api'
 
-type Tab = 'dashboard' | 'jobs' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'finances' | 'campaigns' | 'awards' | 'logbook' | 'settings'
+type Tab = 'dashboard' | 'airline' | 'jobs' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'finances' | 'campaigns' | 'awards' | 'logbook' | 'settings'
 
 export function App() {
   const [state, setState] = useState<State | null | undefined>(undefined) // undefined = still loading
   const [tab, setTab] = useState<Tab>('dashboard')
   const [error, setError] = useState<string | null>(null)
+  const [airline, setAirline] = useState<AirlineData | null>(null)
 
   const reload = useCallback(async () => {
     try {
@@ -21,18 +22,21 @@ export function App() {
       setError(String(e))
     }
   }, [])
+  const loadAirline = useCallback(() => { api.airline().then(setAirline).catch(() => {}) }, [])
 
   useEffect(() => { void reload() }, [reload])
+  useEffect(() => { if (state) loadAirline() }, [state, loadAirline])
 
   if (state === undefined) return <Splash />
   if (state === null) return <NewCareer onStarted={reload} />
 
   return (
     <div className="app">
-      <TopBar state={state} tab={tab} setTab={setTab} />
+      <TopBar state={state} tab={tab} setTab={setTab} airline={airline} />
       <main className="main">
         {error && <div className="banner error" onClick={() => setError(null)}>{error} — tap to dismiss</div>}
         {tab === 'dashboard' && <Dashboard state={state} go={setTab} />}
+        {tab === 'airline' && <Airline onSaved={() => { void reload(); loadAirline() }} />}
         {tab === 'jobs' && <Jobs state={state} onChanged={reload} />}
         {tab === 'flight' && <Flight state={state} onSettled={reload} />}
         {tab === 'hangar' && <Hangar state={state} onChanged={reload} />}
@@ -51,13 +55,17 @@ export function App() {
 
 // ─── Shell ───────────────────────────────────────────────────────────────────
 
-function TopBar({ state, tab, setTab }: { state: State; tab: Tab; setTab: (t: Tab) => void }) {
+function TopBar({ state, tab, setTab, airline }: { state: State; tab: Tab; setTab: (t: Tab) => void; airline: AirlineData | null }) {
   const tabs: [Tab, string][] = [
-    ['dashboard', 'Dashboard'], ['jobs', 'Jobs'], ['flight', 'Flight'], ['hangar', 'Hangar'], ['ops', 'Staff'], ['bases', 'Bases'], ['trade', 'Trade'], ['finances', 'Finances'], ['campaigns', 'Campaigns'], ['awards', 'Awards'], ['logbook', 'Logbook'], ['settings', 'Settings'],
+    ['dashboard', 'Dashboard'], ['airline', 'Airline'], ['jobs', 'Jobs'], ['flight', 'Flight'], ['hangar', 'Hangar'], ['ops', 'Staff'], ['bases', 'Bases'], ['trade', 'Trade'], ['finances', 'Finances'], ['campaigns', 'Campaigns'], ['awards', 'Awards'], ['logbook', 'Logbook'], ['settings', 'Settings'],
   ]
   return (
     <header className="topbar">
-      <div className="brand"><span className="mark">◄</span> CALLSIGN</div>
+      <div className="brand" onClick={() => setTab('airline')} title="Airline identity">
+        {airline
+          ? <><Emblem emblem={airline.identity.emblemKey} color={airline.identity.accentColorHex} size={26} /> <span className="brand-name">{airline.identity.name}</span></>
+          : <><span className="mark">◄</span> CALLSIGN</>}
+      </div>
       <nav className="nav">
         {tabs.map(([id, label]) => (
           <button key={id} className={`pill ${tab === id ? 'on' : ''}`} onClick={() => setTab(id)}>{label}</button>
@@ -1164,6 +1172,101 @@ function Logbook() {
             </tbody>
           </table>
         )}
+      </section>
+    </div>
+  )
+}
+
+// ─── Airline identity (Phase 5c) ─────────────────────────────────────────────
+
+// An original, generated roundel: an accent disc with one of a fixed set of white geometric marks.
+function Emblem({ emblem, color, size = 44 }: { emblem: string; color: string; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" className="emblem" aria-hidden="true">
+      <circle cx="24" cy="24" r="23" fill={color} />
+      <EmblemMark k={emblem} />
+    </svg>
+  )
+}
+
+function EmblemMark({ k }: { k: string }) {
+  const s = { fill: 'none', stroke: '#fff', strokeWidth: 3, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
+  switch (k) {
+    case 'delta': return <path d="M24 13 L35 34 L13 34 Z" {...s} />
+    case 'wing': return <path d="M11 31 Q24 16 37 31" {...s} />
+    case 'peak': return <path d="M11 32 L19 20 L26 28 L32 20 L37 32" {...s} />
+    case 'star': return <path d="M24 12 l3.6 7.3 8 1.2 -5.8 5.7 1.4 8 -7.2 -3.8 -7.2 3.8 1.4 -8 -5.8 -5.7 8 -1.2 Z" fill="#fff" />
+    case 'compass': return <path d="M24 11 L27.5 24 L24 37 L20.5 24 Z M11 24 L24 20.5 L37 24 L24 27.5 Z" fill="#fff" />
+    case 'roundel':
+    default: return <g><circle cx="24" cy="24" r="11" {...s} /><circle cx="24" cy="24" r="4" fill="#fff" /></g>
+  }
+}
+
+function Airline({ onSaved }: { onSaved: () => void }) {
+  const [data, setData] = useState<AirlineData | null>(null)
+  const [name, setName] = useState('')
+  const [code, setCode] = useState('')
+  const [color, setColor] = useState('#4f46e5')
+  const [emblem, setEmblem] = useState('roundel')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    const d = await api.airline()
+    setData(d)
+    setName(d.identity.name); setCode(d.identity.tailCode); setColor(d.identity.accentColorHex); setEmblem(d.identity.emblemKey)
+  }, [])
+  useEffect(() => { load().catch(e => setMsg(cleanErr(e))) }, [load])
+
+  const save = async () => {
+    setBusy(true); setMsg(null)
+    try { await api.setAirline({ name, tailCode: code, accentColorHex: color, emblemKey: emblem }); await load(); onSaved(); setMsg('Airline identity saved.') }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+
+  if (!data) return <div className="empty">Loading…</div>
+  const st = data.standing
+  const pct = st.nextTierScore ? Math.min(100, (st.score / st.nextTierScore) * 100) : 100
+
+  return (
+    <div className="grid">
+      <section className="card">
+        <h2>Airline identity</h2>
+        <div className="airline-head">
+          <Emblem emblem={emblem} color={color} size={76} />
+          <div>
+            <div className="airline-name">{name || 'Your airline'}</div>
+            <div className="muted"><span className="loc">{code || '—'}</span> · {data.identity.customised ? 'operator code' : 'suggested — make it yours'}</div>
+          </div>
+        </div>
+        {msg && <div className="banner">{msg}</div>}
+        <div className="airline-form">
+          <label>Airline name<input value={name} maxLength={60} onChange={e => setName(e.target.value)} /></label>
+          <label>Tail code<input className="tail-in" value={code} maxLength={3} onChange={e => setCode(e.target.value.toUpperCase())} /></label>
+          <label className="color-lbl">Accent<input type="color" value={color} onChange={e => setColor(e.target.value)} /></label>
+        </div>
+        <div className="emblem-picker">
+          {data.emblems.map(k => (
+            <button key={k} type="button" className={`emblem-opt ${emblem === k ? 'on' : ''}`} onClick={() => setEmblem(k)} title={k}>
+              <Emblem emblem={k} color={color} size={38} />
+            </button>
+          ))}
+        </div>
+        <button className="primary" disabled={busy} onClick={save}>Save identity</button>
+      </section>
+
+      <section className="card">
+        <div className="row-head"><h2>Airline standing</h2><span className="tier-badge" style={{ background: `color-mix(in srgb, ${color} 16%, transparent)`, color }}>{st.tierName}</span></div>
+        <div className="rank-bar"><div className="rank-fill" style={{ width: `${pct}%`, background: color }} /></div>
+        <div className="rank-scale"><span className="num">{st.score} pts</span><span className="num">{st.nextTierScore ? `next tier at ${st.nextTierScore}` : 'top tier'}</span></div>
+        {st.contributions.length > 0 && (
+          <table className="tbl" style={{ marginTop: 14 }}>
+            <tbody>{st.contributions.map(c => (
+              <tr key={c.label}><td>{c.label}</td><td className="r num pos">+{c.points}</td></tr>
+            ))}</tbody>
+          </table>
+        )}
+        <p className="hint">Standing reads your whole operation — reputation, fleet, network, wealth, and campaigns — into a tier. Computed live, never stored.</p>
       </section>
     </div>
   )

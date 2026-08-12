@@ -45,6 +45,10 @@ public sealed class CallsignDbContext : DbContext
         var company = model.Entity<Company>();
         company.HasKey(c => c.Id);
         company.Property(c => c.Name).IsRequired().HasMaxLength(120);
+        company.Property(c => c.AirlineName).HasMaxLength(60);
+        company.Property(c => c.TailCode).HasMaxLength(3);
+        company.Property(c => c.AccentColorHex).HasMaxLength(9);
+        company.Property(c => c.EmblemKey).HasMaxLength(20);
         company.Property(c => c.Version).IsConcurrencyToken(); // races on the cash cache conflict, not clobber
 
         var pilot = model.Entity<Pilot>();

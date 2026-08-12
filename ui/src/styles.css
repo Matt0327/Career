@@ -175,6 +175,23 @@ input { font: inherit; }
 .tbl button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .tbl button:disabled { opacity: .45; cursor: default; }
 
+/* ── Airline identity ── */
+.emblem { border-radius: 50%; flex: none; display: block; }
+.brand { cursor: pointer; }
+.brand-name { font-weight: 700; letter-spacing: .02em; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.airline-head { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
+.airline-name { font-size: 22px; font-weight: 700; letter-spacing: -.01em; }
+.airline-form { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; margin-bottom: 14px; }
+.airline-form label { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.airline-form input { padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; }
+.airline-form input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.airline-form .tail-in { width: 96px; text-transform: uppercase; letter-spacing: .12em; font-weight: 600; }
+.color-lbl input[type=color] { width: 48px; height: 40px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); cursor: pointer; }
+.emblem-picker { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.emblem-opt { padding: 5px; border: 1px solid var(--line); border-radius: 10px; background: transparent; line-height: 0; cursor: pointer; }
+.emblem-opt.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.tier-badge { font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 999px; letter-spacing: .02em; }
+
 /* ── Campaigns ── */
 .campaign.done { border-color: color-mix(in srgb, var(--pos) 40%, var(--line)); }
 .camp-desc { margin: 0 0 14px; font-size: 14px; }

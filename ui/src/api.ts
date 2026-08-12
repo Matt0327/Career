@@ -399,6 +399,30 @@ export interface Campaign {
   steps: CampaignStep[]
 }
 
+export interface AirlineIdentity {
+  name: string
+  tailCode: string
+  accentColorHex: string
+  emblemKey: string
+  customised: boolean
+}
+
+export interface StandingContribution { label: string; points: number }
+
+export interface AirlineStanding {
+  tier: number
+  tierName: string
+  score: number
+  nextTierScore: number | null
+  contributions: StandingContribution[]
+}
+
+export interface AirlineData {
+  identity: AirlineIdentity
+  standing: AirlineStanding
+  emblems: string[]
+}
+
 async function ok<T>(r: Response): Promise<T> {
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${await r.text()}`)
   return r.json() as Promise<T>
@@ -488,6 +512,9 @@ export const api = {
   sellGood: (good: string, qty: number) => POST_IDEM('/api/trade/sell', { good, qty }).then(ok<TradeResult>),
   achievements: () => fetch('/api/achievements').then(ok<Achievement[]>),
   campaigns: () => fetch('/api/campaigns').then(ok<Campaign[]>),
+  airline: () => fetch('/api/airline').then(ok<AirlineData>),
+  setAirline: (body: { name: string; tailCode: string; accentColorHex: string; emblemKey: string }) =>
+    POST('/api/airline', body).then(ok<AirlineIdentity>),
   version: () => fetch('/api/version').then(ok<VersionInfo>),
   backups: () => fetch('/api/save/backups').then(ok<BackupFile[]>),
   backup: () => POST('/api/save/backup').then(ok<BackupFile>),
