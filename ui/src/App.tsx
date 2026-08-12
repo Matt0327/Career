@@ -33,8 +33,10 @@ export function App() {
 
   return (
     <div className="app">
-      <TopBar state={state} tab={tab} setTab={setTab} airline={airline} />
-      <main className="main">
+      <NavRail tab={tab} setTab={setTab} airline={airline} />
+      <div className="work">
+        <ContextHeader state={state} tab={tab} />
+        <main className="main">
         {error && <div className="banner error" onClick={() => setError(null)}>{error} — tap to dismiss</div>}
         {tab === 'dashboard' && <Dashboard state={state} go={setTab} />}
         {tab === 'airline' && <Airline onSaved={() => { void reload(); loadAirline() }} />}
@@ -49,36 +51,83 @@ export function App() {
         {tab === 'awards' && <Awards />}
         {tab === 'logbook' && <Logbook />}
         {tab === 'settings' && <Settings />}
-      </main>
+        </main>
+      </div>
     </div>
   )
 }
 
-// ─── Shell ───────────────────────────────────────────────────────────────────
+// ─── Shell: nav rail + context header ────────────────────────────────────────
 
-function TopBar({ state, tab, setTab, airline }: { state: State; tab: Tab; setTab: (t: Tab) => void; airline: AirlineData | null }) {
-  const tabs: [Tab, string][] = [
-    ['dashboard', 'Dashboard'], ['airline', 'Airline'], ['jobs', 'Jobs'], ['flight', 'Flight'], ['hangar', 'Hangar'], ['ops', 'Staff'], ['bases', 'Bases'], ['trade', 'Trade'], ['finances', 'Finances'], ['campaigns', 'Campaigns'], ['awards', 'Awards'], ['logbook', 'Logbook'], ['settings', 'Settings'],
-  ]
+const TABS: { id: Tab; label: string; sub: string }[] = [
+  { id: 'dashboard', label: 'Dashboard', sub: 'Your operation at a glance' },
+  { id: 'airline', label: 'Airline', sub: 'Identity & standing' },
+  { id: 'jobs', label: 'Jobs', sub: 'Find and accept work' },
+  { id: 'flight', label: 'Flight', sub: 'Fly your objectives' },
+  { id: 'hangar', label: 'Hangar', sub: 'Your fleet & the market' },
+  { id: 'ops', label: 'Staff', sub: 'Crew, standing orders & routes' },
+  { id: 'bases', label: 'Bases', sub: 'Your network' },
+  { id: 'trade', label: 'Trade', sub: 'The commodity market' },
+  { id: 'finances', label: 'Finances', sub: 'Balance sheet, P&L & loans' },
+  { id: 'campaigns', label: 'Campaigns', sub: 'Fly a story' },
+  { id: 'awards', label: 'Awards', sub: 'Achievements earned' },
+  { id: 'logbook', label: 'Logbook', sub: 'Flights & the ledger' },
+  { id: 'settings', label: 'Settings', sub: 'Preferences & your save' },
+]
+
+function NavRail({ tab, setTab, airline }: { tab: Tab; setTab: (t: Tab) => void; airline: AirlineData | null }) {
+  const item = (t: Tab, label: string) => (
+    <button key={t} className={`ric ${tab === t ? 'on' : ''}`} onClick={() => setTab(t)} aria-label={label}>
+      {navIcon(t)}<span className="tip">{label}</span>
+    </button>
+  )
   return (
-    <header className="topbar">
-      <div className="brand" onClick={() => setTab('airline')} title="Airline identity">
+    <aside className="rail">
+      <button className="rail-emblem" title="Airline identity" onClick={() => setTab('airline')} aria-label="Airline">
         {airline
-          ? <><Emblem emblem={airline.identity.emblemKey} color={airline.identity.accentColorHex} size={26} /> <span className="brand-name">{airline.identity.name}</span></>
-          : <><span className="mark">◄</span> CALLSIGN</>}
+          ? <Emblem emblem={airline.identity.emblemKey} color={airline.identity.accentColorHex} size={34} />
+          : <span className="mark" style={{ fontSize: 24 }}>◄</span>}
+      </button>
+      {TABS.filter(t => t.id !== 'settings').map(t => item(t.id, t.label))}
+      <div style={{ marginTop: 'auto' }}>{item('settings', 'Settings')}</div>
+    </aside>
+  )
+}
+
+function ContextHeader({ state, tab }: { state: State; tab: Tab }) {
+  const meta = TABS.find(t => t.id === tab)
+  return (
+    <header className="ctxbar">
+      <div className="ctx-title">
+        <h1>{meta?.label ?? 'Callsign'}</h1>
+        <div className="sub">{meta?.sub ?? ''}</div>
       </div>
-      <nav className="nav">
-        {tabs.map(([id, label]) => (
-          <button key={id} className={`pill ${tab === id ? 'on' : ''}`} onClick={() => setTab(id)}>{label}</button>
-        ))}
-      </nav>
-      <div className="who">
-        <div className="who-main">{state.name} · <span className="muted">{state.rank}</span></div>
-        <div className="who-sub"><span className="loc">{state.currentIcao}</span> · {state.xp.toLocaleString()} XP</div>
+      <div className="ctx">
+        <span className="chip"><span className="dot" /> <b className="loc">{state.currentIcao}</b></span>
+        <span className="chip">{state.name} · <span className="muted">{state.rank}</span> · {state.xp.toLocaleString()} XP</span>
+        <span className="chip cash"><b className="num">{money(state.cashCents)}</b></span>
       </div>
-      <div className="cash" title="Company cash">{money(state.cashCents)}</div>
     </header>
   )
+}
+
+function navIcon(id: Tab) {
+  switch (id) {
+    case 'dashboard': return <svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1.5" /><rect x="13" y="3" width="8" height="5" rx="1.5" /><rect x="13" y="11" width="8" height="10" rx="1.5" /><rect x="3" y="14" width="8" height="7" rx="1.5" /></svg>
+    case 'airline': return <svg viewBox="0 0 24 24"><path d="M3 15l18-7-7 13-3-5-8-1z" /></svg>
+    case 'jobs': return <svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2" /><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
+    case 'flight': return <svg viewBox="0 0 24 24"><path d="M21 15v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V8l-8 5v2l8-2.5V18l-2 1.5V21l3.5-1 3.5 1v-1.5L12 18v-5.5l9 2.5z" /></svg>
+    case 'hangar': return <svg viewBox="0 0 24 24"><path d="M3 10l9-5 9 5" /><path d="M5 10v10h14V10" /><path d="M9 20v-6h6v6" /></svg>
+    case 'ops': return <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3" /><path d="M4 20c0-3 2.5-5 5-5s5 2 5 5" /><path d="M16 6a3 3 0 0 1 0 6M20 20c0-2.4-1.4-4.3-3.5-4.8" /></svg>
+    case 'bases': return <svg viewBox="0 0 24 24"><path d="M12 2l8 5v13H4V7l8-5z" /><path d="M9 20v-6h6v6" /></svg>
+    case 'trade': return <svg viewBox="0 0 24 24"><path d="M4 5h2l2 11h9l2-8H7" /><circle cx="9" cy="20" r="1.4" /><circle cx="17" cy="20" r="1.4" /></svg>
+    case 'finances': return <svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3" /><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6" /><path d="M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6" /></svg>
+    case 'campaigns': return <svg viewBox="0 0 24 24"><path d="M5 21V4c3-2 6 2 9 0v9c-3 2-6-2-9 0" /></svg>
+    case 'awards': return <svg viewBox="0 0 24 24"><circle cx="12" cy="9" r="5" /><path d="M9 13l-2 8 5-3 5 3-2-8" /></svg>
+    case 'logbook': return <svg viewBox="0 0 24 24"><path d="M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2V4z" /><path d="M9 8h6M9 12h6" /></svg>
+    case 'settings': return <svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10" /><circle cx="16" cy="7" r="2.3" /><circle cx="8" cy="17" r="2.3" /></svg>
+    default: return null
+  }
 }
 
 function Splash() {

@@ -1,49 +1,43 @@
 :root {
-  --bg: #f4f5f8;
+  /* Sector — daylight ops (light theme) */
+  --bg: #eef1f6;
   --panel: #ffffff;
-  --ink: #1a1d24;
-  --muted: #6b7280;
-  --line: #e4e7ec;
-  --accent: #4f46e5;
+  --panel-2: #f4f7fb;
+  --ink: #16212e;
+  --muted: #566573;
+  --faint: #8894a3;
+  --line: #dbe2ea;
+  --accent: #4b5fe6;
   --accent-ink: #ffffff;
-  --pos: #0a7d3c;
-  --neg: #c0362c;
-  --up: #1565c0;
-  --down: #c0362c;
+  --accent-dim: color-mix(in srgb, var(--accent) 12%, transparent);
+  --pos: #12a366;
+  --neg: #d64535;
+  --up: #4b5fe6;
+  --down: #d64535;
   --radius: 12px;
-  --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .04);
+  --shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 1px 3px rgba(16, 24, 40, .04);
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", "Roboto Mono", Consolas, monospace;
+  --sans: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
   color-scheme: light dark;
 }
 
-/* Dark palette: applied when the OS is dark AND no explicit theme is chosen… */
+/* Sector — operations console (dark): the hero identity. Applied for a dark OS with no explicit choice… */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
-    --bg: #0f1216;
-    --panel: #171b21;
-    --ink: #e6e8ec;
-    --muted: #9aa3af;
-    --line: #262c35;
-    --accent: #6d67f0;
-    --pos: #3fbf6a;
-    --neg: #f0776b;
-    --up: #6aa9f0;
-    --down: #f0776b;
-    --shadow: none;
+    --bg: #0b0e13; --panel: #12171f; --panel-2: #171d27; --ink: #e9eef5;
+    --muted: #8a97a7; --faint: #58636f; --line: #232c38;
+    --accent: #6d84ff; --accent-dim: color-mix(in srgb, #6d84ff 15%, transparent);
+    --pos: #3ecf8e; --neg: #f26a5c; --up: #6d84ff; --down: #f26a5c;
+    --shadow: 0 16px 36px -22px rgba(0, 0, 0, .85);
   }
 }
-/* …or when the user explicitly picks Dark (wins over the OS in both directions; Light falls back to :root). */
+/* …or when Dark is explicitly picked (wins over the OS both ways; Light falls back to :root). */
 :root[data-theme="dark"] {
-  --bg: #0f1216;
-  --panel: #171b21;
-  --ink: #e6e8ec;
-  --muted: #9aa3af;
-  --line: #262c35;
-  --accent: #6d67f0;
-  --pos: #3fbf6a;
-  --neg: #f0776b;
-  --up: #6aa9f0;
-  --down: #f0776b;
-  --shadow: none;
+  --bg: #0b0e13; --panel: #12171f; --panel-2: #171d27; --ink: #e9eef5;
+  --muted: #8a97a7; --faint: #58636f; --line: #232c38;
+  --accent: #6d84ff; --accent-dim: color-mix(in srgb, #6d84ff 15%, transparent);
+  --pos: #3ecf8e; --neg: #f26a5c; --up: #6d84ff; --down: #f26a5c;
+  --shadow: 0 16px 36px -22px rgba(0, 0, 0, .85);
 }
 :root[data-motion="reduced"] *, :root[data-motion="reduced"] *::before, :root[data-motion="reduced"] *::after {
   transition-duration: 1ms !important;
@@ -57,47 +51,63 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, system-ui, sans-serif;
+  font: 15px/1.5 var(--sans);
   -webkit-font-smoothing: antialiased;
 }
-h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; letter-spacing: .01em; }
+h2 { font-size: 15px; font-weight: 640; margin: 0 0 12px; letter-spacing: -.01em; }
 button { font: inherit; cursor: pointer; }
 input { font: inherit; }
-.num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
 .muted { color: var(--muted); }
 .pos { color: var(--pos); }
 .neg { color: var(--neg); }
-.loc { font-variant-numeric: tabular-nums; letter-spacing: .04em; font-weight: 600; }
+.loc { font-family: var(--mono); font-variant-numeric: tabular-nums; letter-spacing: .02em; font-weight: 600; }
 
-/* ── Shell ── */
-.app { min-height: 100%; display: flex; flex-direction: column; }
-.topbar {
-  display: grid;
-  grid-template-columns: auto 1fr auto auto;
-  align-items: center;
-  gap: 24px;
-  padding: 14px 24px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--line);
-  position: sticky; top: 0; z-index: 10;
-}
+/* ── Brand mark (splash / new-career) ── */
 .brand { font-weight: 700; letter-spacing: .16em; font-size: 15px; display: flex; align-items: center; gap: 8px; }
 .brand.big { font-size: 20px; letter-spacing: .18em; }
 .mark { color: var(--accent); transform: translateY(-1px); }
 .mark.big { font-size: 40px; }
-.nav { display: flex; flex-wrap: wrap; gap: 6px; }
-.pill {
-  border: 1px solid transparent; background: transparent; color: var(--muted);
-  padding: 7px 14px; border-radius: 999px; font-weight: 500;
-}
-.pill:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 6%, transparent); }
-.pill.on { background: var(--accent); color: var(--accent-ink); }
-.who { text-align: right; line-height: 1.3; }
-.who-main { font-weight: 600; font-size: 14px; }
-.who-sub { font-size: 12px; color: var(--muted); }
-.cash { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 20px; letter-spacing: -.01em; }
 
-.main { padding: 24px; max-width: 1100px; width: 100%; margin: 0 auto; }
+/* ── Shell: a left nav rail + a workspace (context header + main) ── */
+.app { min-height: 100vh; display: flex; }
+.rail {
+  width: 64px; flex: none; position: sticky; top: 0; align-self: flex-start; height: 100vh;
+  background: var(--panel); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 12px 0; z-index: 20;
+}
+.rail-emblem { border: none; background: transparent; padding: 0; margin-bottom: 12px; cursor: pointer; line-height: 0; border-radius: 10px; }
+.rail-emblem:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ric {
+  width: 44px; height: 40px; border-radius: 10px; border: none; background: transparent;
+  color: var(--faint); display: grid; place-items: center; position: relative; cursor: pointer;
+}
+.ric svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.ric:hover { color: var(--ink); background: var(--panel-2); }
+.ric.on { color: var(--ink); background: var(--panel-2); }
+.ric.on::before { content: ""; position: absolute; left: -12px; top: 9px; bottom: 9px; width: 3px; border-radius: 3px; background: var(--accent); }
+.ric .tip {
+  position: absolute; left: 52px; top: 50%; transform: translateY(-50%); white-space: nowrap;
+  background: var(--ink); color: var(--panel); font-size: 12px; padding: 4px 8px; border-radius: 6px;
+  opacity: 0; pointer-events: none; transition: opacity .12s ease; z-index: 30;
+}
+.ric:hover .tip { opacity: 1; }
+
+.work { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ctxbar {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; gap: 16px; padding: 13px 24px;
+  background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.ctx-title h1 { font-size: 19px; font-weight: 680; margin: 0; letter-spacing: -.02em; line-height: 1.12; }
+.ctx-title .sub { font-size: 12.5px; color: var(--muted); }
+.ctx { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.ctx .chip { display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px; border-radius: 9px; background: var(--panel-2); border: 1px solid var(--line); font-size: 13px; color: var(--muted); white-space: nowrap; }
+.ctx .chip b { color: var(--ink); font-weight: 600; }
+.ctx .chip.cash b { font-size: 15px; }
+.ctx .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pos); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pos) 18%, transparent); }
+
+.main { padding: 22px 24px; max-width: 1200px; width: 100%; margin: 0 auto; }
 .grid { display: grid; gap: 16px; }
 
 /* ── Cards ── */
