@@ -30,9 +30,13 @@ option ([ADR-0002](adr/0002-shared-world.md)).
    Airline*. *Unit-tested:* step advance, reward-on-completion via the ledger, paid-once. (Flight-specific
    objectives — "fly this exact leg" — are a later extension; 5b's objectives read the shared snapshot.)
 
-3. **5c — Identity & reputation at scale.** Company/airline identity as a first-class thing — a name, an
-   original livery/emblem the player picks, and reputation that reads at the operation level, not just the
-   pilot's. Feeds job access and campaign gating.
+3. ✅ **5c — Identity & reputation at scale.** Airline identity on the company — name, tail code, accent
+   colour, and an original **generated emblem** (a roundel drawn from a fixed set of geometric marks; the
+   DB stores only the key, EF migration `AddAirlineIdentity`). Plus a computed **Airline Standing**: a
+   named tier (Startup → Flag Carrier) from a legible score over pilot reputation, fleet, bases, routes,
+   net worth, campaigns and achievements — a read model, never stored. An Airline tab edits identity with a
+   live emblem preview and shows the standing breakdown; the emblem + name now head the top bar.
+   *Unit-tested:* derived defaults, set/validate, standing tiers + contributions.
 
 4. **5d — Settings & companion.** Preferences, plus the save **backup / export / restore** already shipped
    in the pre-release hardening pass — rounded out here into a proper settings home.
