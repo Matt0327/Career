@@ -10,8 +10,9 @@ namespace Callsign.Host.Tests;
 /// Startup DB robustness (<see cref="CallsignWebApp.PrepareDatabase"/>): a leftover or shipped database
 /// must never crash the app on launch. Covers the real regression a tester hit — a pre-migrations save
 /// (created by EnsureCreated: the tables exist but there's no __EFMigrationsHistory) that made the new
-/// migrations-based startup throw <c>SQLite Error 1: 'table "AircraftTypes" already exists'</c>.
-/// Each test gets its own temp file DB; pooling is off so the file is unlocked for EnsureDeleted/cleanup.
+/// migrations-based startup throw <c>SQLite Error 1: 'table "AircraftTypes" already exists'</c> — and the
+/// hardening that a legacy save is now preserved as a .bak snapshot rather than deleted.
+/// Each test gets its own temp file DB; pooling is off so the file is unlocked for moves/cleanup.
 /// </summary>
 public sealed class DatabaseBootstrapTests : IDisposable
 {
@@ -41,17 +42,23 @@ public sealed class DatabaseBootstrapTests : IDisposable
     }
 
     [Fact]
-    public void PrepareDatabase_RecoversLegacyEnsureCreatedDb_WithoutCrashing()
+    public void PrepareDatabase_RecoversLegacyEnsureCreatedDb_AndKeepsTheOldSave()
     {
         SeedLegacyEnsureCreatedDb();
-        using var db = new CallsignDbContext(Options());
+        using (var db = new CallsignDbContext(Options()))
+            CallsignWebApp.PrepareDatabase(db); // must NOT throw — the whole point of the fix
 
-        CallsignWebApp.PrepareDatabase(db); // must NOT throw — the whole point of the fix
+        using (var db = new CallsignDbContext(Options()))
+        {
+            // The live DB is now a real migrated schema: it has the history table the legacy save lacked.
+            Assert.Contains("__EFMigrationsHistory", TableNames(db));
+            Assert.Empty(db.Database.GetPendingMigrations());
+        }
 
-        // The DB is now a real migrated schema: it has the history table the legacy save lacked,
-        // and nothing is left pending.
-        Assert.Contains("__EFMigrationsHistory", TableNames(db));
-        Assert.Empty(db.Database.GetPendingMigrations());
+        // The old save wasn't destroyed — it was set aside as a .bak snapshot that still holds its tables,
+        // so a tester who'd made real progress could recover it.
+        var snapshot = Assert.Single(BackupSnapshots());
+        Assert.Contains("AircraftTypes", TableNamesOf(snapshot));
     }
 
     [Fact]
@@ -63,6 +70,7 @@ public sealed class DatabaseBootstrapTests : IDisposable
 
         Assert.Empty(db.Database.GetPendingMigrations());
         Assert.Contains("AircraftTypes", TableNames(db));
+        Assert.Empty(BackupSnapshots()); // a fresh install leaves no .bak behind
     }
 
     [Fact]
@@ -83,6 +91,15 @@ public sealed class DatabaseBootstrapTests : IDisposable
             CallsignWebApp.PrepareDatabase(db);
             Assert.NotNull(db.Companies.Find(companyId));
         }
+        Assert.Empty(BackupSnapshots()); // a healthy save is never backed-up-and-rebuilt
+    }
+
+    // The .bak-<timestamp> snapshots RetireLegacyDatabase leaves next to the live DB (excluding sidecars).
+    private IEnumerable<string> BackupSnapshots()
+    {
+        var dir = Path.GetDirectoryName(_dbPath)!;
+        return Directory.EnumerateFiles(dir, Path.GetFileName(_dbPath) + ".bak-*")
+            .Where(p => !p.EndsWith("-wal") && !p.EndsWith("-shm"));
     }
 
     private static List<string> TableNames(CallsignDbContext db)
@@ -108,11 +125,24 @@ public sealed class DatabaseBootstrapTests : IDisposable
         }
     }
 
+    private static List<string> TableNamesOf(string dbFilePath)
+    {
+        using var conn = new SqliteConnection($"Data Source={dbFilePath};Pooling=False;Mode=ReadOnly");
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table'";
+        using var reader = cmd.ExecuteReader();
+        var names = new List<string>();
+        while (reader.Read())
+            names.Add(reader.GetString(0));
+        return names;
+    }
+
     public void Dispose()
     {
         SqliteConnection.ClearAllPools();
-        foreach (var p in new[] { _dbPath, _dbPath + "-wal", _dbPath + "-shm" })
-            if (File.Exists(p))
-                try { File.Delete(p); } catch { /* best-effort temp cleanup */ }
+        var dir = Path.GetDirectoryName(_dbPath)!;
+        foreach (var p in Directory.EnumerateFiles(dir, Path.GetFileName(_dbPath) + "*"))
+            try { File.Delete(p); } catch { /* best-effort temp cleanup */ }
     }
 }

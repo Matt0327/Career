@@ -357,6 +357,17 @@ export interface TradeResult {
   pnlCents: number
 }
 
+export interface VersionInfo {
+  version: string
+  product: string
+}
+
+export interface BackupFile {
+  name: string
+  sizeBytes: number
+  createdUtc: string
+}
+
 async function ok<T>(r: Response): Promise<T> {
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${await r.text()}`)
   return r.json() as Promise<T>
@@ -444,6 +455,11 @@ export const api = {
   inventory: () => fetch('/api/trade/inventory').then(ok<Inventory[]>),
   buyGood: (good: string, qty: number) => POST_IDEM('/api/trade/buy', { good, qty }).then(ok),
   sellGood: (good: string, qty: number) => POST_IDEM('/api/trade/sell', { good, qty }).then(ok<TradeResult>),
+  version: () => fetch('/api/version').then(ok<VersionInfo>),
+  backups: () => fetch('/api/save/backups').then(ok<BackupFile[]>),
+  backup: () => POST('/api/save/backup').then(ok<BackupFile>),
+  restore: (name: string) => POST('/api/save/restore', { name }).then(ok<{ restart: boolean }>),
+  backupDownloadUrl: (name: string) => `/api/save/backups/${encodeURIComponent(name)}/download`,
 }
 
 /** Whole-dollar, sign-aware money from integer cents: 147000 -> "$1,470". */

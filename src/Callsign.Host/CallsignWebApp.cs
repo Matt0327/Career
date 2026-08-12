@@ -7,6 +7,7 @@ using Callsign.Core.Game;
 using Callsign.Core.Progression;
 using Callsign.Core.Time;
 using Callsign.SimConnect;
+using System.Reflection;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
@@ -28,7 +29,11 @@ public static class CallsignWebApp
         // --- Database: one SQLite file (path overridable via config "Db:Path" / env Db__Path) ---
         var dbPath = builder.Configuration["Db:Path"]
                      ?? Path.Combine(builder.Environment.ContentRootPath, "callsign.db");
+        // Apply a restore staged in a previous session BEFORE anything opens the file (the live DB can't
+        // be swapped while held open), moving the current save aside rather than destroying it.
+        SaveService.ApplyPendingRestore(dbPath);
         builder.Services.AddDbContext<CallsignDbContext>(o => o.UseSqlite($"Data Source={dbPath}"));
+        builder.Services.AddSingleton(new SaveService(dbPath));
 
         // --- Web UI: the Vite build output (path overridable via config "Ui:Path" / env Ui__Path) ---
         var uiPath = builder.Configuration["Ui:Path"]
@@ -119,8 +124,40 @@ public static class CallsignWebApp
     public static void PrepareDatabase(CallsignDbContext db)
     {
         if (IsLegacyEnsureCreatedDatabase(db))
-            db.Database.EnsureDeleted();
+            RetireLegacyDatabase(db);
         db.Database.Migrate();
+    }
+
+    // Move a legacy (pre-migrations) database aside so Migrate() can build a fresh one — WITHOUT
+    // destroying the old bytes. The file is renamed to callsign.db.bak-&lt;timestamp&gt; (with its
+    // -wal/-shm sidecars), so anyone who had real progress can still recover it. Falls back to a hard
+    // delete only if the move fails, so a locked/odd file can never block startup.
+    private static void RetireLegacyDatabase(CallsignDbContext db)
+    {
+        var conn = db.Database.GetDbConnection();
+        var path = conn.DataSource; // the SQLite file backing this context
+        try
+        {
+            conn.Close();
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); // drop any pooled handle on the file
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+            {
+                db.Database.EnsureDeleted();
+                return;
+            }
+            var backup = $"{path}.bak-{DateTime.UtcNow:yyyyMMdd-HHmmss}";
+            foreach (var suffix in new[] { "", "-wal", "-shm" })
+            {
+                var src = path + suffix;
+                if (File.Exists(src))
+                    File.Move(src, backup + suffix);
+            }
+        }
+        catch
+        {
+            // Rename failed (locked / permissions) — fall back to the original behaviour so we still boot.
+            try { db.Database.EnsureDeleted(); } catch { /* Migrate() will surface any real problem next */ }
+        }
     }
 
     // True if the DB file exists with the app's own tables but no EF migrations history — the signature
@@ -738,6 +775,39 @@ public static class CallsignWebApp
             }
             using var ws = await ctx.WebSockets.AcceptWebSocketAsync();
             await session.AddClientAsync(ws, ctx.RequestAborted);
+        });
+
+        // --- Build identity (the About line) ---
+        app.MapGet("/api/version", () =>
+        {
+            var asm = typeof(CallsignWebApp).Assembly;
+            var info = asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+                       ?? asm.GetName().Version?.ToString() ?? "0.0.0";
+            return Results.Ok(new { version = info.Split('+')[0], product = "Callsign" }); // drop +buildmetadata
+        });
+
+        // --- Save management: back up on demand, list/export snapshots, stage a restore for next launch ---
+        app.MapPost("/api/save/backup", async (CallsignDbContext db, SaveService saves) =>
+        {
+            var info = await saves.BackupAsync(db, DateTime.UtcNow);
+            return Results.Ok(new { info.Name, info.SizeBytes, info.CreatedUtc });
+        });
+
+        app.MapGet("/api/save/backups", (SaveService saves) =>
+            Results.Ok(saves.List().Select(b => new { b.Name, b.SizeBytes, b.CreatedUtc })));
+
+        app.MapGet("/api/save/backups/{name}/download", (string name, SaveService saves) =>
+        {
+            var path = saves.ResolveBackup(name);
+            return path is null ? Results.NotFound() : Results.File(path, "application/octet-stream", name);
+        });
+
+        app.MapPost("/api/save/restore", (RestoreRequest req, SaveService saves) =>
+        {
+            var path = saves.ResolveBackup(req.Name);
+            if (path is null) return Results.NotFound(new { error = "No such backup." });
+            saves.StageRestore(path); // applied on the next launch, before the DB is opened
+            return Results.Ok(new { restart = true });
         });
 
         // SPA fallback: anything that isn't an API/WebSocket route or a static asset returns index.html.

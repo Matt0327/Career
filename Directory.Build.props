@@ -9,5 +9,10 @@
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <!-- Product identity + version, stamped into every assembly. Phases 1–4 shipped = 0.4.x.
+         Surfaced in-app via GET /api/version (the About line). Bump on each release. -->
+    <Product>Callsign</Product>
+    <Company>Callsign</Company>
+    <Version>0.4.0</Version>
   </PropertyGroup>
 </Project>

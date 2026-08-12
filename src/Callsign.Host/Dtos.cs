@@ -110,3 +110,6 @@ public record FlightLiveDto(
 public record FlightResultDto(
     string AircraftTitle, DateTimeOffset DepartedAt, DateTimeOffset ArrivedAt, double TouchdownFpm, double MaxAltitudeFt,
     double DepartureLat, double DepartureLon, double ArrivalLat, double ArrivalLon, double DistanceNm, double FuelUsedLbs);
+
+// --- Save management: back up / export / restore the save file ---
+public record RestoreRequest(string Name);

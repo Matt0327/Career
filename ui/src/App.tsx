@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api, money,
-  type AircraftOffer, type Assignment, type BaseOffer, type BaseView, type CheckFlightDone, type Diverted,
+  type AircraftOffer, type Assignment, type BackupFile, type BaseOffer, type BaseView, type CheckFlightDone, type Diverted,
   type FinancesData, type FlightLog, type Insurance, type Inventory, type Job, type LedgerEntry, type Loan, type LoanOffer, type Loans,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
-  type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type WsEvent,
+  type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type VersionInfo, type WsEvent,
 } from './api'
 
-type Tab = 'dashboard' | 'jobs' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'finances' | 'logbook'
+type Tab = 'dashboard' | 'jobs' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'finances' | 'logbook' | 'settings'
 
 export function App() {
   const [state, setState] = useState<State | null | undefined>(undefined) // undefined = still loading
@@ -41,6 +41,7 @@ export function App() {
         {tab === 'trade' && <Trade state={state} onChanged={reload} />}
         {tab === 'finances' && <Finances state={state} onChanged={reload} />}
         {tab === 'logbook' && <Logbook />}
+        {tab === 'settings' && <Settings />}
       </main>
     </div>
   )
@@ -50,7 +51,7 @@ export function App() {
 
 function TopBar({ state, tab, setTab }: { state: State; tab: Tab; setTab: (t: Tab) => void }) {
   const tabs: [Tab, string][] = [
-    ['dashboard', 'Dashboard'], ['jobs', 'Jobs'], ['flight', 'Flight'], ['hangar', 'Hangar'], ['ops', 'Staff'], ['bases', 'Bases'], ['trade', 'Trade'], ['finances', 'Finances'], ['logbook', 'Logbook'],
+    ['dashboard', 'Dashboard'], ['jobs', 'Jobs'], ['flight', 'Flight'], ['hangar', 'Hangar'], ['ops', 'Staff'], ['bases', 'Bases'], ['trade', 'Trade'], ['finances', 'Finances'], ['logbook', 'Logbook'], ['settings', 'Settings'],
   ]
   return (
     <header className="topbar">
@@ -1166,9 +1167,74 @@ function Logbook() {
   )
 }
 
+// ─── Settings (save backup / restore + about) ────────────────────────────────
+
+function Settings() {
+  const [ver, setVer] = useState<VersionInfo | null>(null)
+  const [backups, setBackups] = useState<BackupFile[]>([])
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  const [staged, setStaged] = useState(false)
+
+  const load = useCallback(async () => {
+    try { setBackups(await api.backups()) } catch (e) { setMsg(cleanErr(e)) }
+  }, [])
+  useEffect(() => { api.version().then(setVer).catch(() => {}); void load() }, [load])
+
+  const backup = async () => {
+    setBusy(true); setMsg(null)
+    try { const b = await api.backup(); await load(); setMsg(`Backed up — ${b.name} (${kb(b.sizeBytes)}).`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+  const restore = async (name: string) => {
+    if (!window.confirm(`Restore ${name}?\n\nYour current save is set aside as a backup, and Callsign loads the restored one the next time it starts.`)) return
+    setBusy(true); setMsg(null)
+    try { await api.restore(name); setStaged(true); setMsg(`Restore staged from ${name}.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="grid">
+      <section className="card">
+        <div className="row-head"><h2>Your save</h2><button className="primary" disabled={busy} onClick={backup}>Back up now</button></div>
+        {msg && <div className="banner">{msg}</div>}
+        {staged && <div className="banner ok">Restore staged — <b>restart Callsign</b> to load it.</div>}
+        <p className="hint">A backup is a full, self-contained copy of your career. Take one before a big change; download it to keep it safe off your PC, or restore it any time.</p>
+        {backups.length === 0
+          ? <div className="empty">No backups yet. Take one with “Back up now”.</div>
+          : (
+            <div className="tbl-wrap"><table className="tbl">
+              <thead><tr><th>Backup</th><th className="r">Size</th><th className="r">Taken</th><th></th></tr></thead>
+              <tbody>{backups.map(b => (
+                <tr key={b.name}>
+                  <td className="num">{b.name}</td>
+                  <td className="r num muted">{kb(b.sizeBytes)}</td>
+                  <td className="r muted">{when(b.createdUtc)}</td>
+                  <td className="r"><span className="rowacts">
+                    <a className="dl" href={api.backupDownloadUrl(b.name)} download>Download</a>
+                    <button disabled={busy} onClick={() => restore(b.name)}>Restore</button>
+                  </span></td>
+                </tr>
+              ))}</tbody>
+            </table></div>
+          )}
+      </section>
+
+      <section className="card">
+        <h2>About</h2>
+        <p className="about-line">Callsign{ver ? <> · <span className="num">v{ver.version}</span></> : ''} — a career &amp; economy companion for Microsoft Flight Simulator 2024.</p>
+        <p className="hint">Your save and its <b>backups</b> folder live in <span className="num">%LOCALAPPDATA%\Callsign</span>. Every dollar runs through the ledger, so the Logbook always reconciles with your cash.</p>
+      </section>
+    </div>
+  )
+}
+
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 function signed(n: number): string { return n > 0 ? `+${n.toLocaleString()}` : n.toLocaleString() }
+function kb(bytes: number): string {
+  return bytes >= 1024 * 1024 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`
+}
 function spaced(s: string): string { return s.replace(/([a-z])([A-Z])/g, '$1 $2') }
 function isPaxType(type: string): boolean { return type === 'Passenger' || type === 'Vip' || type === 'Tourist' }
 // A job's "load" reads as seats for passenger charters, freight weight for cargo.
