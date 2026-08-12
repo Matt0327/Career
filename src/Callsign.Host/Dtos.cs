@@ -39,7 +39,7 @@ public record AircraftOfferDto(
     int? Seats, int? UsefulLoadLbs, int? CruiseKtas, IReadOnlyList<PriceFactorDto> Factors);
 
 public record OwnedAircraftDto(
-    Guid Id, string Tail, string Name, string Category, string LocationIcao,
+    Guid Id, Guid TypeId, string Tail, string Name, string Category, string LocationIcao,
     string Availability, long? PurchasePriceCents, double AirframeHours,
     int HullConditionMilli, int EngineConditionMilli, bool MaintenanceDue, long MaintenanceQuoteCents,
     string RequiredClass, bool Rated);

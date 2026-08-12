@@ -93,6 +93,7 @@ export interface AircraftOffer {
 
 export interface OwnedAircraft {
   id: string
+  typeId: string
   tail: string
   name: string
   category: string
@@ -491,6 +492,7 @@ export const api = {
   flights: () => fetch('/api/flights').then(ok<FlightLog[]>),
   market: () => fetch('/api/aircraft/market').then(ok<AircraftOffer[]>),
   hangar: () => fetch('/api/aircraft').then(ok<OwnedAircraft[]>),
+  aircraftThumbUrl: (typeId: string) => `/api/aircraft/type/${typeId}/thumbnail`,
   quals: () => fetch('/api/quals').then(ok<QualClass[]>),
   beginCheckFlight: (cls: string) => POST('/api/checkflights/begin', { class: cls }).then(ok),
   buyAircraft: (typeId: string) => POST_IDEM('/api/aircraft/buy', { typeId }).then(ok),

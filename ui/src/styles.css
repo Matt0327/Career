@@ -237,6 +237,15 @@ input { font: inherit; }
 .emblem-opt.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .tier-badge { font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 999px; letter-spacing: .02em; }
 
+/* ── Aircraft imagery (6b) ── */
+.ac-img { position: relative; width: 100%; aspect-ratio: 16 / 10; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); background: radial-gradient(130% 130% at 30% 12%, var(--panel-2), var(--bg)); display: grid; place-items: center; }
+.ac-img img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.ac-img.mini { width: 58px; aspect-ratio: 16 / 11; border-radius: 6px; flex: none; }
+.ac-sil { width: 66%; height: 66%; color: var(--accent); display: block; }
+.ac-sil path, .ac-sil ellipse, .ac-sil rect { fill: currentColor; fill-opacity: .2; stroke: currentColor; stroke-width: 2.4; stroke-opacity: .75; }
+.ac-sil .disc { fill: none; stroke: currentColor; stroke-width: 2; stroke-opacity: .35; }
+.ac-cell { display: flex; align-items: center; gap: 11px; }
+
 /* ── Campaigns ── */
 .campaign.done { border-color: color-mix(in srgb, var(--pos) 40%, var(--line)); }
 .camp-desc { margin: 0 0 14px; font-size: 14px; }

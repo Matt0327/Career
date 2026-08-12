@@ -366,13 +366,24 @@ public static class CallsignWebApp
             {
                 var reqd = QualificationClasses.ForCategory(h.Type.Category);
                 return new OwnedAircraftDto(
-                    h.Instance.Id, h.Instance.Tail, h.Type.CanonicalName, h.Type.Category.ToString(),
+                    h.Instance.Id, h.Type.Id, h.Instance.Tail, h.Type.CanonicalName, h.Type.Category.ToString(),
                     h.Instance.LocationIcao, h.Instance.Availability.ToString(),
                     h.Instance.PurchasePriceCents, h.Instance.AirframeHours,
                     h.Instance.HullConditionMilli, h.Instance.EngineConditionMilli,
                     dealer.MaintenanceDue(h.Instance), dealer.MaintenanceQuoteCents(h.Instance),
                     QualificationClasses.Def(reqd).DisplayName, held.Contains(reqd));
             }));
+        });
+
+        // The aircraft's own thumbnail from the player's MSFS install (Phase 6b) — read locally, served
+        // only to them, never bundled. 404 when it's not on disk; the UI then draws an original silhouette.
+        app.MapGet("/api/aircraft/type/{typeId:guid}/thumbnail", async (Guid typeId, CallsignDbContext db) =>
+        {
+            var pkg = await db.InstalledPackages.FirstOrDefaultAsync(p => p.AircraftTypeId == typeId && p.IsOnDisk);
+            if (pkg is null || !MsfsInstallLocator.TryGetInstalledPackagesPath(out var ipp))
+                return Results.NotFound();
+            var path = AircraftThumbnails.TryResolve(ipp, pkg.Source, pkg.PackageFolder, pkg.AircraftFolder);
+            return path is null ? Results.NotFound() : Results.File(path, "image/jpeg");
         });
 
         app.MapPost("/api/aircraft/{id:guid}/maintain", async (Guid id, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, AircraftDealerService dealer) =>

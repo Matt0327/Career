@@ -586,6 +586,37 @@ function SettlementCard({ settled }: { settled: Settled }) {
   )
 }
 
+// ─── Aircraft imagery (Phase 6b) ─────────────────────────────────────────────
+
+// The aircraft's own thumbnail from your installed sim; falls back to an original category silhouette
+// (so it looks intentional on a machine with no MSFS, or for an aircraft that ships no thumbnail).
+function AircraftImage({ typeId, category, mini }: { typeId?: string; category?: string; mini?: boolean }) {
+  const [failed, setFailed] = useState(false)
+  useEffect(() => { setFailed(false) }, [typeId])
+  return (
+    <div className={`ac-img ${mini ? 'mini' : ''}`}>
+      {typeId && !failed
+        ? <img src={api.aircraftThumbUrl(typeId)} alt="" loading="lazy" onError={() => setFailed(true)} />
+        : <AircraftSilhouette category={category} />}
+    </div>
+  )
+}
+
+function AircraftSilhouette({ category }: { category?: string }) {
+  return (
+    <svg viewBox="0 0 200 200" className="ac-sil" aria-hidden="true">
+      {category === 'Helicopter'
+        ? <g>
+            <circle className="disc" cx="100" cy="90" r="74" />
+            <ellipse cx="100" cy="92" rx="20" ry="42" />
+            <rect x="96" y="126" width="8" height="58" rx="3" />
+            <rect x="85" y="176" width="30" height="7" rx="3" />
+          </g>
+        : <path d="M100 8 C104 8 106 16 106 30 L106 74 L150 96 C154 98 155 100 155 104 L155 112 C155 115 152 115 149 114 L106 100 L106 150 L124 162 C127 164 127 168 124 168 L106 162 L106 178 C106 188 104 192 100 192 C96 192 94 188 94 178 L94 162 L76 168 C73 168 73 164 76 162 L94 150 L94 100 L51 114 C48 115 45 115 45 112 L45 104 C45 100 46 98 50 96 L94 74 L94 30 C94 16 96 8 100 8 Z" />}
+    </svg>
+  )
+}
+
 // ─── Hangar (own aircraft) ───────────────────────────────────────────────────
 
 function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
@@ -626,7 +657,7 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
                     return (
                       <tr key={a.id}>
                         <td className="num">{a.tail}</td>
-                        <td>{a.name} <span className="muted">· {spaced(a.category)}</span></td>
+                        <td><div className="ac-cell"><AircraftImage typeId={a.typeId} category={a.category} mini /><span>{a.name} <span className="muted">· {spaced(a.category)}</span></span></div></td>
                         <td className="loc">{a.locationIcao}</td>
                         <td className="r num">{a.airframeHours.toFixed(1)}</td>
                         <td className={`r num ${cond < 40 ? 'neg' : cond < 70 ? '' : 'pos'}`}>{cond}%</td>
@@ -655,6 +686,7 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
                   const afford = state.cashCents >= o.priceCents
                   return (
                     <div className="card job" key={o.typeId}>
+                      <AircraftImage typeId={o.typeId} category={o.category} />
                       <div className="job-top">
                         <div className="leg"><b>{o.name}</b></div>
                         {o.onDisk && <div className="tag">installed</div>}
