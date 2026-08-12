@@ -9,6 +9,7 @@ supersedes the old one.
 | # | Title | Status |
 |---|-------|--------|
 | [0001](0001-stack.md) | Technology stack and process architecture | Accepted |
+| [0002](0002-shared-world.md) | Shared-world economy authority | Accepted |
 
 ## Format
 

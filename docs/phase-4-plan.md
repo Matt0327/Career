@@ -43,11 +43,12 @@ loan lines; the model for loans/insurance/routes is sketched in [`domain-notes.m
    Routes card in the Staff tab opens/cancels them. *Verified live:* opened a Cargo route EHAM→EHSE at
    $1,523/trip; a route to a non-base was refused. Fee-free trip-booking is unit-tested.
 
-5. **4e — Shared-world ADR.** The architecture decision record (in `docs/adr`): does the ledger/economy
-   stay **local-authoritative** (read-mostly, sync as insurance) or become **server-authoritative** (a
-   shared world)? Weigh it against everything built, decide, and lay the *thin* groundwork the decision
-   implies — the sync hooks are already reserved, and `EntryUid` already doubles as the idempotency/merge
-   key. Deliverable: the ADR + any minimal scaffolding, not a multiplayer server.
+5. ✅ **4e — Shared-world ADR.** [`docs/adr/0002-shared-world.md`](adr/0002-shared-world.md) records the
+   decision: the economy stays **local-authoritative (read-mostly)**; we do **not** build a shared-world
+   server, but we ratify the server-ready design so the option is preserved for a future, separately-scoped
+   effort (money only through the ledger; `ISyncable` hooks reserved; `EntryUid` as the merge key; content
+   behind server-suppliable seams). A `SyncReadiness` guardrail test asserts those invariants so future work
+   can't silently foreclose the option. No server, no accounts, no network — the hooks are reserved, not wired.
 
 ## Invariants (carried from Phases 1–3, enforced at every step)
 
