@@ -38,8 +38,11 @@ option ([ADR-0002](adr/0002-shared-world.md)).
    live emblem preview and shows the standing breakdown; the emblem + name now head the top bar.
    *Unit-tested:* derived defaults, set/validate, standing tiers + contributions.
 
-4. **5d — Settings & companion.** Preferences, plus the save **backup / export / restore** already shipped
-   in the pre-release hardening pass — rounded out here into a proper settings home.
+4. ✅ **5d — Settings & companion.** A proper Settings home: a **Preferences** section (live theme —
+   System / Light / Dark, overriding the OS both ways via a guarded `data-theme`; a reduced-motion toggle —
+   persisted client-side and applied before first paint), sitting above the save **backup / restore** and
+   About. **Closes Phase 5.** (Units — Imperial/Metric — deferred into the Phase 6 premium pass, where
+   consistent formatting is a design concern.)
 
 ## Invariants (carried from Phases 1–4)
 
