@@ -213,7 +213,32 @@ export interface ReconcileResult {
   feesCents: number
   wagesCents: number
   rentCents: number
+  loanCents: number
   netCents: number
+}
+
+export interface LoanOffer {
+  tier: number
+  name: string
+  minPrincipalCents: number
+  maxPrincipalCents: number
+  aprBps: number
+}
+
+export interface Loan {
+  id: string
+  tier: number
+  principalCents: number
+  outstandingCents: number
+  aprBps: number
+  termDays: number
+  status: string
+  takenAt: string
+}
+
+export interface Loans {
+  loans: Loan[]
+  offers: LoanOffer[]
 }
 
 export interface BaseView {
@@ -306,6 +331,9 @@ export const api = {
     POST('/api/game/new', { name, homeIcao, startingCash }).then(ok),
   ranks: () => fetch('/api/ranks').then(ok<RankTier[]>),
   reputation: () => fetch('/api/reputation').then(ok<Reputation>),
+  loans: () => fetch('/api/loans').then(ok<Loans>),
+  takeLoan: (principalCents: number) => POST('/api/loans/take', { principalCents }).then(ok),
+  payoffLoan: (id: string) => POST_IDEM(`/api/loans/${id}/payoff`).then(ok<{ paidCents: number }>),
   refreshJobs: (count = 8) => POST(`/api/jobs/refresh?count=${count}`).then(ok),
   jobs: () => fetch('/api/jobs').then(ok<Job[]>),
   accept: (id: string) => POST(`/api/jobs/${id}/accept`).then(ok),

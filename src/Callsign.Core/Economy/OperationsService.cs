@@ -10,7 +10,7 @@ namespace Callsign.Core.Economy;
 public sealed record StaffCandidate(int Seed, string Name, long WagePerDayCents, int SkillMilli);
 
 /// <summary>What a reconcile produced (for the reopen digest).</summary>
-public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long NetCents);
+public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long NetCents);
 
 /// <summary>
 /// Staff + standing orders (Phase 2d): hire pilots, set repeating autonomous routes, and reconcile the
@@ -131,7 +131,7 @@ public sealed class OperationsService
     {
         var now = _clock.UtcNow;
         int totalTrips = 0;
-        long grossIncome = 0, totalFees = 0, totalWages = 0, totalRent = 0;
+        long grossIncome = 0, totalFees = 0, totalWages = 0, totalRent = 0, totalLoan = 0;
 
         // Airports where we own a base — landings there are fee-free.
         var baseIcaos = (await _db.Bases.Where(b => b.CompanyId == companyId && b.IsActive && !b.IsDeleted)
@@ -212,8 +212,34 @@ public sealed class OperationsService
             totalRent += rent;
         }
 
+        // Loans (Phase 4a): bill accrued interest + straight-line principal over whole elapsed days.
+        foreach (var loan in await _db.Loans.Where(l => l.CompanyId == companyId && l.Status == LoanStatus.Active && !l.IsDeleted).ToListAsync(ct))
+        {
+            int days = (int)Math.Floor((now - loan.PaymentLastBilledAt).TotalDays);
+            if (days <= 0)
+                continue;
+            var (interest, principal) = LoanCatalog.Amortize(loan.OutstandingCents, loan.PrincipalCents, loan.AprBps, loan.TermDays, days);
+            var stamp = loan.PaymentLastBilledAt.UtcTicks;
+            var lp = new List<LedgerPosting>();
+            if (interest > 0)
+                lp.Add(new(LedgerCategory.LoanInterest, -(interest / 100m), $"Loan interest — tier {loan.Tier}",
+                    LedgerRefType.Loan, loan.Id.ToString(), DedupeKey: $"loan-int:{loan.Id}:{stamp}"));
+            if (principal > 0)
+                lp.Add(new(LedgerCategory.LoanPayment, -(principal / 100m), $"Loan repayment — tier {loan.Tier}",
+                    LedgerRefType.Loan, loan.Id.ToString(), DedupeKey: $"loan-pay:{loan.Id}:{stamp}"));
+            if (lp.Count > 0)
+                await _ledger.StageBatchAsync(companyId, lp, ct);
+
+            loan.OutstandingCents = Math.Max(0, loan.OutstandingCents - principal);
+            loan.PaymentLastBilledAt = loan.PaymentLastBilledAt.AddDays(days); // advance by whole billed days only
+            if (loan.OutstandingCents == 0)
+                loan.Status = LoanStatus.PaidOff;
+            loan.UpdatedAt = now;
+            totalLoan += interest + principal;
+        }
+
         await _db.SaveChangesAsync(ct);
-        return new ReconcileDigest(totalTrips, grossIncome, totalFees, totalWages, totalRent,
-            grossIncome - totalFees - totalWages - totalRent);
+        return new ReconcileDigest(totalTrips, grossIncome, totalFees, totalWages, totalRent, totalLoan,
+            grossIncome - totalFees - totalWages - totalRent - totalLoan);
     }
 }

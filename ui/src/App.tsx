@@ -2,12 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api, money,
   type AircraftOffer, type Assignment, type BaseOffer, type BaseView, type CheckFlightDone, type Diverted,
-  type FlightLog, type Inventory, type Job, type LedgerEntry, type MarketQuote, type OwnedAircraft,
-  type QualClass, type RankTier, type ReconcileResult, type Reputation, type Settled, type Staff,
-  type StaffCandidate, type StandingOrder, type State, type Telemetry, type WsEvent,
+  type FlightLog, type Inventory, type Job, type LedgerEntry, type Loan, type LoanOffer, type Loans,
+  type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation, type Settled,
+  type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type WsEvent,
 } from './api'
 
-type Tab = 'dashboard' | 'jobs' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'logbook'
+type Tab = 'dashboard' | 'jobs' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'finances' | 'logbook'
 
 export function App() {
   const [state, setState] = useState<State | null | undefined>(undefined) // undefined = still loading
@@ -39,6 +39,7 @@ export function App() {
         {tab === 'ops' && <Ops onChanged={reload} />}
         {tab === 'bases' && <Bases state={state} onChanged={reload} />}
         {tab === 'trade' && <Trade state={state} onChanged={reload} />}
+        {tab === 'finances' && <Finances state={state} onChanged={reload} />}
         {tab === 'logbook' && <Logbook />}
       </main>
     </div>
@@ -49,7 +50,7 @@ export function App() {
 
 function TopBar({ state, tab, setTab }: { state: State; tab: Tab; setTab: (t: Tab) => void }) {
   const tabs: [Tab, string][] = [
-    ['dashboard', 'Dashboard'], ['jobs', 'Jobs'], ['flight', 'Flight'], ['hangar', 'Hangar'], ['ops', 'Staff'], ['bases', 'Bases'], ['trade', 'Trade'], ['logbook', 'Logbook'],
+    ['dashboard', 'Dashboard'], ['jobs', 'Jobs'], ['flight', 'Flight'], ['hangar', 'Hangar'], ['ops', 'Staff'], ['bases', 'Bases'], ['trade', 'Trade'], ['finances', 'Finances'], ['logbook', 'Logbook'],
   ]
   return (
     <header className="topbar">
@@ -881,6 +882,89 @@ function Trade({ state, onChanged }: { state: State; onChanged: () => void }) {
               })}</tbody>
             </table>
           </div>
+        )}
+      </section>
+    </div>
+  )
+}
+
+// ─── Finances (loans) ────────────────────────────────────────────────────────
+
+function Finances({ state, onChanged }: { state: State; onChanged: () => void }) {
+  const [data, setData] = useState<Loans | null>(null)
+  const [amount, setAmount] = useState(50000) // dollars
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    try { setData(await api.loans()) } catch (e) { setMsg(cleanErr(e)) }
+  }, [])
+  useEffect(() => { void load() }, [load])
+
+  const cents = Math.max(0, Math.round(amount * 100))
+  const tier: LoanOffer | undefined = data?.offers.find(o => cents >= o.minPrincipalCents && cents <= o.maxPrincipalCents)
+
+  const take = async () => {
+    setBusy(true); setMsg(null)
+    try { await api.takeLoan(cents); await load(); onChanged(); setMsg(`Borrowed ${money(cents)} — it's in your cash.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+  const payoff = async (l: Loan) => {
+    setBusy(true); setMsg(null)
+    try { const r = await api.payoffLoan(l.id); await load(); onChanged(); setMsg(`Loan cleared — paid ${money(r.paidCents)}.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="grid">
+      <section className="card">
+        <h2>Your loans</h2>
+        {msg && <div className="banner">{msg}</div>}
+        {!data ? <div className="empty">Loading…</div>
+          : data.loans.length === 0 ? <div className="empty">No loans outstanding. Borrow below to grow faster.</div>
+            : (
+              <div className="tbl-wrap"><table className="tbl">
+                <thead><tr><th>Tier</th><th className="r">Borrowed</th><th className="r">Outstanding</th><th className="r">APR</th><th></th></tr></thead>
+                <tbody>{data.loans.map(l => (
+                  <tr key={l.id}>
+                    <td>{data.offers.find(o => o.tier === l.tier)?.name ?? `Tier ${l.tier}`}</td>
+                    <td className="r num muted">{money(l.principalCents)}</td>
+                    <td className="r num">{money(l.outstandingCents)}</td>
+                    <td className="r num muted">{(l.aprBps / 100).toFixed(1)}%</td>
+                    <td className="r"><button disabled={busy || state.cashCents < l.outstandingCents} title={state.cashCents < l.outstandingCents ? 'Not enough cash to clear it' : ''} onClick={() => payoff(l)}>Pay off</button></td>
+                  </tr>
+                ))}</tbody>
+              </table></div>
+            )}
+      </section>
+
+      <section className="card">
+        <div className="row-head"><h2>Borrow</h2><span className="hint">Bigger loans, lower APR</span></div>
+        <label className="pick">Amount ($)&nbsp;
+          <input type="number" min={0} step={1000} value={amount} onChange={e => setAmount(Number(e.target.value))} />
+        </label>
+        <p className="muted" style={{ margin: '10px 0' }}>
+          {tier
+            ? <>Tier <b>{tier.name}</b> at <b>{(tier.aprBps / 100).toFixed(1)}%</b> APR, repaid over 90 days. You have {money(state.cashCents)}.</>
+            : 'That amount is outside the lending range.'}
+        </p>
+        <button className="primary" disabled={busy || !tier} onClick={take}>Borrow {money(cents)}</button>
+      </section>
+
+      <section className="card">
+        <h2>Lending tiers</h2>
+        {data && (
+          <div className="tbl-wrap"><table className="tbl">
+            <thead><tr><th>Tier</th><th className="r">From</th><th className="r">To</th><th className="r">APR</th></tr></thead>
+            <tbody>{data.offers.map(o => (
+              <tr key={o.tier}>
+                <td>{o.name}</td>
+                <td className="r num muted">{money(o.minPrincipalCents)}</td>
+                <td className="r num muted">{money(o.maxPrincipalCents)}</td>
+                <td className="r num">{(o.aprBps / 100).toFixed(1)}%</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
         )}
       </section>
     </div>

@@ -62,7 +62,12 @@ public record StandingOrderDto(
     Guid Id, string StaffName, string Tail, string Origin, string Dest,
     double DistanceNm, double RoundTripHours, long RewardPerTripCents);
 public record StandingOrderRequest(Guid StaffId, Guid AircraftInstanceId, string DestIcao);
-public record ReconcileDto(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long NetCents);
+public record ReconcileDto(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long NetCents);
+
+// --- Phase 4a: loans ---
+public record LoanOfferDto(int Tier, string Name, long MinPrincipalCents, long MaxPrincipalCents, int AprBps);
+public record LoanDto(Guid Id, int Tier, long PrincipalCents, long OutstandingCents, int AprBps, int TermDays, string Status, DateTimeOffset TakenAt);
+public record TakeLoanRequest(long PrincipalCents);
 
 // --- Phase 2e: bases ---
 public record BaseViewDto(Guid Id, string Icao, string Name, bool IsHome, long RentPerDayCents);

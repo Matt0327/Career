@@ -13,12 +13,13 @@ loan lines; the model for loans/insurance/routes is sketched in [`domain-notes.m
 
 ## Build order — each step independently playable, finish before the next
 
-1. **4a — Loans.** `LoanTierDef` (content: larger principal → lower APR, self-documenting) + a `Loan`
-   liability tracked **separately from cash**. Take a loan → the draw-down credits cash via a
-   `LoanPrincipal` ledger entry; interest accrues and payments are billed on reopen (the same offline
-   reconcile pass as base rent / wages), posting `LoanInterest` + `LoanPayment`; pay off early. The terms
-   (APR, next payment) are shown **before** you sign. *Playable:* borrow to buy a bigger aircraft, watch
-   the debt amortise.
+1. ✅ **4a — Loans.** A `LoanCatalog` of tiers (larger principal → lower APR, self-documenting) + a `Loan`
+   liability tracked **separately from cash** (EF migration `AddLoans`). Taking one credits cash via a
+   `LoanPrincipal` entry; the offline reconcile pass now also bills declining-balance interest +
+   straight-line principal (`LoanInterest` + `LoanPayment`) and marks a loan paid off at term; early payoff
+   clears the balance now. A Finances tab shows debt, the borrow form (APR shown before you sign), and the
+   tier table. *Verified live:* a $500k Business loan @10% drew down to cash and paid off cleanly; the
+   reconcile amortisation is unit-tested.
 
 2. **4b — Net worth & P&L.** A **computed** balance sheet — cash (the ledger sum) + assets (each airframe's
    residual value, inventory at cost/market) − liabilities (loan outstanding) — plus a profit-&-loss view

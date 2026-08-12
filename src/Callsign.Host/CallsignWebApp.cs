@@ -66,6 +66,7 @@ public static class CallsignWebApp
         builder.Services.AddScoped<TradeService>();
         builder.Services.AddScoped<QualificationService>();
         builder.Services.AddScoped<CheckFlightService>();
+        builder.Services.AddScoped<LoanService>();
         builder.Services.AddSingleton<MarketService>(); // pure pricing (IClock + EconomyConfig)
 
         builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
@@ -364,7 +365,46 @@ public static class CallsignWebApp
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             var d = await ops.ReconcileAsync(pilot.CompanyId);
-            return Results.Ok(new ReconcileDto(d.Trips, d.GrossIncomeCents, d.FeesCents, d.WagesCents, d.RentCents, d.NetCents));
+            return Results.Ok(new ReconcileDto(d.Trips, d.GrossIncomeCents, d.FeesCents, d.WagesCents, d.RentCents, d.LoanCents, d.NetCents));
+        });
+
+        // --- Loans (Phase 4a) ---
+        app.MapGet("/api/loans", async (CallsignDbContext db, LoanService loans) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var active = await loans.GetActiveAsync(pilot.CompanyId);
+            return Results.Ok(new
+            {
+                loans = active.Select(l => new LoanDto(l.Id, l.Tier, l.PrincipalCents, l.OutstandingCents,
+                    l.AprBps, l.TermDays, l.Status.ToString(), l.TakenAt)),
+                offers = loans.Offers().Select(t => new LoanOfferDto(t.Tier, t.Name, t.MinPrincipalCents, t.MaxPrincipalCents, t.AprBps)),
+            });
+        });
+
+        app.MapPost("/api/loans/take", async (TakeLoanRequest req, CallsignDbContext db, LoanService loans) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                var l = await loans.TakeAsync(pilot.CompanyId, req.PrincipalCents);
+                return Results.Ok(new { id = l.Id, outstandingCents = l.OutstandingCents, aprBps = l.AprBps });
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        app.MapPost("/api/loans/{id:guid}/payoff", async (Guid id, CallsignDbContext db, LoanService loans) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                var paid = await loans.PayoffAsync(pilot.CompanyId, id);
+                return Results.Ok(new { paidCents = paid });
+            }
+            catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "Cash changed at the same time — try again." }); }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
         // --- Bases (Phase 2e) ---

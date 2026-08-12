@@ -161,5 +161,9 @@ public sealed record EconomyConfig
     /// <summary>Fallback carry capacity when no owned aircraft has a known useful load.</summary>
     public int TradeDefaultHoldLbs { get; init; } = 1_500;
 
+    // --- Loans (Phase 4a) ---
+    /// <summary>Repayment horizon for a new loan (straight-line principal over this many days).</summary>
+    public int LoanTermDays { get; init; } = 90;
+
     public static EconomyConfig Default { get; } = new();
 }

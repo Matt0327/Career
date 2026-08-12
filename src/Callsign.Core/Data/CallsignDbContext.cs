@@ -27,6 +27,7 @@ public sealed class CallsignDbContext : DbContext
     public DbSet<InventoryLot> InventoryLots => Set<InventoryLot>();
     public DbSet<PilotQualification> PilotQualifications => Set<PilotQualification>();
     public DbSet<ReputationEvent> ReputationEvents => Set<ReputationEvent>();
+    public DbSet<Loan> Loans => Set<Loan>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -204,5 +205,12 @@ public sealed class CallsignDbContext : DbContext
         rep.Property(e => e.Reason).IsRequired().HasMaxLength(120);
         rep.HasIndex(e => new { e.PilotId, e.At });
         rep.HasOne<Pilot>().WithMany().HasForeignKey(e => e.PilotId).OnDelete(DeleteBehavior.Cascade);
+
+        // --- Loans (Phase 4a): a liability, distinct from the cash ledger ---
+        var loan = model.Entity<Loan>();
+        loan.HasKey(l => l.Id);
+        loan.Property(l => l.Status).HasConversion<string>().HasMaxLength(16);
+        loan.HasIndex(l => l.CompanyId);
+        loan.HasOne<Company>().WithMany().HasForeignKey(l => l.CompanyId).OnDelete(DeleteBehavior.Restrict);
     }
 }
