@@ -320,6 +320,8 @@ export interface BaseView {
   name: string
   isHome: boolean
   rentPerDayCents: number
+  latitude: number
+  longitude: number
 }
 
 export interface BaseOffer {
@@ -329,6 +331,8 @@ export interface BaseOffer {
   distanceNm: number
   openCents: number
   rentPerDayCents: number
+  latitude: number
+  longitude: number
 }
 
 export interface MarketQuote {

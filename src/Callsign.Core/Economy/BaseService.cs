@@ -6,11 +6,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Callsign.Core.Economy;
 
-/// <summary>A nearby airport you could open a base at, priced.</summary>
-public sealed record BaseOffer(string Icao, string Name, string Kind, double DistanceNm, long OpenCents, long RentPerDayCents);
+/// <summary>A nearby airport you could open a base at, priced. Carries coordinates for the network map.</summary>
+public sealed record BaseOffer(string Icao, string Name, string Kind, double DistanceNm, long OpenCents, long RentPerDayCents, double Latitude, double Longitude);
 
-/// <summary>An open base, joined to its airport name.</summary>
-public sealed record BaseView(Guid Id, string Icao, string Name, bool IsHome, long RentPerDayCents);
+/// <summary>An open base, joined to its airport name + coordinates (for the self-rendered map).</summary>
+public sealed record BaseView(Guid Id, string Icao, string Name, bool IsHome, long RentPerDayCents, double Latitude, double Longitude);
 
 /// <summary>
 /// Company bases (Phase 2e): open one at an airport for a setup fee + recurring rent (both ledger
@@ -38,8 +38,13 @@ public sealed class BaseService
         var bases = await _db.Bases.Where(b => b.CompanyId == companyId && b.IsActive && !b.IsDeleted)
             .OrderByDescending(b => b.IsHome).ThenBy(b => b.AirportIcao).ToListAsync(ct);
         var icaos = bases.Select(b => b.AirportIcao).ToList();
-        var names = await _db.Airports.Where(a => icaos.Contains(a.Ident)).ToDictionaryAsync(a => a.Ident, a => a.Name, ct);
-        return bases.Select(b => new BaseView(b.Id, b.AirportIcao, names.GetValueOrDefault(b.AirportIcao, b.AirportIcao), b.IsHome, b.RentPerDayCents)).ToList();
+        var airports = await _db.Airports.Where(a => icaos.Contains(a.Ident)).ToDictionaryAsync(a => a.Ident, ct);
+        return bases.Select(b =>
+        {
+            airports.TryGetValue(b.AirportIcao, out var ap);
+            return new BaseView(b.Id, b.AirportIcao, ap?.Name ?? b.AirportIcao, b.IsHome, b.RentPerDayCents,
+                ap?.Latitude ?? 0, ap?.Longitude ?? 0);
+        }).ToList();
     }
 
     /// <summary>Nearby real-ICAO airports (around the home base) you don't already base at, priced.</summary>
@@ -62,7 +67,7 @@ public sealed class BaseService
                         && x.Airport.Kind is AirportKind.SmallAirport or AirportKind.MediumAirport or AirportKind.LargeAirport)
             .Take(8)
             .Select(x => new BaseOffer(x.Airport.Ident, x.Airport.Name, x.Airport.Kind.ToString(), x.DistanceNm,
-                _cfg.BaseOpenCents(x.Airport.Kind), _cfg.BaseRentPerDayCents(x.Airport.Kind)))
+                _cfg.BaseOpenCents(x.Airport.Kind), _cfg.BaseRentPerDayCents(x.Airport.Kind), x.Airport.Latitude, x.Airport.Longitude))
             .ToList();
     }
 

@@ -651,7 +651,7 @@ public static class CallsignWebApp
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             var list = await bases.GetBasesAsync(pilot.CompanyId);
-            return Results.Ok(list.Select(b => new BaseViewDto(b.Id, b.Icao, b.Name, b.IsHome, b.RentPerDayCents)));
+            return Results.Ok(list.Select(b => new BaseViewDto(b.Id, b.Icao, b.Name, b.IsHome, b.RentPerDayCents, b.Latitude, b.Longitude)));
         });
 
         app.MapGet("/api/bases/candidates", async (CallsignDbContext db, BaseService bases) =>
@@ -659,7 +659,7 @@ public static class CallsignWebApp
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             var offers = await bases.GetCandidatesAsync(pilot.CompanyId);
-            return Results.Ok(offers.Select(o => new BaseOfferDto(o.Icao, o.Name, o.Kind, o.DistanceNm, o.OpenCents, o.RentPerDayCents)));
+            return Results.Ok(offers.Select(o => new BaseOfferDto(o.Icao, o.Name, o.Kind, o.DistanceNm, o.OpenCents, o.RentPerDayCents, o.Latitude, o.Longitude)));
         });
 
         app.MapPost("/api/bases/open", async (OpenBaseRequest req, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, BaseService bases) =>

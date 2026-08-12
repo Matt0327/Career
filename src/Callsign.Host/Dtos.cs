@@ -87,8 +87,8 @@ public record PnlLineDto(string Category, long IncomeCents, long ExpenseCents, l
 public record PnlDto(int Days, long IncomeCents, long ExpenseCents, long NetCents, IReadOnlyList<PnlLineDto> Lines);
 
 // --- Phase 2e: bases ---
-public record BaseViewDto(Guid Id, string Icao, string Name, bool IsHome, long RentPerDayCents);
-public record BaseOfferDto(string Icao, string Name, string Kind, double DistanceNm, long OpenCents, long RentPerDayCents);
+public record BaseViewDto(Guid Id, string Icao, string Name, bool IsHome, long RentPerDayCents, double Latitude, double Longitude);
+public record BaseOfferDto(string Icao, string Name, string Kind, double DistanceNm, long OpenCents, long RentPerDayCents, double Latitude, double Longitude);
 public record OpenBaseRequest(string AirportIcao);
 
 // --- Phase 2g: trade ---

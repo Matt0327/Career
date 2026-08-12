@@ -884,6 +884,54 @@ function Ops({ onChanged }: { onChanged: () => void }) {
   )
 }
 
+// ─── Self-rendered map (Phase 6b) ────────────────────────────────────────────
+
+interface MapPoint { lat: number; lon: number; label?: string; kind?: 'home' | 'base' | 'field' }
+
+// An original map: airports projected (equirectangular, longitude corrected for latitude) and fitted to
+// the frame, on a graphite grid. Drawn from the public-domain coordinates we already ship — no tiles.
+function MapView({ points }: { points: MapPoint[] }) {
+  const W = 640, H = 300, pad = 30
+  if (points.length === 0) return <div className="empty" style={{ padding: 20 }}>No locations to map yet.</div>
+
+  const cLat = points.reduce((s, p) => s + p.lat, 0) / points.length
+  const kx = Math.cos((cLat * Math.PI) / 180) // longitude compresses toward the poles
+  const raw = points.map(p => ({ ...p, rx: p.lon * kx, ry: -p.lat }))
+  const xs = raw.map(r => r.rx), ys = raw.map(r => r.ry)
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2
+  const spanx = Math.max(Math.max(...xs) - Math.min(...xs), 0.6), spany = Math.max(Math.max(...ys) - Math.min(...ys), 0.6)
+  const minx = cx - spanx * 0.62, maxx = cx + spanx * 0.62, miny = cy - spany * 0.62, maxy = cy + spany * 0.62
+  const gw = maxx - minx, gh = maxy - miny
+  const scale = Math.min((W - 2 * pad) / gw, (H - 2 * pad) / gh)
+  const ox = (W - gw * scale) / 2, oy = (H - gh * scale) / 2
+  const at = (r: { rx: number; ry: number }) => [ox + (r.rx - minx) * scale, oy + (r.ry - miny) * scale] as const
+
+  return (
+    <div className="mapview">
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="Network map">
+        <defs>
+          <pattern id="mgrid" width="28" height="28" patternUnits="userSpaceOnUse">
+            <path d="M28 0H0V28" fill="none" stroke="var(--line)" strokeWidth="1" opacity=".55" />
+          </pattern>
+        </defs>
+        <rect width={W} height={H} fill="var(--panel-2)" />
+        <rect width={W} height={H} fill="url(#mgrid)" />
+        {raw.map((r, i) => {
+          const [x, y] = at(r)
+          const base = r.kind === 'home' || r.kind === 'base'
+          return (
+            <g key={i}>
+              {base && <circle cx={x} cy={y} r={12} fill="var(--accent)" opacity=".15" />}
+              <circle cx={x} cy={y} r={base ? 4.5 : 3} fill={base ? 'var(--accent)' : 'var(--muted)'} />
+              {r.label && <text x={x + 8} y={y + 3.5} fontSize="10.5" fontFamily="var(--mono)" fill={base ? 'var(--ink)' : 'var(--faint)'}>{r.label}</text>}
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
+
 // ─── Bases ───────────────────────────────────────────────────────────────────
 
 function Bases({ state, onChanged }: { state: State; onChanged: () => void }) {
@@ -903,8 +951,17 @@ function Bases({ state, onChanged }: { state: State; onChanged: () => void }) {
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
 
+  const mapPoints: MapPoint[] = [
+    ...bases.map((b): MapPoint => ({ lat: b.latitude, lon: b.longitude, label: b.icao, kind: b.isHome ? 'home' : 'base' })),
+    ...offers.map((o): MapPoint => ({ lat: o.latitude, lon: o.longitude, label: o.icao, kind: 'field' })),
+  ].filter(p => p.lat !== 0 || p.lon !== 0)
+
   return (
     <div className="grid">
+      <section className="card">
+        <div className="row-head"><h2>Your network</h2><span className="hint">self-rendered · {bases.length} base{bases.length === 1 ? '' : 's'}</span></div>
+        <MapView points={mapPoints} />
+      </section>
       <section className="card">
         <h2>Your bases</h2>
         {bases.length === 0 ? <div className="empty">No bases.</div> : (
