@@ -94,6 +94,34 @@ public sealed class DatabaseBootstrapTests : IDisposable
         Assert.Empty(BackupSnapshots()); // a healthy save is never backed-up-and-rebuilt
     }
 
+    [Fact]
+    public void PrepareDatabase_RecoversAnInconsistentHistory_WhereMigrateWouldStillThrow()
+    {
+        // The nastier real-world case a tester hit: the app tables are present AND a __EFMigrationsHistory
+        // table exists but never recorded InitialCreate. The proactive legacy check sees the history table
+        // and passes — so only the Migrate() safety-net can catch it. Reproduce it, then prove recovery.
+        SeedLegacyEnsureCreatedDb();
+        using (var conn = new SqliteConnection($"Data Source={_dbPath};Pooling=False"))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText =
+                "CREATE TABLE IF NOT EXISTS \"__EFMigrationsHistory\" " +
+                "(\"MigrationId\" TEXT NOT NULL PRIMARY KEY, \"ProductVersion\" TEXT NOT NULL)";
+            cmd.ExecuteNonQuery();
+        }
+        SqliteConnection.ClearAllPools();
+
+        using (var db = new CallsignDbContext(Options()))
+        {
+            var ex = Record.Exception(() => CallsignWebApp.PrepareDatabase(db));
+            Assert.Null(ex); // must recover, not crash
+        }
+        using (var db = new CallsignDbContext(Options()))
+            Assert.Empty(db.Database.GetPendingMigrations()); // a clean, fully-migrated schema
+        Assert.NotEmpty(BackupSnapshots());                    // the old bytes were preserved, not lost
+    }
+
     // The .bak-<timestamp> snapshots RetireLegacyDatabase leaves next to the live DB (excluding sidecars).
     private IEnumerable<string> BackupSnapshots()
     {

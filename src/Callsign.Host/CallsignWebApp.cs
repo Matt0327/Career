@@ -124,15 +124,36 @@ public static class CallsignWebApp
     }
 
     // Bring the database up to the current schema before the app serves a request. A fresh DB gets the
-    // full InitialCreate; an already-migrated DB is a no-op (its save intact). A DB from a pre-migrations
-    // build (EnsureCreated) has the tables but no migration history, so a plain Migrate() would crash
-    // re-creating them ("table already exists") — such a pre-release save is disposable, so it's rebuilt
-    // clean. Exposed for the startup-robustness tests.
+    // full InitialCreate; an already-migrated DB is a no-op (its save intact). But a pre-release DB whose
+    // schema and migration history don't reconcile — a pre-migrations EnsureCreated DB (tables, no
+    // history), OR one with a history table that never recorded InitialCreate — makes Migrate() try to
+    // re-create existing tables and throw "table already exists". We catch every shape of that: proactively
+    // for the obvious case, and as a safety net around Migrate() itself. Such a disposable pre-release save
+    // is set aside (a .bak) and rebuilt clean rather than crashing the app on every launch.
+    // Exposed for the startup-robustness tests.
     public static void PrepareDatabase(CallsignDbContext db)
     {
         if (IsLegacyEnsureCreatedDatabase(db))
             RetireLegacyDatabase(db);
-        db.Database.Migrate();
+        try
+        {
+            db.Database.Migrate();
+        }
+        catch (Exception ex) when (IsSchemaAlreadyExists(ex))
+        {
+            RetireLegacyDatabase(db); // preserve the old bytes, then build the schema fresh
+            db.Database.Migrate();
+        }
+    }
+
+    // True for the "table … already exists" family of SQLite migration failures — the signature of a
+    // schema that's present but whose migration history can't account for it.
+    private static bool IsSchemaAlreadyExists(Exception ex)
+    {
+        for (var e = ex; e is not null; e = e.InnerException)
+            if (e is Microsoft.Data.Sqlite.SqliteException && e.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase))
+                return true;
+        return false;
     }
 
     // Move a legacy (pre-migrations) database aside so Migrate() can build a fresh one — WITHOUT
