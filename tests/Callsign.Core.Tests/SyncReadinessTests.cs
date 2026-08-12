@@ -18,6 +18,7 @@ public class SyncReadinessTests
         {
             typeof(Pilot), typeof(AircraftInstance), typeof(Base), typeof(InventoryLot),
             typeof(PilotQualification), typeof(Loan), typeof(InsurancePolicy), typeof(Route),
+            typeof(AchievementAward),
         };
         Assert.All(aggregates, t => Assert.True(typeof(ISyncable).IsAssignableFrom(t),
             $"{t.Name} must implement ISyncable to stay server-ready (ADR-0002)."));

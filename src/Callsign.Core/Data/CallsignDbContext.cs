@@ -30,6 +30,7 @@ public sealed class CallsignDbContext : DbContext
     public DbSet<Loan> Loans => Set<Loan>();
     public DbSet<InsurancePolicy> InsurancePolicies => Set<InsurancePolicy>();
     public DbSet<Route> Routes => Set<Route>();
+    public DbSet<AchievementAward> AchievementAwards => Set<AchievementAward>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -236,5 +237,12 @@ public sealed class CallsignDbContext : DbContext
         route.HasOne<Company>().WithMany().HasForeignKey(r => r.CompanyId).OnDelete(DeleteBehavior.Restrict);
         route.HasOne<AircraftInstance>().WithMany().HasForeignKey(r => r.AircraftInstanceId).OnDelete(DeleteBehavior.Restrict);
         route.HasOne<Staff>().WithMany().HasForeignKey(r => r.StaffId).OnDelete(DeleteBehavior.Restrict);
+
+        // --- Achievements (Phase 5a): earned milestones, one row per (company, catalog key) ---
+        var award = model.Entity<AchievementAward>();
+        award.HasKey(a => a.Id);
+        award.Property(a => a.Key).IsRequired().HasMaxLength(40);
+        award.HasIndex(a => new { a.CompanyId, a.Key }).IsUnique(); // earned once — idempotent awarding
+        award.HasOne<Company>().WithMany().HasForeignKey(a => a.CompanyId).OnDelete(DeleteBehavior.Restrict);
     }
 }

@@ -175,6 +175,20 @@ input { font: inherit; }
 .tbl button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .tbl button:disabled { opacity: .45; cursor: default; }
 
+/* ── Achievements ── */
+.ach-cat { margin-top: 4px; }
+.ach-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.ach { display: flex; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); opacity: .58; }
+.ach.earned { opacity: 1; border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.ach-medal { font-size: 24px; line-height: 1.1; color: var(--muted); }
+.ach.earned .ach-medal { color: var(--accent); }
+.ach-body { flex: 1; min-width: 0; }
+.ach-name { font-weight: 600; font-size: 14px; }
+.ach-desc { font-size: 12px; margin-top: 2px; }
+.ach-when { font-size: 11px; margin-top: 6px; }
+.ach-bar { height: 5px; border-radius: 999px; background: var(--line); overflow: hidden; margin-top: 8px; }
+.ach-fill { height: 100%; background: var(--accent); border-radius: 999px; transition: width .4s ease; }
+
 /* ── Settings / save backups ── */
 .rowacts { display: inline-flex; gap: 8px; align-items: center; justify-content: flex-end; }
 .tbl a.dl { padding: 5px 12px; border: 1px solid var(--line); border-radius: 6px; color: inherit; text-decoration: none; }

@@ -113,3 +113,8 @@ public record FlightResultDto(
 
 // --- Save management: back up / export / restore the save file ---
 public record RestoreRequest(string Name);
+
+// --- Phase 5a: achievements ---
+public record AchievementDto(
+    string Key, string Name, string Description, string Category, long Target, long Progress,
+    bool Earned, DateTimeOffset? EarnedAt);

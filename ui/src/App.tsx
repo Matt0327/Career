@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api, money,
-  type AircraftOffer, type Assignment, type BackupFile, type BaseOffer, type BaseView, type CheckFlightDone, type Diverted,
+  type Achievement, type AircraftOffer, type Assignment, type BackupFile, type BaseOffer, type BaseView, type CheckFlightDone, type Diverted,
   type FinancesData, type FlightLog, type Insurance, type Inventory, type Job, type LedgerEntry, type Loan, type LoanOffer, type Loans,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
   type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type VersionInfo, type WsEvent,
 } from './api'
 
-type Tab = 'dashboard' | 'jobs' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'finances' | 'logbook' | 'settings'
+type Tab = 'dashboard' | 'jobs' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'finances' | 'awards' | 'logbook' | 'settings'
 
 export function App() {
   const [state, setState] = useState<State | null | undefined>(undefined) // undefined = still loading
@@ -40,6 +40,7 @@ export function App() {
         {tab === 'bases' && <Bases state={state} onChanged={reload} />}
         {tab === 'trade' && <Trade state={state} onChanged={reload} />}
         {tab === 'finances' && <Finances state={state} onChanged={reload} />}
+        {tab === 'awards' && <Awards />}
         {tab === 'logbook' && <Logbook />}
         {tab === 'settings' && <Settings />}
       </main>
@@ -51,7 +52,7 @@ export function App() {
 
 function TopBar({ state, tab, setTab }: { state: State; tab: Tab; setTab: (t: Tab) => void }) {
   const tabs: [Tab, string][] = [
-    ['dashboard', 'Dashboard'], ['jobs', 'Jobs'], ['flight', 'Flight'], ['hangar', 'Hangar'], ['ops', 'Staff'], ['bases', 'Bases'], ['trade', 'Trade'], ['finances', 'Finances'], ['logbook', 'Logbook'], ['settings', 'Settings'],
+    ['dashboard', 'Dashboard'], ['jobs', 'Jobs'], ['flight', 'Flight'], ['hangar', 'Hangar'], ['ops', 'Staff'], ['bases', 'Bases'], ['trade', 'Trade'], ['finances', 'Finances'], ['awards', 'Awards'], ['logbook', 'Logbook'], ['settings', 'Settings'],
   ]
   return (
     <header className="topbar">
@@ -1163,6 +1164,52 @@ function Logbook() {
           </table>
         )}
       </section>
+    </div>
+  )
+}
+
+// ─── Awards (achievements) ───────────────────────────────────────────────────
+
+function Awards() {
+  const [items, setItems] = useState<Achievement[] | null>(null)
+  useEffect(() => { api.achievements().then(setItems).catch(() => setItems([])) }, [])
+
+  if (items === null) return <div className="empty">Loading…</div>
+  const earned = items.filter(a => a.earned).length
+  const categories = Array.from(new Set(items.map(a => a.category)))
+
+  return (
+    <div className="grid">
+      <section className="card">
+        <div className="row-head">
+          <h2>Achievements</h2>
+          <span className="num rep-score">{earned} <span className="muted">/ {items.length}</span></span>
+        </div>
+        {categories.map(cat => (
+          <div key={cat} className="ach-cat">
+            <h3 className="sub-h">{cat}</h3>
+            <div className="ach-grid">
+              {items.filter(a => a.category === cat).map(a => <Badge key={a.key} a={a} />)}
+            </div>
+          </div>
+        ))}
+      </section>
+    </div>
+  )
+}
+
+function Badge({ a }: { a: Achievement }) {
+  const pct = a.target > 0 ? Math.min(100, (a.progress / a.target) * 100) : 0
+  return (
+    <div className={`ach ${a.earned ? 'earned' : ''}`}>
+      <div className="ach-medal">{a.earned ? '★' : '☆'}</div>
+      <div className="ach-body">
+        <div className="ach-name">{a.name}</div>
+        <div className="ach-desc muted">{a.description}</div>
+        {a.earned
+          ? <div className="ach-when muted">{a.earnedAt ? `Earned ${when(a.earnedAt)}` : 'Earned'}</div>
+          : <div className="ach-bar" title={`${a.progress} / ${a.target}`}><div className="ach-fill" style={{ width: `${pct}%` }} /></div>}
+      </div>
     </div>
   )
 }

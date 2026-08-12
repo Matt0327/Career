@@ -1,3 +1,4 @@
+using Callsign.Core.Achievements;
 using Callsign.Core.Aircraft;
 using Callsign.Core.Airports;
 using Callsign.Core.Data;
@@ -75,6 +76,7 @@ public static class CallsignWebApp
         builder.Services.AddScoped<FinanceService>();
         builder.Services.AddScoped<InsuranceService>();
         builder.Services.AddScoped<RouteService>();
+        builder.Services.AddScoped<AchievementService>();
         builder.Services.AddSingleton<MarketService>(); // pure pricing (IClock + EconomyConfig)
 
         builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
@@ -775,6 +777,16 @@ public static class CallsignWebApp
             }
             using var ws = await ctx.WebSockets.AcceptWebSocketAsync();
             await session.AddClientAsync(ws, ctx.RequestAborted);
+        });
+
+        // --- Achievements (Phase 5a): evaluating on read awards any newly-earned badges, then returns all ---
+        app.MapGet("/api/achievements", async (CallsignDbContext db, AchievementService ach) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var views = await ach.EvaluateAsync(pilot.CompanyId, pilot.Id);
+            return Results.Ok(views.Select(v => new AchievementDto(
+                v.Key, v.Name, v.Description, v.Category, v.Target, v.Progress, v.Earned, v.EarnedAt)));
         });
 
         // --- Build identity (the About line) ---

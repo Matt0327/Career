@@ -368,6 +368,17 @@ export interface BackupFile {
   createdUtc: string
 }
 
+export interface Achievement {
+  key: string
+  name: string
+  description: string
+  category: string
+  target: number
+  progress: number
+  earned: boolean
+  earnedAt: string | null
+}
+
 async function ok<T>(r: Response): Promise<T> {
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${await r.text()}`)
   return r.json() as Promise<T>
@@ -455,6 +466,7 @@ export const api = {
   inventory: () => fetch('/api/trade/inventory').then(ok<Inventory[]>),
   buyGood: (good: string, qty: number) => POST_IDEM('/api/trade/buy', { good, qty }).then(ok),
   sellGood: (good: string, qty: number) => POST_IDEM('/api/trade/sell', { good, qty }).then(ok<TradeResult>),
+  achievements: () => fetch('/api/achievements').then(ok<Achievement[]>),
   version: () => fetch('/api/version').then(ok<VersionInfo>),
   backups: () => fetch('/api/save/backups').then(ok<BackupFile[]>),
   backup: () => POST('/api/save/backup').then(ok<BackupFile>),
