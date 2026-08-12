@@ -428,9 +428,38 @@ export interface AirlineData {
   emblems: string[]
 }
 
+export interface CloudStatus {
+  signedIn: boolean
+  email?: string | null
+  displayName?: string | null
+  baseUrl: string
+}
+
+export interface CloudSaveMeta {
+  exists: boolean
+  sizeBytes: number
+  device?: string | null
+  updatedAt?: string | null
+}
+
+export interface CloudResult {
+  ok: boolean
+  error?: string
+}
+
 async function ok<T>(r: Response): Promise<T> {
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${await r.text()}`)
   return r.json() as Promise<T>
+}
+
+// Cloud calls return a plain ok/error result so the Account panel can show the server's message directly
+// (the Host replies with { error } on failure) rather than a raw HTTP string.
+async function cloudPost(url: string, body?: unknown): Promise<CloudResult> {
+  const r = await POST(url, body)
+  if (r.ok) return { ok: true }
+  let error = `Request failed (${r.status}).`
+  try { const j = await r.json(); if (j?.error) error = j.error } catch { /* keep the generic message */ }
+  return { ok: false, error }
 }
 
 const POST = (url: string, body?: unknown): Promise<Response> =>
@@ -526,6 +555,18 @@ export const api = {
   backup: () => POST('/api/save/backup').then(ok<BackupFile>),
   restore: (name: string) => POST('/api/save/restore', { name }).then(ok<{ restart: boolean }>),
   backupDownloadUrl: (name: string) => `/api/save/backups/${encodeURIComponent(name)}/download`,
+
+  // Callsign Cloud — accounts + cloud saves, proxied through the local Host.
+  cloud: {
+    status: () => fetch('/api/cloud/status').then(ok<CloudStatus>),
+    saveMeta: () => fetch('/api/cloud/save/meta').then(ok<CloudSaveMeta>),
+    register: (email: string, displayName: string, password: string) =>
+      cloudPost('/api/cloud/register', { email, displayName, password }),
+    login: (email: string, password: string) => cloudPost('/api/cloud/login', { email, password }),
+    logout: () => cloudPost('/api/cloud/logout'),
+    push: () => cloudPost('/api/cloud/push'),
+    pull: () => cloudPost('/api/cloud/pull'),
+  },
 }
 
 /** Whole-dollar, sign-aware money from integer cents: 147000 -> "$1,470". */

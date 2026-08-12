@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api, money,
-  type Achievement, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type CheckFlightDone, type Diverted,
+  type Achievement, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type CheckFlightDone, type CloudSaveMeta, type CloudStatus, type Diverted,
   type FinancesData, type FlightLog, type Insurance, type Inventory, type Job, type LedgerEntry, type Loan, type LoanOffer, type Loans,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
   type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type VersionInfo, type WsEvent,
@@ -1548,6 +1548,124 @@ function Badge({ a }: { a: Achievement }) {
   )
 }
 
+// ─── Callsign Cloud account (sign in · cloud save) ───────────────────────────
+
+function CloudAccount() {
+  const [status, setStatus] = useState<CloudStatus | null>(null)
+  const [meta, setMeta] = useState<CloudSaveMeta | null>(null)
+  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [email, setEmail] = useState('')
+  const [name, setName] = useState('')
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  const [staged, setStaged] = useState(false)
+
+  const refresh = useCallback(async () => {
+    try {
+      const s = await api.cloud.status()
+      setStatus(s)
+      if (s.signedIn) { try { setMeta(await api.cloud.saveMeta()) } catch { setMeta(null) } }
+      else setMeta(null)
+    } catch (e) { setMsg(cleanErr(e)) }
+  }, [])
+  useEffect(() => { void refresh() }, [refresh])
+
+  const submit = async () => {
+    setBusy(true); setMsg(null)
+    try {
+      const r = mode === 'login'
+        ? await api.cloud.login(email.trim(), password)
+        : await api.cloud.register(email.trim(), name.trim(), password)
+      if (!r.ok) { setMsg(r.error ?? 'Sign-in failed.'); return }
+      setPassword(''); await refresh()
+    } finally { setBusy(false) }
+  }
+
+  const signOut = async () => {
+    setBusy(true); setMsg(null)
+    try { await api.cloud.logout(); setStaged(false); await refresh() } finally { setBusy(false) }
+  }
+
+  const push = async () => {
+    setBusy(true); setMsg(null)
+    try {
+      const r = await api.cloud.push()
+      if (!r.ok) { setMsg(r.error ?? 'Upload failed.'); return }
+      setMsg('Your career is backed up to the cloud.'); await refresh()
+    } finally { setBusy(false) }
+  }
+
+  const pull = async () => {
+    if (!window.confirm('Replace your local save with the cloud copy?\n\nYour current save is set aside as a backup, and Callsign loads the cloud one the next time it starts.')) return
+    setBusy(true); setMsg(null)
+    try {
+      const r = await api.cloud.pull()
+      if (!r.ok) { setMsg(r.error ?? 'Download failed.'); return }
+      setStaged(true); setMsg('Cloud save staged.')
+    } finally { setBusy(false) }
+  }
+
+  const signedIn = status?.signedIn === true
+
+  return (
+    <section className="card">
+      <div className="row-head">
+        <h2>Callsign Cloud</h2>
+        {signedIn && <button disabled={busy} onClick={signOut}>Sign out</button>}
+      </div>
+      {msg && <div className="banner">{msg}</div>}
+      {staged && <div className="banner ok">Cloud save staged — <b>restart Callsign</b> to load it.</div>}
+
+      {!signedIn ? (
+        <>
+          <p className="hint">Sign in to back up your career to the cloud and carry it to any PC. It's free, and the offline game never needs it.</p>
+          <div className="seg" style={{ marginBottom: 12 }}>
+            <button className={`seg-btn ${mode === 'login' ? 'on' : ''}`} onClick={() => setMode('login')}>Sign in</button>
+            <button className={`seg-btn ${mode === 'register' ? 'on' : ''}`} onClick={() => setMode('register')}>Create account</button>
+          </div>
+          <div className="form">
+            <label className="fld"><span>Email</span>
+              <input type="email" value={email} autoComplete="username" placeholder="you@example.com" onChange={e => setEmail(e.target.value)} />
+            </label>
+            {mode === 'register' && (
+              <label className="fld"><span>Display name</span>
+                <input value={name} maxLength={40} placeholder="Your callsign" onChange={e => setName(e.target.value)} />
+              </label>
+            )}
+            <label className="fld"><span>Password</span>
+              <input type="password" value={password} autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                placeholder={mode === 'register' ? 'At least 8 characters' : ''} onChange={e => setPassword(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') void submit() }} />
+            </label>
+            <button className="primary" disabled={busy || !email || !password || (mode === 'register' && !name)} onClick={submit}>
+              {mode === 'login' ? 'Sign in' : 'Create account'}
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="about-line">Signed in as <b>{status?.displayName}</b> · <span className="num">{status?.email}</span></p>
+          <div className="cloud-save">
+            <div className="pref-text">
+              <div className="pref-label">Cloud save</div>
+              <div className="hint">
+                {meta?.exists
+                  ? <>Last uploaded {when(meta.updatedAt ?? '')} · <span className="num">{kb(meta.sizeBytes)}</span></>
+                  : 'No cloud save yet — back yours up to start.'}
+              </div>
+            </div>
+            <span className="rowacts">
+              <button className="primary" disabled={busy} onClick={push}>Back up to cloud</button>
+              <button disabled={busy || !meta?.exists} onClick={pull}>Restore from cloud</button>
+            </span>
+          </div>
+        </>
+      )}
+    </section>
+  )
+}
+
 // ─── Settings (save backup / restore + about) ────────────────────────────────
 
 function Settings() {
@@ -1578,6 +1696,7 @@ function Settings() {
 
   return (
     <div className="grid">
+      <CloudAccount />
       <section className="card">
         <h2>Preferences</h2>
         <div className="pref-row">

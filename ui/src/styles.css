@@ -215,6 +215,15 @@ input { font: inherit; }
 .seg-btn:first-child { border-left: none; }
 .seg-btn:hover:not(.on) { color: var(--ink); }
 .seg-btn.on { background: var(--accent); color: var(--accent-ink); }
+
+/* Callsign Cloud account: sign-in form + cloud-save row */
+.form { display: flex; flex-direction: column; gap: 10px; max-width: 380px; }
+.fld { display: flex; flex-direction: column; gap: 5px; }
+.fld > span { font-size: 12px; color: var(--muted); }
+.fld input { padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; }
+.fld input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.form .primary { align-self: flex-start; margin-top: 2px; }
+.cloud-save { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-top: 6px; }
 .toggle { position: relative; width: 44px; height: 26px; border-radius: 999px; border: none; background: var(--line); cursor: pointer; flex: none; transition: background .2s ease; }
 .toggle.on { background: var(--accent); }
 .toggle .knob { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: left .2s ease; }

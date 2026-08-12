@@ -38,6 +38,14 @@ public static class CallsignWebApp
         builder.Services.AddDbContext<CallsignDbContext>(o => o.UseSqlite($"Data Source={dbPath}"));
         builder.Services.AddSingleton(new SaveService(dbPath));
 
+        // --- Callsign Cloud gateway: the app reaches the online service THROUGH the Host (no CORS, the
+        //     session token never sits in the browser, and save transfers stream server-to-server). The
+        //     base URL is overridable via config "Cloud:BaseUrl" / env Cloud__BaseUrl. ---
+        var cloudBaseUrl = builder.Configuration["Cloud:BaseUrl"] ?? "http://127.0.0.1:5218";
+        var cloudSessionPath = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(dbPath))!, "cloud-session.json");
+        builder.Services.AddSingleton(new Callsign.Host.Cloud.CloudSession(cloudSessionPath));
+        builder.Services.AddHttpClient<Callsign.Host.Cloud.CloudGateway>(c => c.BaseAddress = new Uri(cloudBaseUrl));
+
         // --- Web UI: the Vite build output (path overridable via config "Ui:Path" / env Ui__Path) ---
         var uiPath = builder.Configuration["Ui:Path"]
                      ?? Path.Combine(builder.Environment.ContentRootPath, "wwwroot");
@@ -231,6 +239,53 @@ public static class CallsignWebApp
     private static void MapEndpoints(WebApplication app, string uiPath)
     {
         app.MapGet("/api/health", () => Results.Ok(new { ok = true }));
+
+        // --- Callsign Cloud: accounts + cloud saves, proxied through the local Host ---
+        app.MapGet("/api/cloud/status", (Callsign.Host.Cloud.CloudGateway cloud) =>
+            Results.Ok(new
+            {
+                signedIn = cloud.Session.IsSignedIn,
+                email = cloud.Session.Profile?.Email,
+                displayName = cloud.Session.Profile?.DisplayName,
+                baseUrl = cloud.BaseUrl,
+            }));
+
+        app.MapPost("/api/cloud/register", async (Callsign.Host.Cloud.CloudCredsDto req, Callsign.Host.Cloud.CloudGateway cloud) =>
+        {
+            var r = await cloud.RegisterAsync(req.Email ?? "", req.DisplayName ?? "", req.Password ?? "");
+            return r.Ok ? Results.Ok(new { ok = true }) : Results.BadRequest(new { error = r.Error });
+        });
+
+        app.MapPost("/api/cloud/login", async (Callsign.Host.Cloud.CloudCredsDto req, Callsign.Host.Cloud.CloudGateway cloud) =>
+        {
+            var r = await cloud.LoginAsync(req.Email ?? "", req.Password ?? "");
+            return r.Ok ? Results.Ok(new { ok = true }) : Results.BadRequest(new { error = r.Error });
+        });
+
+        app.MapPost("/api/cloud/logout", async (Callsign.Host.Cloud.CloudGateway cloud) =>
+        {
+            await cloud.LogoutAsync();
+            return Results.Ok(new { ok = true });
+        });
+
+        app.MapGet("/api/cloud/save/meta", async (Callsign.Host.Cloud.CloudGateway cloud) =>
+        {
+            if (!cloud.Session.IsSignedIn) return Results.Unauthorized();
+            var meta = await cloud.SaveMetaAsync();
+            return Results.Ok(meta ?? new Callsign.Host.Cloud.CloudSaveMeta(false, 0, null, null));
+        });
+
+        app.MapPost("/api/cloud/push", async (Callsign.Host.Cloud.CloudGateway cloud, CallsignDbContext db) =>
+        {
+            var r = await cloud.PushAsync(db);
+            return r.Ok ? Results.Ok(new { ok = true }) : Results.BadRequest(new { error = r.Error });
+        });
+
+        app.MapPost("/api/cloud/pull", async (Callsign.Host.Cloud.CloudGateway cloud) =>
+        {
+            var r = await cloud.PullAsync();
+            return r.Ok ? Results.Ok(new { ok = true, staged = true }) : Results.BadRequest(new { error = r.Error });
+        });
 
         app.MapPost("/api/game/new", async (NewCareerRequest req, GameSetupService setup) =>
         {

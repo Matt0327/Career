@@ -75,8 +75,35 @@ public sealed class SaveService
         return File.Exists(path) ? path : null;
     }
 
+    /// <summary>
+    /// Snapshot the live save to an arbitrary destination (e.g. a temp file to upload to the cloud). Same
+    /// consistent <c>VACUUM INTO</c> as a backup, but the caller owns the destination and its lifetime.
+    /// </summary>
+    public async Task SnapshotToAsync(CallsignDbContext db, string destPath)
+    {
+        var full = Path.GetFullPath(destPath);
+        var sql = "VACUUM INTO '" + full.Replace("'", "''") + "'";
+        await db.Database.ExecuteSqlRawAsync(sql);
+    }
+
     /// <summary>Stage a backup to become the live save on next launch (the open file can't be swapped now).</summary>
     public void StageRestore(string backupPath) => File.Copy(backupPath, PendingRestorePath, overwrite: true);
+
+    /// <summary>
+    /// Stage downloaded cloud-save bytes to become the live save next launch. The bytes are validated as a
+    /// real SQLite database first, so a truncated or corrupt download can never overwrite a good save.
+    /// </summary>
+    public void StageRestoreFromBytes(byte[] data)
+    {
+        if (!LooksLikeSqlite(data))
+            throw new InvalidDataException("The downloaded save is not a valid Callsign database.");
+        File.WriteAllBytes(PendingRestorePath, data);
+    }
+
+    // Every SQLite file starts with the 16-byte header "SQLite format 3\0".
+    private static readonly byte[] SqliteMagic = System.Text.Encoding.ASCII.GetBytes("SQLite format 3\0");
+    private static bool LooksLikeSqlite(byte[] data) =>
+        data.Length >= SqliteMagic.Length && data.AsSpan(0, SqliteMagic.Length).SequenceEqual(SqliteMagic);
 
     /// <summary>
     /// If a restore was staged, apply it before the DB is opened: the current save is moved aside to a
