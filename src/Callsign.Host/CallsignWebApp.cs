@@ -289,6 +289,28 @@ public static class CallsignWebApp
             return r.Ok ? Results.Ok(new { ok = true, staged = true }) : Results.BadRequest(new { error = r.Error });
         });
 
+        // Leaderboards: the app gathers the player's real standing (same numbers as achievements/campaigns)
+        // and pushes it; the boards are read back through the Host so the UI only ever talks to localhost.
+        app.MapPost("/api/cloud/leaderboard/submit", async (CallsignDbContext db, ProgressMetricsService metrics, Callsign.Host.Cloud.CloudGateway cloud) =>
+        {
+            if (!cloud.Session.IsSignedIn) return Results.Unauthorized();
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.BadRequest(new { error = "Start a career first." });
+            var m = await metrics.SnapshotAsync(pilot.CompanyId, pilot.Id);
+            var stats = new Callsign.Host.Cloud.LeaderboardSubmit(m.NetWorthCents, m.Flights, m.ReputationMilli, pilot.Xp, pilot.Rank.ToString());
+            var r = await cloud.SubmitLeaderboardAsync(stats);
+            return r.Ok ? Results.Ok(new { ok = true }) : Results.BadRequest(new { error = r.Error });
+        });
+
+        app.MapGet("/api/cloud/leaderboard", async (string? board, int? limit, Callsign.Host.Cloud.CloudGateway cloud) =>
+            Results.Ok(await cloud.GetLeaderboardAsync(board ?? "networth", Math.Clamp(limit ?? 100, 1, 500))));
+
+        app.MapGet("/api/cloud/leaderboard/me", async (Callsign.Host.Cloud.CloudGateway cloud) =>
+        {
+            if (!cloud.Session.IsSignedIn) return Results.Unauthorized();
+            return Results.Ok(await cloud.GetMyStandingAsync() ?? new Callsign.Host.Cloud.MyStanding(null, null, null, null));
+        });
+
         app.MapPost("/api/game/new", async (NewCareerRequest req, GameSetupService setup) =>
         {
             var (company, pilot) = await setup.StartNewCareerAsync(

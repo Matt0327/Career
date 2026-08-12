@@ -10,6 +10,9 @@ public record CloudProfile(string Id, string Email, string DisplayName, string? 
 public record CloudAuth(string Token, CloudProfile User);
 public record CloudSaveMeta(bool Exists, long SizeBytes, string? Device, string? UpdatedAt);
 public record CloudCredsDto(string? Email, string? DisplayName, string? Password);
+public record LeaderboardSubmit(long NetWorthCents, int Flights, int ReputationMilli, long Xp, string? RankKey);
+public record LeaderboardRow(int Position, string DisplayName, long Value, string? RankKey, bool IsYou);
+public record MyStanding(int? NetWorth, int? Flights, int? Reputation, int? Xp);
 
 /// <summary>
 /// The signed-in cloud session, persisted to a small JSON file next to the save so it survives restarts.
@@ -176,6 +179,43 @@ public sealed class CloudGateway
             var data = await resp.Content.ReadAsByteArrayAsync();
             var contentType = resp.Content.Headers.ContentType?.ToString() ?? "image/jpeg";
             return data.Length == 0 ? null : (data, contentType);
+        }
+        catch { return null; }
+    }
+
+    public async Task<Result> SubmitLeaderboardAsync(LeaderboardSubmit stats)
+    {
+        if (!Session.IsSignedIn) return new Result(false, "Sign in first.");
+        try
+        {
+            var req = Authed(HttpMethod.Post, "/api/leaderboard");
+            req.Content = JsonContent.Create(stats);
+            var resp = await _http.SendAsync(req);
+            return resp.IsSuccessStatusCode ? new Result(true) : new Result(false, await ErrorTextAsync(resp));
+        }
+        catch (Exception ex) { return new Result(false, ex.Message); }
+    }
+
+    public async Task<List<LeaderboardRow>> GetLeaderboardAsync(string board, int limit)
+    {
+        try
+        {
+            // Send the token when we have one, so the caller's own row comes back flagged as "you".
+            var req = Authed(HttpMethod.Get, $"/api/leaderboard?board={Uri.EscapeDataString(board)}&limit={limit}");
+            var resp = await _http.SendAsync(req);
+            if (!resp.IsSuccessStatusCode) return new List<LeaderboardRow>();
+            return await resp.Content.ReadFromJsonAsync<List<LeaderboardRow>>() ?? new List<LeaderboardRow>();
+        }
+        catch { return new List<LeaderboardRow>(); }
+    }
+
+    public async Task<MyStanding?> GetMyStandingAsync()
+    {
+        if (!Session.IsSignedIn) return null;
+        try
+        {
+            var resp = await _http.SendAsync(Authed(HttpMethod.Get, "/api/leaderboard/me"));
+            return resp.IsSuccessStatusCode ? await resp.Content.ReadFromJsonAsync<MyStanding>() : null;
         }
         catch { return null; }
     }

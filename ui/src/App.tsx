@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api, money,
   type Achievement, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type CheckFlightDone, type CloudSaveMeta, type CloudStatus, type Diverted,
-  type FinancesData, type FlightLog, type Insurance, type Inventory, type Job, type LedgerEntry, type Loan, type LoanOffer, type Loans,
+  type FinancesData, type FlightLog, type Insurance, type Inventory, type Job, type LeaderboardRow, type LedgerEntry, type Loan, type LoanOffer, type Loans, type MyStanding,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
   type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type VersionInfo, type WsEvent,
 } from './api'
@@ -10,7 +10,7 @@ import { loadPrefs, savePrefs, type Prefs, type Theme } from './prefs'
 import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
-type Tab = 'dashboard' | 'airline' | 'jobs' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'finances' | 'campaigns' | 'awards' | 'logbook' | 'settings'
+type Tab = 'dashboard' | 'airline' | 'jobs' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'finances' | 'campaigns' | 'awards' | 'community' | 'logbook' | 'settings'
 
 export function App() {
   const [state, setState] = useState<State | null | undefined>(undefined) // undefined = still loading
@@ -51,6 +51,7 @@ export function App() {
         {tab === 'finances' && <Finances state={state} onChanged={reload} />}
         {tab === 'campaigns' && <Campaigns onChanged={reload} />}
         {tab === 'awards' && <Awards />}
+        {tab === 'community' && <Community />}
         {tab === 'logbook' && <Logbook />}
         {tab === 'settings' && <Settings />}
         </main>
@@ -73,6 +74,7 @@ const TABS: { id: Tab; label: string; sub: string }[] = [
   { id: 'finances', label: 'Finances', sub: 'Balance sheet, P&L & loans' },
   { id: 'campaigns', label: 'Campaigns', sub: 'Fly a story' },
   { id: 'awards', label: 'Awards', sub: 'Achievements earned' },
+  { id: 'community', label: 'Community', sub: 'Leaderboards' },
   { id: 'logbook', label: 'Logbook', sub: 'Flights & the ledger' },
   { id: 'settings', label: 'Settings', sub: 'Preferences & your save' },
 ]
@@ -126,6 +128,7 @@ function navIcon(id: Tab) {
     case 'finances': return <svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3" /><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6" /><path d="M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6" /></svg>
     case 'campaigns': return <svg viewBox="0 0 24 24"><path d="M5 21V4c3-2 6 2 9 0v9c-3 2-6-2-9 0" /></svg>
     case 'awards': return <svg viewBox="0 0 24 24"><circle cx="12" cy="9" r="5" /><path d="M9 13l-2 8 5-3 5 3-2-8" /></svg>
+    case 'community': return <svg viewBox="0 0 24 24"><path d="M2 21h20" /><path d="M5 21v-8M12 21V5M19 21v-11" /></svg>
     case 'logbook': return <svg viewBox="0 0 24 24"><path d="M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2V4z" /><path d="M9 8h6M9 12h6" /></svg>
     case 'settings': return <svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10" /><circle cx="16" cy="7" r="2.3" /><circle cx="8" cy="17" r="2.3" /></svg>
     default: return null
@@ -1544,6 +1547,105 @@ function Badge({ a }: { a: Achievement }) {
           ? <div className="ach-when muted">{a.earnedAt ? `Earned ${when(a.earnedAt)}` : 'Earned'}</div>
           : <div className="ach-bar" title={`${a.progress} / ${a.target}`}><div className="ach-fill" style={{ width: `${pct}%` }} /></div>}
       </div>
+    </div>
+  )
+}
+
+// ─── Community (leaderboards) ────────────────────────────────────────────────
+
+const BOARDS = [
+  { key: 'networth', label: 'Net worth' },
+  { key: 'flights', label: 'Flights' },
+  { key: 'reputation', label: 'Reputation' },
+  { key: 'xp', label: 'XP' },
+] as const
+
+function fmtBoard(board: string, v: number): string {
+  if (board === 'networth') return money(v)
+  if (board === 'reputation') return (v / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })
+  return v.toLocaleString()
+}
+
+function Community() {
+  const [status, setStatus] = useState<CloudStatus | null>(null)
+  const [board, setBoard] = useState<string>('networth')
+  const [rows, setRows] = useState<LeaderboardRow[]>([])
+  const [mine, setMine] = useState<MyStanding | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  // On open: if signed in, push our latest standing so we appear, then read our positions back.
+  const init = useCallback(async () => {
+    try {
+      const s = await api.cloud.status(); setStatus(s)
+      if (!s.signedIn) return
+      await api.cloud.submitStanding().catch(() => undefined)
+      setMine(await api.cloud.myStanding().catch(() => null))
+    } catch (e) { setMsg(cleanErr(e)) }
+  }, [])
+  useEffect(() => { void init() }, [init])
+
+  const loadBoard = useCallback(async (b: string) => {
+    try { setRows(await api.cloud.leaderboard(b)) } catch (e) { setMsg(cleanErr(e)) }
+  }, [])
+  useEffect(() => { if (status?.signedIn) void loadBoard(board) }, [board, status, loadBoard])
+
+  const refresh = async () => {
+    setBusy(true); setMsg(null)
+    try {
+      const r = await api.cloud.submitStanding()
+      if (!r.ok) { setMsg(r.error ?? 'Could not submit your standing.'); return }
+      setMine(await api.cloud.myStanding().catch(() => null))
+      await loadBoard(board)
+      setMsg('Your standing is up to date.')
+    } finally { setBusy(false) }
+  }
+
+  if (status && !status.signedIn) {
+    return (
+      <div className="grid">
+        <section className="card">
+          <h2>Community</h2>
+          <p className="hint">Leaderboards rank every Callsign pilot by net worth, flights, reputation, and XP. <b>Sign in under Settings → Callsign Cloud</b> to join and see where you stand.</p>
+        </section>
+      </div>
+    )
+  }
+
+  const myPos = mine
+    ? ({ networth: mine.netWorth, flights: mine.flights, reputation: mine.reputation, xp: mine.xp } as Record<string, number | null | undefined>)[board]
+    : null
+  const boardLabel = BOARDS.find(b => b.key === board)?.label
+
+  return (
+    <div className="grid">
+      <section className="card">
+        <div className="row-head">
+          <h2>Leaderboards</h2>
+          <button disabled={busy} onClick={refresh}>Update my standing</button>
+        </div>
+        {msg && <div className="banner">{msg}</div>}
+        <div className="seg" style={{ marginBottom: 14 }}>
+          {BOARDS.map(b => (
+            <button key={b.key} className={`seg-btn ${board === b.key ? 'on' : ''}`} onClick={() => setBoard(b.key)}>{b.label}</button>
+          ))}
+        </div>
+        {myPos != null && <p className="about-line">You're <b>#{myPos.toLocaleString()}</b> on the {boardLabel?.toLowerCase()} board.</p>}
+        {rows.length === 0
+          ? <div className="empty">No standings yet. Be the first — “Update my standing”.</div>
+          : (
+            <div className="tbl-wrap"><table className="tbl">
+              <thead><tr><th className="r" style={{ width: 56 }}>#</th><th>Pilot</th><th className="r">{boardLabel}</th></tr></thead>
+              <tbody>{rows.map(r => (
+                <tr key={r.position} className={r.isYou ? 'you' : ''}>
+                  <td className="r num muted">{r.position}</td>
+                  <td>{r.displayName}{r.isYou && <span className="tag" style={{ marginLeft: 8 }}>you</span>}{r.rankKey ? <span className="muted"> · {spaced(r.rankKey)}</span> : ''}</td>
+                  <td className="r num">{fmtBoard(board, r.value)}</td>
+                </tr>
+              ))}</tbody>
+            </table></div>
+          )}
+      </section>
     </div>
   )
 }

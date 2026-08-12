@@ -447,6 +447,21 @@ export interface CloudResult {
   error?: string
 }
 
+export interface LeaderboardRow {
+  position: number
+  displayName: string
+  value: number
+  rankKey?: string | null
+  isYou: boolean
+}
+
+export interface MyStanding {
+  netWorth?: number | null
+  flights?: number | null
+  reputation?: number | null
+  xp?: number | null
+}
+
 async function ok<T>(r: Response): Promise<T> {
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${await r.text()}`)
   return r.json() as Promise<T>
@@ -567,6 +582,9 @@ export const api = {
     logout: () => cloudPost('/api/cloud/logout'),
     push: () => cloudPost('/api/cloud/push'),
     pull: () => cloudPost('/api/cloud/pull'),
+    leaderboard: (board: string) => fetch(`/api/cloud/leaderboard?board=${encodeURIComponent(board)}`).then(ok<LeaderboardRow[]>),
+    myStanding: () => fetch('/api/cloud/leaderboard/me').then(ok<MyStanding>),
+    submitStanding: () => cloudPost('/api/cloud/leaderboard/submit'),
   },
 }
 

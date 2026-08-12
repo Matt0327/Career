@@ -224,6 +224,11 @@ input { font: inherit; }
 .fld input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .form .primary { align-self: flex-start; margin-top: 2px; }
 .cloud-save { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-top: 6px; }
+
+/* Leaderboard: highlight the signed-in player's own row */
+.tbl tr.you { background: color-mix(in srgb, var(--accent) 13%, transparent); }
+.tbl tr.you td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.tbl tr.you td { color: var(--ink); }
 .toggle { position: relative; width: 44px; height: 26px; border-radius: 999px; border: none; background: var(--line); cursor: pointer; flex: none; transition: background .2s ease; }
 .toggle.on { background: var(--accent); }
 .toggle .knob { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: left .2s ease; }
