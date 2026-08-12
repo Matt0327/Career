@@ -21,10 +21,14 @@ option ([ADR-0002](adr/0002-shared-world.md)).
    *Unit-tested:* first-flight awarded + frequent-flyer progress, idempotent re-award, butter-landing gate,
    stable earned-at.
 
-2. **5b — Campaigns.** Authored story chains — a `CampaignCatalog` of multi-leg arcs with per-step
-   objectives (fly this route, carry this cargo, land clean) and rewards, tracked as campaign progress. The
-   reward stays economy-computed like every other payout; the *structure* is the content. A Campaigns view
-   shows the active arc and the next objective.
+2. ✅ **5b — Campaigns.** Authored story arcs — a `CampaignCatalog` of ordered, escalating goals with a
+   cash reward paid **through the ledger** when the arc completes. A shared `ProgressMetricsService`
+   (extracted from 5a) now backs both achievements and campaigns off one snapshot; `CampaignService`
+   advances the current step lazily on read (a single pass can clear several) and pays the completion
+   reward **exactly once** (`CampaignReward` category, `LedgerRefType.Campaign`, dedupe key). A Campaigns
+   tab shows each arc's step checklist with progress bars. Two arcs ship: *First Contract* and *Build an
+   Airline*. *Unit-tested:* step advance, reward-on-completion via the ledger, paid-once. (Flight-specific
+   objectives — "fly this exact leg" — are a later extension; 5b's objectives read the shared snapshot.)
 
 3. **5c — Identity & reputation at scale.** Company/airline identity as a first-class thing — a name, an
    original livery/emblem the player picks, and reputation that reads at the operation level, not just the
