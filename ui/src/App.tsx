@@ -7,6 +7,8 @@ import {
   type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type VersionInfo, type WsEvent,
 } from './api'
 import { loadPrefs, savePrefs, type Prefs, type Theme } from './prefs'
+import * as L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 
 type Tab = 'dashboard' | 'airline' | 'jobs' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'finances' | 'campaigns' | 'awards' | 'logbook' | 'settings'
 
@@ -932,6 +934,44 @@ function MapView({ points }: { points: MapPoint[] }) {
   )
 }
 
+// A real satellite map. Esri World Imagery — global aerial/satellite tiles, no API key, no backend, free to
+// use with attribution. Markers are vector circles in the Sector palette. Offline (no tiles) we fall back to
+// the self-rendered vector map above, so the app never depends on the network to show your network.
+function SatelliteMap({ points }: { points: MapPoint[] }) {
+  const host = useRef<HTMLDivElement>(null)
+  const online = typeof navigator === 'undefined' ? true : navigator.onLine
+  // A stable signature so the map rebuilds only when the plotted points actually change, not every render.
+  const sig = points.map(p => `${p.lat.toFixed(4)},${p.lon.toFixed(4)},${p.kind ?? ''},${p.label ?? ''}`).join('|')
+
+  useEffect(() => {
+    if (!host.current || points.length === 0 || !online) return
+    const map = L.map(host.current, { attributionControl: true, zoomControl: true, worldCopyJump: true })
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics',
+      maxZoom: 18,
+    }).addTo(map)
+    const markers = points.map(p => {
+      const base = p.kind === 'home' || p.kind === 'base'
+      const m = L.circleMarker([p.lat, p.lon], {
+        radius: base ? 7 : 5, weight: 2,
+        color: base ? '#6d84ff' : '#e9eef5',
+        fillColor: base ? '#6d84ff' : '#8a97a7',
+        fillOpacity: base ? 0.85 : 0.7,
+      }).addTo(map)
+      if (p.label) m.bindTooltip(p.label, { permanent: base, direction: 'right', className: 'sat-tip', offset: [6, 0] })
+      return m
+    })
+    map.fitBounds(L.featureGroup(markers).getBounds().pad(0.4), { maxZoom: 9 })
+    const t = setTimeout(() => map.invalidateSize(), 60) // WebView2 flex layout can settle a beat late
+    return () => { clearTimeout(t); map.remove() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sig, online])
+
+  if (points.length === 0) return <div className="empty" style={{ padding: 20 }}>No locations to map yet.</div>
+  if (!online) return <MapView points={points} />
+  return <div className="satmap" ref={host} role="img" aria-label="Satellite network map" />
+}
+
 // ─── Bases ───────────────────────────────────────────────────────────────────
 
 function Bases({ state, onChanged }: { state: State; onChanged: () => void }) {
@@ -959,8 +999,8 @@ function Bases({ state, onChanged }: { state: State; onChanged: () => void }) {
   return (
     <div className="grid">
       <section className="card">
-        <div className="row-head"><h2>Your network</h2><span className="hint">self-rendered · {bases.length} base{bases.length === 1 ? '' : 's'}</span></div>
-        <MapView points={mapPoints} />
+        <div className="row-head"><h2>Your network</h2><span className="hint">satellite · {bases.length} base{bases.length === 1 ? '' : 's'}</span></div>
+        <SatelliteMap points={mapPoints} />
       </section>
       <section className="card">
         <h2>Your bases</h2>
