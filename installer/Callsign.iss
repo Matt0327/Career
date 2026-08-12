@@ -13,8 +13,10 @@
 #ifndef SourceDir
   #define SourceDir "..\dist\callsign-standalone"
 #endif
+#ifndef AppVersion
+  #define AppVersion "0.4.0"
+#endif
 #define AppName "Callsign"
-#define AppVersion "0.1.0"
 #define AppPublisher "Callsign"
 #define AppExe "Callsign.exe"
 
