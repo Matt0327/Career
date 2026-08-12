@@ -165,5 +165,9 @@ public sealed record EconomyConfig
     /// <summary>Repayment horizon for a new loan (straight-line principal over this many days).</summary>
     public int LoanTermDays { get; init; } = 90;
 
+    // --- Balance sheet (Phase 4b) ---
+    /// <summary>Resale haircut: a pristine airframe is worth this fraction of its market price as an asset.</summary>
+    public double AircraftResaleFactor { get; init; } = 0.70;
+
     public static EconomyConfig Default { get; } = new();
 }

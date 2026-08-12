@@ -241,6 +241,34 @@ export interface Loans {
   offers: LoanOffer[]
 }
 
+export interface NetWorth {
+  cashCents: number
+  aircraftCents: number
+  inventoryCents: number
+  loansCents: number
+  netWorthCents: number
+}
+
+export interface PnlLine {
+  category: string
+  incomeCents: number
+  expenseCents: number
+  netCents: number
+}
+
+export interface Pnl {
+  days: number
+  incomeCents: number
+  expenseCents: number
+  netCents: number
+  lines: PnlLine[]
+}
+
+export interface FinancesData {
+  netWorth: NetWorth
+  pnl: Pnl
+}
+
 export interface BaseView {
   id: string
   icao: string
@@ -332,6 +360,7 @@ export const api = {
   ranks: () => fetch('/api/ranks').then(ok<RankTier[]>),
   reputation: () => fetch('/api/reputation').then(ok<Reputation>),
   loans: () => fetch('/api/loans').then(ok<Loans>),
+  finances: () => fetch('/api/finances').then(ok<FinancesData>),
   takeLoan: (principalCents: number) => POST('/api/loans/take', { principalCents }).then(ok),
   payoffLoan: (id: string) => POST_IDEM(`/api/loans/${id}/payoff`).then(ok<{ paidCents: number }>),
   refreshJobs: (count = 8) => POST(`/api/jobs/refresh?count=${count}`).then(ok),

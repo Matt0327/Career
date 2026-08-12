@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api, money,
   type AircraftOffer, type Assignment, type BaseOffer, type BaseView, type CheckFlightDone, type Diverted,
-  type FlightLog, type Inventory, type Job, type LedgerEntry, type Loan, type LoanOffer, type Loans,
+  type FinancesData, type FlightLog, type Inventory, type Job, type LedgerEntry, type Loan, type LoanOffer, type Loans,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation, type Settled,
   type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type WsEvent,
 } from './api'
@@ -892,12 +892,13 @@ function Trade({ state, onChanged }: { state: State; onChanged: () => void }) {
 
 function Finances({ state, onChanged }: { state: State; onChanged: () => void }) {
   const [data, setData] = useState<Loans | null>(null)
+  const [fin, setFin] = useState<FinancesData | null>(null)
   const [amount, setAmount] = useState(50000) // dollars
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    try { setData(await api.loans()) } catch (e) { setMsg(cleanErr(e)) }
+    try { setData(await api.loans()); setFin(await api.finances()) } catch (e) { setMsg(cleanErr(e)) }
   }, [])
   useEffect(() => { void load() }, [load])
 
@@ -917,6 +918,37 @@ function Finances({ state, onChanged }: { state: State; onChanged: () => void })
 
   return (
     <div className="grid">
+      {fin && (
+        <section className="card">
+          <div className="row-head"><h2>Net worth</h2><span className={`num rep-score ${fin.netWorth.netWorthCents >= 0 ? 'pos' : 'neg'}`}>{money(fin.netWorth.netWorthCents)}</span></div>
+          <table className="tbl">
+            <tbody>
+              <tr><td>Cash</td><td className="r num">{money(fin.netWorth.cashCents)}</td></tr>
+              <tr><td>Aircraft <span className="muted">· resale</span></td><td className="r num">{money(fin.netWorth.aircraftCents)}</td></tr>
+              <tr><td>Inventory <span className="muted">· at cost</span></td><td className="r num">{money(fin.netWorth.inventoryCents)}</td></tr>
+              <tr><td>Loans <span className="muted">· outstanding</span></td><td className="r num neg">{money(-fin.netWorth.loansCents)}</td></tr>
+            </tbody>
+          </table>
+        </section>
+      )}
+
+      {fin && fin.pnl.lines.length > 0 && (
+        <section className="card">
+          <div className="row-head"><h2>Cash flow · {fin.pnl.days}d</h2><span className={`num rep-score ${fin.pnl.netCents >= 0 ? 'pos' : 'neg'}`}>{money(fin.pnl.netCents)}</span></div>
+          <div className="tbl-wrap"><table className="tbl">
+            <thead><tr><th>Category</th><th className="r">In</th><th className="r">Out</th><th className="r">Net</th></tr></thead>
+            <tbody>{fin.pnl.lines.map(l => (
+              <tr key={l.category}>
+                <td>{spaced(l.category)}</td>
+                <td className="r num muted">{l.incomeCents ? money(l.incomeCents) : '—'}</td>
+                <td className="r num muted">{l.expenseCents ? money(l.expenseCents) : '—'}</td>
+                <td className={`r num ${l.netCents >= 0 ? 'pos' : 'neg'}`}>{money(l.netCents)}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        </section>
+      )}
+
       <section className="card">
         <h2>Your loans</h2>
         {msg && <div className="banner">{msg}</div>}

@@ -67,6 +67,7 @@ public static class CallsignWebApp
         builder.Services.AddScoped<QualificationService>();
         builder.Services.AddScoped<CheckFlightService>();
         builder.Services.AddScoped<LoanService>();
+        builder.Services.AddScoped<FinanceService>();
         builder.Services.AddSingleton<MarketService>(); // pure pricing (IClock + EconomyConfig)
 
         builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
@@ -405,6 +406,21 @@ public static class CallsignWebApp
             }
             catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "Cash changed at the same time — try again." }); }
             catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        // The balance sheet (Phase 4b): a computed net worth + a cash-flow / P&L window. No money moves.
+        app.MapGet("/api/finances", async (int? days, CallsignDbContext db, FinanceService finance) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var nw = await finance.NetWorthAsync(pilot.CompanyId);
+            var pnl = await finance.ProfitLossAsync(pilot.CompanyId, days ?? 30);
+            return Results.Ok(new
+            {
+                netWorth = new NetWorthDto(nw.CashCents, nw.AircraftCents, nw.InventoryCents, nw.LoansCents, nw.NetWorthCents),
+                pnl = new PnlDto(pnl.Days, pnl.IncomeCents, pnl.ExpenseCents, pnl.NetCents,
+                    pnl.Lines.Select(l => new PnlLineDto(l.Category, l.IncomeCents, l.ExpenseCents, l.NetCents)).ToList()),
+            });
         });
 
         // --- Bases (Phase 2e) ---

@@ -69,6 +69,11 @@ public record LoanOfferDto(int Tier, string Name, long MinPrincipalCents, long M
 public record LoanDto(Guid Id, int Tier, long PrincipalCents, long OutstandingCents, int AprBps, int TermDays, string Status, DateTimeOffset TakenAt);
 public record TakeLoanRequest(long PrincipalCents);
 
+// --- Phase 4b: balance sheet ---
+public record NetWorthDto(long CashCents, long AircraftCents, long InventoryCents, long LoansCents, long NetWorthCents);
+public record PnlLineDto(string Category, long IncomeCents, long ExpenseCents, long NetCents);
+public record PnlDto(int Days, long IncomeCents, long ExpenseCents, long NetCents, IReadOnlyList<PnlLineDto> Lines);
+
 // --- Phase 2e: bases ---
 public record BaseViewDto(Guid Id, string Icao, string Name, bool IsHome, long RentPerDayCents);
 public record BaseOfferDto(string Icao, string Name, string Kind, double DistanceNm, long OpenCents, long RentPerDayCents);

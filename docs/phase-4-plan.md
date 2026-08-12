@@ -21,10 +21,12 @@ loan lines; the model for loans/insurance/routes is sketched in [`domain-notes.m
    tier table. *Verified live:* a $500k Business loan @10% drew down to cash and paid off cleanly; the
    reconcile amortisation is unit-tested.
 
-2. **4b — Net worth & P&L.** A **computed** balance sheet — cash (the ledger sum) + assets (each airframe's
-   residual value, inventory at cost/market) − liabilities (loan outstanding) — plus a profit-&-loss view
-   over a window (ledger income vs expenses, by category). No new money moves; it's the lens that makes 4a
-   and your fleet legible. *Playable:* a Finances screen that answers "am I actually ahead?"
+2. ✅ **4b — Net worth & P&L.** `FinanceService` computes a balance sheet on read — cash (the ledger sum) +
+   assets (each airframe's condition-adjusted resale value, inventory at cost) − liabilities (outstanding
+   loan principal) — plus a cash-flow/P&L window that aggregates the ledger by category. Nothing is stored;
+   no money moves. The Finances tab now leads with a net-worth breakdown and a cash-flow table.
+   *Verified live:* net worth $1.34M (cash $799k + aircraft $740k + inventory − loans $200k), with the
+   cash-flow view itemising StartingBalance / LoanPrincipal / AircraftPurchase / Trade.
 
 3. **4c — Insurance.** An `InsurancePolicy` is a **policy + claim path**, not just a premium: a recurring
    `InsurancePremium` debit (billed in the reconcile pass) buys coverage (a fraction of hull value, minus a
