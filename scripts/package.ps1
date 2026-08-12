@@ -1,7 +1,7 @@
 <#
   Packages Callsign for distribution. Runs under Windows PowerShell 5.1 or PowerShell 7.
     1. builds the web UI            (skip with -SkipUi if ui/dist is already built, e.g. in WSL)
-    2. self-contained single-file publish (bundles the .NET runtime - one Callsign.exe, no install)
+    2. self-contained folder publish (the .NET runtime as normal DLLs - runs on locked-down PCs, no install)
     3. portable zip                 (unzip and run Callsign.exe)
     4. installer                    (only if Inno Setup 6 is installed)
     5. code signing                 (only if a signing cert is configured - see below)
@@ -26,7 +26,7 @@ $ErrorActionPreference = "Stop"
 # Split-Path (not Resolve-Path) so a UNC/WSL path stays a plain filesystem path — Resolve-Path prefixes
 # it with the PowerShell provider (Microsoft.PowerShell.Core\FileSystem::...), which `dotnet` can't parse.
 $root = Split-Path -Parent $PSScriptRoot
-$publish = Join-Path $OutDir "callsign-standalone"
+$publish = Join-Path $OutDir "Callsign"
 
 # Locate signtool.exe: PATH first, then any x64 build under the Windows 10/11 SDK.
 function Find-Signtool {
@@ -81,10 +81,13 @@ if (-not $SkipUi) {
   Pop-Location
 }
 
-Write-Host "Publishing self-contained single-file app..."
+# A plain self-contained FOLDER (the runtime as normal DLLs), deliberately NOT single-file. A single-file
+# exe self-extracts its runtime into %TEMP% on launch, which security software (Windows Defender, NordVPN
+# Threat Protection, etc.) routinely blocks - killing the app silently, no window, no error. A folder build
+# has nothing to extract and simply runs. More files, but it starts on locked-down machines.
+Write-Host "Publishing self-contained folder app..."
 dotnet publish (Join-Path $root "app\Callsign.Desktop\Callsign.Desktop.csproj") `
   -c $Configuration -r win-x64 --self-contained true `
-  -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true `
   -o $publish
 if ($LASTEXITCODE) { throw "dotnet publish failed" }
 
@@ -93,7 +96,8 @@ Invoke-SignFile (Join-Path $publish "Callsign.exe")
 Write-Host "Zipping portable build..."
 $zip = Join-Path $OutDir "Callsign-portable.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
-Compress-Archive -Path "$publish\*" -DestinationPath $zip -CompressionLevel Optimal
+# Zip the folder itself (not its contents) so it extracts into one tidy folder, not a scatter of files.
+Compress-Archive -Path $publish -DestinationPath $zip -CompressionLevel Optimal
 
 # Installer (Inno Setup 6) - built only if ISCC is present; version flows in via /DAppVersion.
 $pf86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
@@ -110,6 +114,6 @@ if ($iscc) {
 }
 
 Write-Host "`nDone. Artifacts in $OutDir :"
-Write-Host "  - callsign-standalone\   (self-contained folder: Callsign.exe + wwwroot)"
-Write-Host "  - Callsign-portable.zip  (unzip and run Callsign.exe)"
+Write-Host "  - Callsign\              (self-contained folder: Callsign.exe + wwwroot)"
+Write-Host "  - Callsign-portable.zip  (unzip -> Callsign\ -> run Callsign.exe)"
 if ($iscc) { Write-Host "  - Callsign-Setup-$version.exe   (installer)" }
