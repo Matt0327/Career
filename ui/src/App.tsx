@@ -6,6 +6,7 @@ import {
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
   type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type VersionInfo, type WsEvent,
 } from './api'
+import { loadPrefs, savePrefs, type Prefs, type Theme } from './prefs'
 
 type Tab = 'dashboard' | 'airline' | 'jobs' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'finances' | 'campaigns' | 'awards' | 'logbook' | 'settings'
 
@@ -1377,6 +1378,8 @@ function Settings() {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [staged, setStaged] = useState(false)
+  const [prefs, setPrefs] = useState<Prefs>(loadPrefs())
+  const setPref = (patch: Partial<Prefs>) => { const next = { ...prefs, ...patch }; setPrefs(next); savePrefs(next) }
 
   const load = useCallback(async () => {
     try { setBackups(await api.backups()) } catch (e) { setMsg(cleanErr(e)) }
@@ -1397,6 +1400,22 @@ function Settings() {
 
   return (
     <div className="grid">
+      <section className="card">
+        <h2>Preferences</h2>
+        <div className="pref-row">
+          <div className="pref-text"><div className="pref-label">Theme</div><div className="hint">How Callsign looks. System follows your OS.</div></div>
+          <div className="seg">
+            {(['system', 'light', 'dark'] as Theme[]).map(t => (
+              <button key={t} className={`seg-btn ${prefs.theme === t ? 'on' : ''}`} onClick={() => setPref({ theme: t })}>{t[0].toUpperCase() + t.slice(1)}</button>
+            ))}
+          </div>
+        </div>
+        <div className="pref-row">
+          <div className="pref-text"><div className="pref-label">Reduce motion</div><div className="hint">Minimise animations and transitions.</div></div>
+          <button className={`toggle ${prefs.reduceMotion ? 'on' : ''}`} role="switch" aria-checked={prefs.reduceMotion} onClick={() => setPref({ reduceMotion: !prefs.reduceMotion })}><span className="knob" /></button>
+        </div>
+      </section>
+
       <section className="card">
         <div className="row-head"><h2>Your save</h2><button className="primary" disabled={busy} onClick={backup}>Back up now</button></div>
         {msg && <div className="banner">{msg}</div>}

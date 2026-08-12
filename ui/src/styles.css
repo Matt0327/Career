@@ -15,8 +15,9 @@
   color-scheme: light dark;
 }
 
+/* Dark palette: applied when the OS is dark AND no explicit theme is chosen… */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     --bg: #0f1216;
     --panel: #171b21;
     --ink: #e6e8ec;
@@ -29,6 +30,25 @@
     --down: #f0776b;
     --shadow: none;
   }
+}
+/* …or when the user explicitly picks Dark (wins over the OS in both directions; Light falls back to :root). */
+:root[data-theme="dark"] {
+  --bg: #0f1216;
+  --panel: #171b21;
+  --ink: #e6e8ec;
+  --muted: #9aa3af;
+  --line: #262c35;
+  --accent: #6d67f0;
+  --pos: #3fbf6a;
+  --neg: #f0776b;
+  --up: #6aa9f0;
+  --down: #f0776b;
+  --shadow: none;
+}
+:root[data-motion="reduced"] *, :root[data-motion="reduced"] *::before, :root[data-motion="reduced"] *::after {
+  transition-duration: 1ms !important;
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
 }
 
 * { box-sizing: border-box; }
@@ -174,6 +194,21 @@ input { font: inherit; }
 .tbl button { padding: 5px 12px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: inherit; }
 .tbl button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .tbl button:disabled { opacity: .45; cursor: default; }
+
+/* ── Preferences ── */
+.pref-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0; border-top: 1px solid var(--line); }
+.pref-row:first-of-type { border-top: none; padding-top: 4px; }
+.pref-text { min-width: 0; }
+.pref-label { font-weight: 600; font-size: 14px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; flex: none; }
+.seg-btn { padding: 7px 14px; background: transparent; border: none; border-left: 1px solid var(--line); color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
+.seg-btn:first-child { border-left: none; }
+.seg-btn:hover:not(.on) { color: var(--ink); }
+.seg-btn.on { background: var(--accent); color: var(--accent-ink); }
+.toggle { position: relative; width: 44px; height: 26px; border-radius: 999px; border: none; background: var(--line); cursor: pointer; flex: none; transition: background .2s ease; }
+.toggle.on { background: var(--accent); }
+.toggle .knob { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: left .2s ease; }
+.toggle.on .knob { left: 21px; }
 
 /* ── Airline identity ── */
 .emblem { border-radius: 50%; flex: none; display: block; }
