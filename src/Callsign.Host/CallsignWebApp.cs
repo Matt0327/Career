@@ -88,10 +88,10 @@ public static class CallsignWebApp
         }
 
         // Create/upgrade the schema through EF migrations, so a shipped install survives a schema
-        // change across app updates instead of having its save wiped. A fresh DB gets the full
-        // InitialCreate; an already-current DB is a no-op. (Tests still use EnsureCreated on throwaway DBs.)
+        // change across app updates instead of having its save wiped. (Tests still use EnsureCreated
+        // on throwaway DBs.)
         using (var scope = app.Services.CreateScope())
-            scope.ServiceProvider.GetRequiredService<CallsignDbContext>().Database.Migrate();
+            PrepareDatabase(scope.ServiceProvider.GetRequiredService<CallsignDbContext>());
 
         // Start streaming telemetry into the flight session (live SimConnect on the Windows build,
         // synthetic source on the portable build or when SimConnect isn't available).
@@ -109,6 +109,49 @@ public static class CallsignWebApp
 
         MapEndpoints(app, uiPath);
         return app;
+    }
+
+    // Bring the database up to the current schema before the app serves a request. A fresh DB gets the
+    // full InitialCreate; an already-migrated DB is a no-op (its save intact). A DB from a pre-migrations
+    // build (EnsureCreated) has the tables but no migration history, so a plain Migrate() would crash
+    // re-creating them ("table already exists") — such a pre-release save is disposable, so it's rebuilt
+    // clean. Exposed for the startup-robustness tests.
+    public static void PrepareDatabase(CallsignDbContext db)
+    {
+        if (IsLegacyEnsureCreatedDatabase(db))
+            db.Database.EnsureDeleted();
+        db.Database.Migrate();
+    }
+
+    // True if the DB file exists with the app's own tables but no EF migrations history — the signature
+    // of a pre-migrations build (EnsureCreated). Migrate() can't run against it (the tables it wants to
+    // create already exist), and for a disposable pre-release save the right move is to rebuild it clean.
+    // The probe is best-effort: any failure returns false so a real DB is never dropped by mistake.
+    private static bool IsLegacyEnsureCreatedDatabase(CallsignDbContext db)
+    {
+        var conn = db.Database.GetDbConnection();
+        var wasClosed = conn.State != System.Data.ConnectionState.Open;
+        try
+        {
+            if (wasClosed)
+                conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText =
+                "SELECT " +
+                "(SELECT count(*) FROM sqlite_master WHERE type='table' AND name='AircraftTypes'), " +
+                "(SELECT count(*) FROM sqlite_master WHERE type='table' AND name='__EFMigrationsHistory')";
+            using var reader = cmd.ExecuteReader();
+            return reader.Read() && reader.GetInt64(0) > 0 && reader.GetInt64(1) == 0;
+        }
+        catch
+        {
+            return false; // never block startup — worst case is the original Migrate() path runs
+        }
+        finally
+        {
+            if (wasClosed && conn.State == System.Data.ConnectionState.Open)
+                conn.Close();
+        }
     }
 
     // Look up human airport names for a set of idents (so the UI can show "EHRD · Rotterdam The Hague").
