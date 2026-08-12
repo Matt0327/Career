@@ -23,6 +23,8 @@ public enum LedgerCategory
     LoanPrincipal,
     LoanInterest,
     LoanPayment,
+    InsurancePremium,
+    InsuranceClaim,
     Trade,
     Transfer,
     Adjustment,

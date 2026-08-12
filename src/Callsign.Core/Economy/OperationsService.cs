@@ -10,7 +10,7 @@ namespace Callsign.Core.Economy;
 public sealed record StaffCandidate(int Seed, string Name, long WagePerDayCents, int SkillMilli);
 
 /// <summary>What a reconcile produced (for the reopen digest).</summary>
-public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long NetCents);
+public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents);
 
 /// <summary>
 /// Staff + standing orders (Phase 2d): hire pilots, set repeating autonomous routes, and reconcile the
@@ -131,7 +131,7 @@ public sealed class OperationsService
     {
         var now = _clock.UtcNow;
         int totalTrips = 0;
-        long grossIncome = 0, totalFees = 0, totalWages = 0, totalRent = 0, totalLoan = 0;
+        long grossIncome = 0, totalFees = 0, totalWages = 0, totalRent = 0, totalLoan = 0, totalInsurance = 0;
 
         // Airports where we own a base — landings there are fee-free.
         var baseIcaos = (await _db.Bases.Where(b => b.CompanyId == companyId && b.IsActive && !b.IsDeleted)
@@ -238,8 +238,26 @@ public sealed class OperationsService
             totalLoan += interest + principal;
         }
 
+        // Insurance premiums (Phase 4c): the running cost of coverage, prorated by whole days.
+        foreach (var policy in await _db.InsurancePolicies.Where(p => p.CompanyId == companyId && p.Active && !p.IsDeleted).ToListAsync(ct))
+        {
+            int days = (int)Math.Floor((now - policy.PremiumLastBilledAt).TotalDays);
+            if (days <= 0)
+                continue;
+            long premium = InsuranceService.PremiumForDays(policy.PremiumPerWeekCents, days);
+            if (premium > 0)
+                await _ledger.StageBatchAsync(companyId, new[]
+                {
+                    new LedgerPosting(LedgerCategory.InsurancePremium, -(premium / 100m), "Insurance premium",
+                        LedgerRefType.InsuranceClaim, policy.Id.ToString(), DedupeKey: $"ins-prem:{policy.Id}:{policy.PremiumLastBilledAt.UtcTicks}"),
+                }, ct);
+            policy.PremiumLastBilledAt = policy.PremiumLastBilledAt.AddDays(days);
+            policy.UpdatedAt = now;
+            totalInsurance += premium;
+        }
+
         await _db.SaveChangesAsync(ct);
-        return new ReconcileDigest(totalTrips, grossIncome, totalFees, totalWages, totalRent, totalLoan,
-            grossIncome - totalFees - totalWages - totalRent - totalLoan);
+        return new ReconcileDigest(totalTrips, grossIncome, totalFees, totalWages, totalRent, totalLoan, totalInsurance,
+            grossIncome - totalFees - totalWages - totalRent - totalLoan - totalInsurance);
     }
 }

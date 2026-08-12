@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api, money,
   type AircraftOffer, type Assignment, type BaseOffer, type BaseView, type CheckFlightDone, type Diverted,
-  type FinancesData, type FlightLog, type Inventory, type Job, type LedgerEntry, type Loan, type LoanOffer, type Loans,
+  type FinancesData, type FlightLog, type Insurance, type Inventory, type Job, type LedgerEntry, type Loan, type LoanOffer, type Loans,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation, type Settled,
   type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type WsEvent,
 } from './api'
@@ -893,14 +893,31 @@ function Trade({ state, onChanged }: { state: State; onChanged: () => void }) {
 function Finances({ state, onChanged }: { state: State; onChanged: () => void }) {
   const [data, setData] = useState<Loans | null>(null)
   const [fin, setFin] = useState<FinancesData | null>(null)
+  const [ins, setIns] = useState<Insurance | null>(null)
   const [amount, setAmount] = useState(50000) // dollars
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    try { setData(await api.loans()); setFin(await api.finances()) } catch (e) { setMsg(cleanErr(e)) }
+    try { setData(await api.loans()); setFin(await api.finances()); setIns(await api.insurance()) } catch (e) { setMsg(cleanErr(e)) }
   }, [])
   useEffect(() => { void load() }, [load])
+
+  const insure = async (aircraftInstanceId: string) => {
+    setBusy(true); setMsg(null)
+    try { await api.insure(aircraftInstanceId); await load(); onChanged() }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+  const cancelIns = async (id: string) => {
+    setBusy(true); setMsg(null)
+    try { await api.cancelInsurance(id); await load(); onChanged() }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+  const claim = async (id: string) => {
+    setBusy(true); setMsg(null)
+    try { const r = await api.claimInsurance(id); await load(); onChanged(); setMsg(`Claim paid — ${money(r.paidCents)}. Airframe written off.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
 
   const cents = Math.max(0, Math.round(amount * 100))
   const tier: LoanOffer | undefined = data?.offers.find(o => cents >= o.minPrincipalCents && cents <= o.maxPrincipalCents)
@@ -999,6 +1016,45 @@ function Finances({ state, onChanged }: { state: State; onChanged: () => void })
           </table></div>
         )}
       </section>
+
+      {ins && (
+        <section className="card">
+          <div className="row-head"><h2>Insurance</h2><span className="hint">A bad day costs the deductible, not the aircraft</span></div>
+          {ins.policies.length > 0 && (
+            <div className="tbl-wrap"><table className="tbl">
+              <thead><tr><th>Aircraft</th><th className="r">Cover</th><th className="r">Premium/wk</th><th className="r">Payout</th><th></th></tr></thead>
+              <tbody>{ins.policies.map(p => (
+                <tr key={p.id}>
+                  <td>{p.tail} <span className="muted">· {p.aircraftName} · {Math.round(p.conditionMilli / 1000)}%</span></td>
+                  <td className="r num muted">{Math.round(p.coverageMilli / 1000)}%</td>
+                  <td className="r num">{money(p.premiumPerWeekCents)}</td>
+                  <td className="r num">{money(p.claimPayoutCents)}</td>
+                  <td className="r">
+                    {p.claimable
+                      ? <button disabled={busy} onClick={() => claim(p.id)}>File claim</button>
+                      : <button disabled={busy} onClick={() => cancelIns(p.id)}>Cancel</button>}
+                  </td>
+                </tr>
+              ))}</tbody>
+            </table></div>
+          )}
+          {ins.quotes.length === 0
+            ? (ins.policies.length === 0 ? <div className="empty">No aircraft to insure.</div> : null)
+            : (
+              <div className="tbl-wrap" style={{ marginTop: ins.policies.length ? 14 : 0 }}><table className="tbl">
+                <thead><tr><th>Uninsured</th><th className="r">Premium/wk</th><th className="r">Deductible</th><th></th></tr></thead>
+                <tbody>{ins.quotes.map(q => (
+                  <tr key={q.aircraftInstanceId}>
+                    <td>{q.tail} <span className="muted">· {q.aircraftName}</span></td>
+                    <td className="r num">{money(q.premiumPerWeekCents)}</td>
+                    <td className="r num muted">{money(q.deductibleCents)}</td>
+                    <td className="r"><button disabled={busy} onClick={() => insure(q.aircraftInstanceId)}>Insure</button></td>
+                  </tr>
+                ))}</tbody>
+              </table></div>
+            )}
+        </section>
+      )}
     </div>
   )
 }

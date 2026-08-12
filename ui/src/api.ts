@@ -214,7 +214,34 @@ export interface ReconcileResult {
   wagesCents: number
   rentCents: number
   loanCents: number
+  insuranceCents: number
   netCents: number
+}
+
+export interface InsurancePolicy {
+  id: string
+  tail: string
+  aircraftName: string
+  conditionMilli: number
+  coverageMilli: number
+  premiumPerWeekCents: number
+  deductibleCents: number
+  claimPayoutCents: number
+  claimable: boolean
+}
+
+export interface InsuranceQuote {
+  aircraftInstanceId: string
+  tail: string
+  aircraftName: string
+  premiumPerWeekCents: number
+  deductibleCents: number
+  claimPayoutCents: number
+}
+
+export interface Insurance {
+  policies: InsurancePolicy[]
+  quotes: InsuranceQuote[]
 }
 
 export interface LoanOffer {
@@ -361,6 +388,10 @@ export const api = {
   reputation: () => fetch('/api/reputation').then(ok<Reputation>),
   loans: () => fetch('/api/loans').then(ok<Loans>),
   finances: () => fetch('/api/finances').then(ok<FinancesData>),
+  insurance: () => fetch('/api/insurance').then(ok<Insurance>),
+  insure: (aircraftInstanceId: string) => POST_IDEM('/api/insurance/insure', { aircraftInstanceId }).then(ok),
+  cancelInsurance: (id: string) => POST(`/api/insurance/${id}/cancel`).then(ok),
+  claimInsurance: (id: string) => POST_IDEM(`/api/insurance/${id}/claim`).then(ok<{ paidCents: number }>),
   takeLoan: (principalCents: number) => POST('/api/loans/take', { principalCents }).then(ok),
   payoffLoan: (id: string) => POST_IDEM(`/api/loans/${id}/payoff`).then(ok<{ paidCents: number }>),
   refreshJobs: (count = 8) => POST(`/api/jobs/refresh?count=${count}`).then(ok),

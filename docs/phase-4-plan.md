@@ -28,11 +28,13 @@ loan lines; the model for loans/insurance/routes is sketched in [`domain-notes.m
    *Verified live:* net worth $1.34M (cash $799k + aircraft $740k + inventory − loans $200k), with the
    cash-flow view itemising StartingBalance / LoanPrincipal / AircraftPurchase / Trade.
 
-3. **4c — Insurance.** An `InsurancePolicy` is a **policy + claim path**, not just a premium: a recurring
-   `InsurancePremium` debit (billed in the reconcile pass) buys coverage (a fraction of hull value, minus a
-   deductible); a covered total loss or heavy incident files a claim that pays out via `InsuranceClaim`.
-   Ties into the condition/wear already modelled. *Playable:* insure the fleet, and a bad day costs the
-   deductible instead of the aircraft.
+3. ✅ **4c — Insurance.** An `InsurancePolicy` is a policy + claim path (EF migration `AddInsurancePolicies`):
+   insuring an airframe sets a weekly premium (billed in the reconcile pass as `InsurancePremium`) for
+   coverage of a fraction of its hull value; once the airframe is worn to the write-off threshold, a claim
+   pays out the covered value minus the deductible (`InsuranceClaim`) and retires it. Premium + claim are
+   ledger-tracked; the reopen digest gains an insurance line. A Finances-tab card shows policies (claim /
+   cancel) and quotes to insure. *Verified live:* insured the starter at $2,101/wk (payout $472,680); a
+   claim on the healthy airframe was refused with the reason. Payout + write-off are unit-tested.
 
 4. **4d — Routes.** Scheduled, repeatable work between your bases — the network evolution of Phase 2d's
    standing orders. Define a `Route` (origin → dest, preferred aircraft/mission); it produces recurring

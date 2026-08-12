@@ -68,6 +68,7 @@ public static class CallsignWebApp
         builder.Services.AddScoped<CheckFlightService>();
         builder.Services.AddScoped<LoanService>();
         builder.Services.AddScoped<FinanceService>();
+        builder.Services.AddScoped<InsuranceService>();
         builder.Services.AddSingleton<MarketService>(); // pure pricing (IClock + EconomyConfig)
 
         builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
@@ -366,7 +367,7 @@ public static class CallsignWebApp
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             var d = await ops.ReconcileAsync(pilot.CompanyId);
-            return Results.Ok(new ReconcileDto(d.Trips, d.GrossIncomeCents, d.FeesCents, d.WagesCents, d.RentCents, d.LoanCents, d.NetCents));
+            return Results.Ok(new ReconcileDto(d.Trips, d.GrossIncomeCents, d.FeesCents, d.WagesCents, d.RentCents, d.LoanCents, d.InsuranceCents, d.NetCents));
         });
 
         // --- Loans (Phase 4a) ---
@@ -421,6 +422,67 @@ public static class CallsignWebApp
                 pnl = new PnlDto(pnl.Days, pnl.IncomeCents, pnl.ExpenseCents, pnl.NetCents,
                     pnl.Lines.Select(l => new PnlLineDto(l.Category, l.IncomeCents, l.ExpenseCents, l.NetCents)).ToList()),
             });
+        });
+
+        // --- Insurance (Phase 4c) ---
+        app.MapGet("/api/insurance", async (CallsignDbContext db, InsuranceService ins, AircraftDealerService dealer, EconomyConfig cfg) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var policies = await ins.GetActiveAsync(pilot.CompanyId);
+            var insured = policies.Where(p => p.AircraftInstanceId is not null).Select(p => p.AircraftInstanceId!.Value).ToHashSet();
+            var hangar = await dealer.GetHangarAsync(pilot.CompanyId);
+            var byId = hangar.ToDictionary(h => h.Instance.Id);
+
+            var policyDtos = policies.Select(p =>
+            {
+                byId.TryGetValue(p.AircraftInstanceId ?? Guid.Empty, out var h);
+                int cond = h is null ? 0 : Math.Min(h.Instance.HullConditionMilli, h.Instance.EngineConditionMilli);
+                return new InsurancePolicyDto(p.Id, h?.Instance.Tail ?? "—", h?.Type.CanonicalName ?? "—", cond, p.CoverageMilli,
+                    p.PremiumPerWeekCents, p.DeductibleCents, p.ClaimPayoutCents, cond <= cfg.InsuranceTotalLossConditionMilli);
+            }).ToList();
+
+            var quotes = new List<InsuranceQuoteDto>();
+            foreach (var h in hangar.Where(h => !insured.Contains(h.Instance.Id)))
+            {
+                var q = await ins.QuoteAsync(pilot.CompanyId, h.Instance.Id, null);
+                if (q is not null)
+                    quotes.Add(new InsuranceQuoteDto(h.Instance.Id, h.Instance.Tail, h.Type.CanonicalName,
+                        q.PremiumPerWeekCents, q.DeductibleCents, q.ClaimPayoutCents));
+            }
+            return Results.Ok(new { policies = policyDtos, quotes });
+        });
+
+        app.MapPost("/api/insurance/insure", async (InsureRequest req, CallsignDbContext db, InsuranceService ins) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                var p = await ins.InsureAsync(pilot.CompanyId, req.AircraftInstanceId, req.CoverageMilli);
+                return Results.Ok(new { id = p.Id, premiumPerWeekCents = p.PremiumPerWeekCents });
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        app.MapPost("/api/insurance/{id:guid}/cancel", async (Guid id, CallsignDbContext db, InsuranceService ins) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            await ins.CancelAsync(pilot.CompanyId, id);
+            return Results.Ok(new { cancelled = id });
+        });
+
+        app.MapPost("/api/insurance/{id:guid}/claim", async (Guid id, CallsignDbContext db, InsuranceService ins) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                var paid = await ins.ClaimAsync(pilot.CompanyId, id);
+                return Results.Ok(new { paidCents = paid });
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
         // --- Bases (Phase 2e) ---

@@ -169,5 +169,18 @@ public sealed record EconomyConfig
     /// <summary>Resale haircut: a pristine airframe is worth this fraction of its market price as an asset.</summary>
     public double AircraftResaleFactor { get; init; } = 0.70;
 
+    // --- Insurance (Phase 4c) ---
+    public int InsuranceDefaultCoverageMilli { get; init; } = 80_000;      // insure 80% of hull by default
+    public int InsuranceWeeklyRateBps { get; init; } = 40;                 // 0.40%/week of the covered value
+    public int InsuranceDeductibleMilli { get; init; } = 10_000;          // deductible = 10% of covered value
+    public int InsuranceTotalLossConditionMilli { get; init; } = 25_000;  // claimable once condition ≤ 25%
+
+    /// <summary>The weekly premium for a covered value.</summary>
+    public long InsurancePremiumPerWeekCents(long coveredValueCents)
+        => (long)Math.Round(coveredValueCents * (InsuranceWeeklyRateBps / 10_000.0));
+
+    public long InsuranceDeductibleCents(long coveredValueCents)
+        => (long)Math.Round(coveredValueCents * (InsuranceDeductibleMilli / 100_000.0));
+
     public static EconomyConfig Default { get; } = new();
 }

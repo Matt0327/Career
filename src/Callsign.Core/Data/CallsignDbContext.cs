@@ -28,6 +28,7 @@ public sealed class CallsignDbContext : DbContext
     public DbSet<PilotQualification> PilotQualifications => Set<PilotQualification>();
     public DbSet<ReputationEvent> ReputationEvents => Set<ReputationEvent>();
     public DbSet<Loan> Loans => Set<Loan>();
+    public DbSet<InsurancePolicy> InsurancePolicies => Set<InsurancePolicy>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -212,5 +213,15 @@ public sealed class CallsignDbContext : DbContext
         loan.Property(l => l.Status).HasConversion<string>().HasMaxLength(16);
         loan.HasIndex(l => l.CompanyId);
         loan.HasOne<Company>().WithMany().HasForeignKey(l => l.CompanyId).OnDelete(DeleteBehavior.Restrict);
+
+        // --- Insurance policies (Phase 4c) ---
+        var policy = model.Entity<InsurancePolicy>();
+        policy.HasKey(p => p.Id);
+        policy.Property(p => p.Scope).HasConversion<string>().HasMaxLength(16);
+        policy.Ignore(p => p.CoveredValueCents);   // computed
+        policy.Ignore(p => p.ClaimPayoutCents);    // computed
+        policy.HasIndex(p => p.CompanyId);
+        policy.HasIndex(p => p.AircraftInstanceId);
+        policy.HasOne<Company>().WithMany().HasForeignKey(p => p.CompanyId).OnDelete(DeleteBehavior.Restrict);
     }
 }
