@@ -89,11 +89,11 @@ async function findFreeImage(term) {
   for (const p of pages) {
     const info = p.imageinfo?.[0];
     if (!info) continue;
-    const original = info.url || '';
-    if (!/\.(jpe?g|png)$/i.test(original)) continue;                 // photos only, no svg/gif/tif/pdf
+    // Commons now appends a "?utm_..." query to file URLs, so test the TITLE for the real extension.
+    if (!/\.(jpe?g|png)$/i.test(p.title || '')) continue;            // photos only, no svg/gif/tif/pdf
     const license = stripHtml(info.extmetadata?.LicenseShortName?.value);
     if (!OK_LICENSE.test(license)) continue;                          // free licenses only
-    const downloadUrl = info.thumburl || original;                   // prefer the ~1200px render
+    const downloadUrl = info.thumburl || info.url || '';             // prefer the ~1200px render
     const author = stripHtml(info.extmetadata?.Artist?.value) || 'Unknown';
     return { downloadUrl, license, author, sourceUrl: info.descriptionurl || '' };
   }
