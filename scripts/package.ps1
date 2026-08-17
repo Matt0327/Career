@@ -113,7 +113,9 @@ if (-not $vpk) {
 if ($vpk) {
   $releases = Join-Path $OutDir "releases"
   Write-Host "Packing Velopack release $version (installer + update feed)..."
-  & vpk pack --packId Callsign --packVersion $version --packDir $publish --mainExe "Callsign.exe" --packTitle "Callsign" --outputDir $releases
+  $icon = Join-Path $root "app\Callsign.Desktop\callsign.ico"
+  $splash = Join-Path $root "app\Callsign.Desktop\splash.png"
+  & vpk pack --packId Callsign --packVersion $version --packDir $publish --mainExe "Callsign.exe" --packTitle "Callsign" --packAuthors "Callsign" --icon $icon --splashImage $splash --outputDir $releases
   if ($LASTEXITCODE) { throw "vpk pack failed" }
   Write-Host "  Velopack release in $releases -- upload the WHOLE folder's contents to your update feed."
 } else {

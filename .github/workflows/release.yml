@@ -53,7 +53,7 @@ jobs:
         shell: pwsh
         run: |
           dotnet tool install --global vpk --version 0.0.1053
-          vpk pack --packId Callsign --packVersion ${{ steps.ver.outputs.version }} --packDir publish --mainExe Callsign.exe --packTitle Callsign --outputDir releases
+          vpk pack --packId Callsign --packVersion ${{ steps.ver.outputs.version }} --packDir publish --mainExe Callsign.exe --packTitle Callsign --packAuthors Callsign --icon app/Callsign.Desktop/callsign.ico --splashImage app/Callsign.Desktop/splash.png --outputDir releases
 
       - name: Publish the feed to Supabase
         shell: pwsh
