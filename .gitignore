@@ -44,8 +44,8 @@ pnpm-debug.log*
 *.db-wal
 *.sqlite
 
-# ---- SimConnect redistributables (fetched locally, never committed) ----
-vendor/simconnect/*.dll
+# ---- SimConnect: the redistributable client DLLs ARE committed so CI can build (they ship with the app
+#      anyway, and SimConnect is an allowed dependency); the .lib/.exp import files stay local. ----
 vendor/simconnect/*.lib
 vendor/simconnect/*.exp
 

@@ -1,0 +1,70 @@
+name: Release
+
+# Every push to main builds a fresh Callsign, packs the Velopack installer + update feed, and uploads the
+# feed to the public Supabase 'releases' bucket -- so every installed copy auto-updates on its next launch.
+# One-time setup: add a repository secret SUPABASE_SERVICE_KEY (Settings -> Secrets and variables -> Actions).
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**', 'web/**', '.gitignore', '.github/**']
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      DOTNET_ROLL_FORWARD: LatestMajor   # let the vpk tool (older TFM) run on the net10 runtime
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build the web UI
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Compute a monotonic version (0.MINOR.<run number>)
+        id: ver
+        shell: pwsh
+        run: |
+          $m = [regex]::Match((Get-Content Directory.Build.props -Raw), '<Version>(\d+)\.(\d+)')
+          $version = "$($m.Groups[1].Value).$($m.Groups[2].Value).${{ github.run_number }}"
+          "version=$version" >> $env:GITHUB_OUTPUT
+          Write-Host "Release version: $version"
+
+      - name: Publish the app (self-contained folder)
+        run: dotnet publish app/Callsign.Desktop/Callsign.Desktop.csproj -c Release -r win-x64 --self-contained true -p:Version=${{ steps.ver.outputs.version }} -o publish
+
+      - name: Pack the installer + update feed (Velopack)
+        shell: pwsh
+        run: |
+          dotnet tool install --global vpk --version 0.0.1053
+          vpk pack --packId Callsign --packVersion ${{ steps.ver.outputs.version }} --packDir publish --mainExe Callsign.exe --packTitle Callsign --outputDir releases
+
+      - name: Publish the feed to Supabase
+        shell: pwsh
+        env:
+          SUPABASE_URL: https://ewmjygogceutvgalnlns.supabase.co
+          SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          if (-not $env:SERVICE_KEY) { throw "Add the SUPABASE_SERVICE_KEY repository secret (Settings -> Secrets and variables -> Actions)." }
+          $headers = @{ apikey = $env:SERVICE_KEY; Authorization = "Bearer $env:SERVICE_KEY"; 'x-upsert' = 'true' }
+          foreach ($f in Get-ChildItem releases -File) {
+            Write-Host "Uploading $($f.Name)..."
+            Invoke-RestMethod -Uri "$env:SUPABASE_URL/storage/v1/object/releases/$($f.Name)" -Method Post -Headers $headers -InFile $f.FullName -ContentType 'application/octet-stream' | Out-Null
+          }
+          Write-Host "Published ${{ steps.ver.outputs.version }} - installed copies will update on next launch."
