@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import {
   api, money,
   type Achievement, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type CheckFlightDone, type CloudSaveMeta, type CloudStatus, type Diverted,
@@ -43,7 +43,7 @@ export function App() {
         <ContextHeader state={state} tab={tab} />
         <main className="main">
         {error && <div className="banner error" onClick={() => setError(null)}>{error} — tap to dismiss</div>}
-        {tab === 'dashboard' && <Dashboard state={state} go={setTab} />}
+        {tab === 'dashboard' && <Dashboard state={state} airline={airline} go={setTab} />}
         {tab === 'airline' && <Airline onSaved={() => { void reload(); loadAirline() }} />}
         {tab === 'jobs' && <Jobs state={state} onChanged={reload} />}
         {tab === 'flight' && <Flight state={state} onSettled={reload} />}
@@ -309,7 +309,7 @@ function Onboarding({ onStarted }: { onStarted: () => void }) {
 
 // ─── Dashboard ───────────────────────────────────────────────────────────────
 
-function Dashboard({ state, go }: { state: State; go: (t: Tab) => void }) {
+function Dashboard({ state, airline, go }: { state: State; airline: AirlineData | null; go: (t: Tab) => void }) {
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [ranks, setRanks] = useState<RankTier[]>([])
   const [rep, setRep] = useState<Reputation | null>(null)
@@ -319,15 +319,18 @@ function Dashboard({ state, go }: { state: State; go: (t: Tab) => void }) {
     api.reputation().then(setRep).catch(() => {})
   }, [])
 
+  const livery = airline?.identity.accentColorHex || '#6d84ff'
+
   return (
-    <div className="grid">
-      <section className="stats">
-        <Stat label="Cash" value={money(state.cashCents)} big />
-        <Stat label="Experience" value={`${state.xp.toLocaleString()} XP`} />
-        <Stat label="Rank" value={state.rank} />
-        <Stat label="Reputation" value={(state.reputationMilli / 1000).toFixed(1)} />
-        <Stat label="Flights flown" value={String(state.flights)} />
-        <Stat label="Location" value={state.currentIcao} />
+    <div className="grid" style={{ ['--livery']: livery } as CSSProperties}>
+      <AirlineHero state={state} airline={airline} />
+
+      <section className="hero-stats">
+        <HeroStat label="Cash" value={money(state.cashCents)} accent />
+        <HeroStat label="Reputation" value={(state.reputationMilli / 1000).toFixed(1)} />
+        <HeroStat label="Experience" value={state.xp.toLocaleString()} unit="XP" />
+        <HeroStat label="Flights flown" value={String(state.flights)} />
+        <HeroStat label="Location" value={state.currentIcao} mono />
       </section>
 
       {ranks.length > 0 && <RankCard state={state} ranks={ranks} />}
@@ -357,24 +360,67 @@ function Dashboard({ state, go }: { state: State; go: (t: Tab) => void }) {
         )}
       </section>
 
-      <section className="card how">
-        <h2>How a leg works</h2>
-        <ol>
-          <li>Pick a job on the <b>Jobs</b> board — the reward is quoted and locked when you accept.</li>
-          <li>Open <b>Flight</b>, begin the leg, and fly it in the sim.</li>
-          <li>Land at the destination — Callsign settles the job automatically and pays you, itemized.</li>
-        </ol>
-        <p className="hint">Every dollar moves through the ledger, so the <b>Logbook</b> always reconciles with your cash.</p>
-      </section>
+      {state.flights === 0 && (
+        <section className="card how">
+          <h2>How a leg works</h2>
+          <ol>
+            <li>Pick a job on the <b>Jobs</b> board — the reward is quoted and locked when you accept.</li>
+            <li>Open <b>Flight</b>, begin the leg, and fly it in the sim.</li>
+            <li>Land at the destination — Callsign settles the job automatically and pays you, itemized.</li>
+          </ol>
+          <p className="hint">Every dollar moves through the ledger, so the <b>Logbook</b> always reconciles with your cash.</p>
+        </section>
+      )}
     </div>
   )
 }
 
-function Stat({ label, value, big }: { label: string; value: string; big?: boolean }) {
+// The airline hero — emblem + livery + standing over an ambient band. The signature of the Dashboard.
+function AirlineHero({ state, airline }: { state: State; airline: AirlineData | null }) {
+  const id = airline?.identity
+  const st = airline?.standing
+  const color = id?.accentColorHex || '#6d84ff'
+  const pct = st && st.nextTierScore ? Math.min(100, (st.score / st.nextTierScore) * 100) : 100
   return (
-    <div className={`stat ${big ? 'stat-big' : ''}`}>
-      <div className="stat-label">{label}</div>
-      <div className="stat-value num">{value}</div>
+    <section className="hero">
+      <div className="hero-amb" aria-hidden="true">
+        <svg viewBox="0 0 800 220" preserveAspectRatio="none">
+          <path d="M0 70 C 150 40 300 100 460 62 S 720 30 800 66" />
+          <path d="M0 120 C 160 92 320 150 500 108 S 730 78 800 116" />
+          <path d="M0 172 C 140 148 340 196 520 158 S 740 132 800 166" />
+        </svg>
+      </div>
+      <div className="hero-main">
+        <div className="hero-badge"><Emblem emblem={id?.emblemKey || 'roundel'} color={color} size={60} /></div>
+        <div className="hero-id">
+          <div className="hero-name">{id?.name || 'Your airline'}</div>
+          <div className="hero-sub">
+            <span className="loc">{id?.tailCode || '—'}</span>
+            <span className="dot-sep">•</span>
+            <span>{state.name}</span>
+            <span className="dot-sep">•</span>
+            <span>{state.rank}</span>
+            <span className="dot-sep">•</span>
+            <span>Home <span className="loc">{state.homeIcao}</span></span>
+          </div>
+        </div>
+        {st && (
+          <div className="hero-standing">
+            <span className="tier-badge" style={{ background: `color-mix(in srgb, ${color} 18%, transparent)`, color }}>{st.tierName}</span>
+            <div className="standing-bar"><div style={{ width: `${pct}%`, background: color }} /></div>
+            <div className="standing-scale num">{st.score}{st.nextTierScore ? ` / ${st.nextTierScore}` : ''} pts</div>
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function HeroStat({ label, value, unit, accent, mono }: { label: string; value: string; unit?: string; accent?: boolean; mono?: boolean }) {
+  return (
+    <div className={`hstat ${accent ? 'accent' : ''}`}>
+      <div className="hs-label">{label}</div>
+      <div className={`hs-value ${mono ? 'loc' : 'num'}`}>{value}{unit && <span className="hs-unit">{unit}</span>}</div>
     </div>
   )
 }

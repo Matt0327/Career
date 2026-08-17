@@ -435,3 +435,32 @@ input { font: inherit; }
   .onboard-body { animation: none; }
   .simdot.warn { animation: none; }
 }
+
+/* ── Dashboard — airline hero (Phase 6 premium pass) ────────────────────────── */
+.hero{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:var(--radius);
+  background:linear-gradient(135deg,color-mix(in srgb,var(--livery) 22%,var(--panel)),var(--panel) 60%);box-shadow:var(--shadow)}
+.hero-amb{position:absolute;inset:0;pointer-events:none}
+.hero-amb svg{width:100%;height:100%;display:block}
+.hero-amb path{fill:none;stroke:var(--livery);stroke-width:1.5;stroke-opacity:.28}
+.hero-main{position:relative;display:flex;align-items:center;gap:18px;padding:22px 24px;flex-wrap:wrap}
+.hero-badge{flex:none;width:76px;height:76px;border-radius:16px;display:grid;place-items:center;
+  background:color-mix(in srgb,var(--livery) 12%,var(--panel));border:1px solid color-mix(in srgb,var(--livery) 38%,var(--line))}
+.hero-id{flex:1 1 220px;min-width:180px}
+.hero-name{font-size:26px;font-weight:720;letter-spacing:-.02em}
+.hero-sub{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;margin-top:5px;flex-wrap:wrap}
+.hero-sub .dot-sep{color:var(--faint)}
+.hero-standing{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:7px;min-width:190px}
+.standing-bar{width:190px;height:6px;border-radius:3px;background:color-mix(in srgb,var(--ink) 8%,var(--panel));overflow:hidden}
+.standing-bar>div{height:100%;border-radius:3px}
+.standing-scale{font-size:12px;color:var(--muted)}
+.tier-badge{font-size:12px;font-weight:700;padding:4px 11px;border-radius:999px;letter-spacing:.02em;white-space:nowrap}
+.hero-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+.hstat{position:relative;overflow:hidden;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:15px 16px;box-shadow:var(--shadow)}
+.hstat.accent::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--livery,var(--accent))}
+.hs-label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.hs-value{font-size:24px;font-weight:700;margin-top:5px;letter-spacing:-.01em}
+.hs-unit{font-size:13px;color:var(--muted);font-weight:600;margin-left:4px}
+@media (max-width:640px){
+  .hero-standing{align-items:flex-start;min-width:0}
+  .hero-name{font-size:22px}
+}
