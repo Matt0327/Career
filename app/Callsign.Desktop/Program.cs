@@ -25,9 +25,12 @@ internal static class Program
         // wasn't installed via Velopack (e.g. the portable build) or when the feed is unreachable.
         try { UpdateIfAvailable(); } catch { /* never let the updater block launch */ }
 
-        // Per-user data folder for the SQLite save and the WebView2 cache (survives app updates).
+        // Per-user data folder for the SQLite save and the WebView2 cache. Deliberately "CallsignData",
+        // NOT "Callsign": Velopack installs the app itself into %LocalAppData%\Callsign and manages that
+        // folder on update — putting our data there collides with the installer. This lives outside it and
+        // genuinely survives updates.
         var dataDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Callsign");
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CallsignData");
         Directory.CreateDirectory(dataDir);
 
         WebApplication? app = null;
