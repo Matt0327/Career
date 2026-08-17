@@ -45,6 +45,23 @@ permit. Paste them here and I'll wire the app's cloud config to your project.
 - Create a Vercel project pointed at this repo's `web/` folder (I'll scaffold it).
 - No secrets needed for a static landing page; a future web leaderboard will use the same public anon key.
 
+## Seed aircraft images (openly-licensed, from Wikimedia Commons)
+
+Once the backend is live, fill the image index with free, properly-attributed photos:
+
+```
+# PowerShell
+$env:SUPABASE_URL="https://ewmjygogceutvgalnlns.supabase.co"
+$env:SUPABASE_SERVICE_KEY="<your service_role key - Settings - API>"
+node scripts/seed-aircraft-images.mjs
+```
+
+It searches Commons per aircraft type, accepts only free licenses (CC0 / public domain / CC BY / CC BY-SA),
+uploads a ~1200px photo to the `aircraft-images` bucket, and inserts an **approved** row with license +
+attribution. Re-runnable (skips types already done). The `service_role` key is used **only here, locally** —
+it bypasses RLS to write approved rows — and must never be committed or shared. Add more `[key, term]` rows
+to `FLEET` in the script and re-run to grow coverage; players fill the rest via submissions.
+
 ## What changes in the app
 - The Host's cloud gateway swaps from calling the local C# server to calling Supabase (Auth for sign-in,
   Storage for save push/pull, PostgREST for the image index + leaderboards). The **UI does not change** — it
