@@ -99,6 +99,27 @@ if (Test-Path $zip) { Remove-Item $zip -Force }
 # Zip the folder itself (not its contents) so it extracts into one tidy folder, not a scatter of files.
 Compress-Archive -Path $publish -DestinationPath $zip -CompressionLevel Optimal
 
+# --- Velopack: the installer + auto-update feed. The shipped app checks this feed on launch and applies
+#     updates in the background (see Callsign.Desktop/Program.cs). vpk is pinned to the library version so
+#     the app and the feed agree on the format. ---
+$env:DOTNET_ROLL_FORWARD = "LatestMajor"  # let vpk (built for an older TFM) run on the installed net10 runtime
+$vpk = Get-Command vpk -ErrorAction SilentlyContinue
+if (-not $vpk) {
+  Write-Host "Installing the Velopack CLI (vpk 0.0.1053)..."
+  dotnet tool install --global vpk --version 0.0.1053 2>&1 | Out-Null
+  $env:PATH = "$env:PATH;$([Environment]::GetFolderPath('UserProfile'))\.dotnet\tools"
+  $vpk = Get-Command vpk -ErrorAction SilentlyContinue
+}
+if ($vpk) {
+  $releases = Join-Path $OutDir "releases"
+  Write-Host "Packing Velopack release $version (installer + update feed)..."
+  & vpk pack --packId Callsign --packVersion $version --packDir $publish --mainExe "Callsign.exe" --packTitle "Callsign" --outputDir $releases
+  if ($LASTEXITCODE) { throw "vpk pack failed" }
+  Write-Host "  Velopack release in $releases -- upload the WHOLE folder's contents to your update feed."
+} else {
+  Write-Host "vpk not available - skipped the Velopack release."
+}
+
 # Installer (Inno Setup 6) - built only if ISCC is present; version flows in via /DAppVersion.
 $pf86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
 $iscc = @("$pf86\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") |
@@ -117,3 +138,4 @@ Write-Host "`nDone. Artifacts in $OutDir :"
 Write-Host "  - Callsign\              (self-contained folder: Callsign.exe + wwwroot)"
 Write-Host "  - Callsign-portable.zip  (unzip -> Callsign\ -> run Callsign.exe)"
 if ($iscc) { Write-Host "  - Callsign-Setup-$version.exe   (installer)" }
+if (Test-Path (Join-Path $OutDir "releases")) { Write-Host "  - releases\              (Velopack installer + auto-update feed - upload to host)" }

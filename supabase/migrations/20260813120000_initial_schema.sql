@@ -176,8 +176,12 @@ grant execute on function public.is_admin() to anon, authenticated;
 -- Storage buckets + policies. 'saves' is private (per-user folder); 'aircraft-images' is public-read.
 -- ─────────────────────────────────────────────────────────────────────────────
 insert into storage.buckets (id, name, public)
-values ('saves', 'saves', false), ('aircraft-images', 'aircraft-images', true)
+values ('saves', 'saves', false), ('aircraft-images', 'aircraft-images', true), ('releases', 'releases', true)
 on conflict (id) do nothing;
+
+-- releases: public read (the app's auto-updater fetches the feed); uploads are done with the service key.
+drop policy if exists "releases public read" on storage.objects;
+create policy "releases public read" on storage.objects for select using (bucket_id = 'releases');
 
 -- saves: a user may only touch files under saves/{their uid}/...
 drop policy if exists "own save files" on storage.objects;

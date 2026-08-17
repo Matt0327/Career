@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Callsign.Host;
+using Velopack;
 
 namespace Callsign.Desktop;
 
@@ -16,6 +17,14 @@ internal static class Program
     [STAThread]
     private static void Main()
     {
+        // Velopack must run before anything else: it processes the install/update/uninstall hooks and,
+        // when we apply an update below, relaunches into the new version. A no-op in a normal launch.
+        VelopackApp.Build().Run();
+
+        // On launch, silently check for and apply an update, then continue. Skips safely when the app
+        // wasn't installed via Velopack (e.g. the portable build) or when the feed is unreachable.
+        try { UpdateIfAvailable(); } catch { /* never let the updater block launch */ }
+
         // Per-user data folder for the SQLite save and the WebView2 cache (survives app updates).
         var dataDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Callsign");
@@ -70,5 +79,22 @@ internal static class Program
             Application.Run(form);
 
         app?.StopAsync().GetAwaiter().GetResult();
+    }
+
+    // The release feed Velopack reads (a folder of RELEASES + package files served over HTTP). Override
+    // with the CALLSIGN_UPDATE_FEED env var; defaults to the Supabase public 'releases' bucket.
+    private static string UpdateFeed =>
+        Environment.GetEnvironmentVariable("CALLSIGN_UPDATE_FEED")
+        ?? "https://ewmjygogceutvgalnlns.supabase.co/storage/v1/object/public/releases";
+
+    private static void UpdateIfAvailable()
+    {
+        if (string.IsNullOrWhiteSpace(UpdateFeed)) return;
+        var mgr = new UpdateManager(UpdateFeed);
+        if (!mgr.IsInstalled) return;                        // portable / dev run — nothing to update
+        var update = mgr.CheckForUpdatesAsync().GetAwaiter().GetResult();
+        if (update is null) return;                          // already current
+        mgr.DownloadUpdatesAsync(update).GetAwaiter().GetResult();
+        mgr.ApplyUpdatesAndRestart(update);                  // relaunches into the new version; exits here
     }
 }

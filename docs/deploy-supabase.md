@@ -70,6 +70,21 @@ to `FLEET` in the script and re-run to grow coverage; players fill the rest via 
   or stores them.
 - The standalone `Callsign.Server` project is retired once the app is repointed and verified.
 
+## Releases & auto-update (Velopack)
+
+The desktop app auto-updates on launch via Velopack. To cut a release:
+
+1. `powershell -File scripts\package.ps1 -SkipUi` → builds `dist\releases\` (a `Callsign-win-Setup.exe`
+   installer + the update feed: `RELEASES`, `releases.win.json`, `Callsign-<ver>-full.nupkg`).
+2. Upload the **entire contents** of `dist\releases\` to the public **`releases`** bucket in Supabase
+   Storage (drag-and-drop in the dashboard, or with the service key). Overwrite the feed files each time.
+3. Bump `<Version>` in `Directory.Build.props`, re-run, re-upload — every user on an older version applies
+   the update automatically the next time they launch, then continues.
+
+First-time users install with **`Callsign-win-Setup.exe`** (no manual unzip; it adds a Start-Menu shortcut).
+The app reads the feed from the `releases` bucket by default; override with the `CALLSIGN_UPDATE_FEED` env
+var. Sign the installer for production (SmartScreen) via the `CALLSIGN_SIGN_*` variables `package.ps1` reads.
+
 ## Cost
 Supabase free tier covers early use comfortably (Postgres, 1 GB storage, 50k monthly active auth users).
 Vercel's hobby tier hosts the landing page free. No metered map keys — the satellite map is keyless.
