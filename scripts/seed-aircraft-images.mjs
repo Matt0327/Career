@@ -11,10 +11,31 @@
 //   bash:
 //     SUPABASE_URL=... SUPABASE_SERVICE_KEY=... node scripts/seed-aircraft-images.mjs
 //
+//   Or (cleaner) put them in a git-ignored .env in the repo root and just run:
+//     node scripts/seed-aircraft-images.mjs
+//   .env:
+//     SUPABASE_URL=https://ewmjygogceutvgalnlns.supabase.co
+//     SUPABASE_SERVICE_KEY=eyJ... (your service_role key)
+//
 // For each aircraft type it searches Commons for a FREELY-LICENSED photo (CC0 / public domain / CC BY /
 // CC BY-SA — nothing else), downloads a ~1200px version, uploads it to the public 'aircraft-images' bucket,
 // and inserts an APPROVED aircraft_images row with the license + author attribution. Re-runnable: it skips
 // any type that already has an approved image. Requires Node 18+ (global fetch).
+
+import { readFileSync, existsSync } from 'node:fs';
+
+// Load a local .env (KEY=VALUE per line) if present, so your service_role key stays out of shell history.
+// Looks in the current directory and the repo root. .env is git-ignored — never commit it.
+for (const envPath of ['.env', new URL('../.env', import.meta.url).pathname]) {
+  try {
+    if (!existsSync(envPath)) continue;
+    for (const line of readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+      const m = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$/);
+      if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+    }
+    break;
+  } catch { /* a malformed .env is ignored; real env vars still work */ }
+}
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;

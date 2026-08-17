@@ -33,6 +33,11 @@ pnpm-debug.log*
 !.vscode/extensions.json
 !.vscode/launch.json.sample
 
+# ---- Secrets / local env (NEVER commit — e.g. the Supabase service_role key) ----
+.env
+.env.*
+!.env.example
+
 # ---- App data ----
 *.db
 *.db-shm
