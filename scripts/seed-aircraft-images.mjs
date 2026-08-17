@@ -35,22 +35,35 @@ if (!SUPABASE_URL || !SERVICE_KEY) {
 
 // Aircraft key (must match AircraftType.Key, i.e. the ICAO type designator) -> Commons search term.
 const FLEET = [
-  ['C152', 'Cessna 152'],
-  ['C172', 'Cessna 172'],
-  ['DA40', 'Diamond DA40'],
-  ['SR22', 'Cirrus SR22'],
-  ['BE36', 'Beechcraft Bonanza A36'],
-  ['BE58', 'Beechcraft Baron 58'],
-  ['DA62', 'Diamond DA62'],
-  ['C208', 'Cessna 208 Caravan'],
-  ['TBM9', 'Daher TBM 930'],
-  ['PC12', 'Pilatus PC-12'],
-  ['B350', 'Beechcraft King Air 350'],
-  ['C25C', 'Cessna Citation CJ4'],
-  ['C68A', 'Cessna Citation Longitude'],
-  ['A20N', 'Airbus A320neo'],
-  ['B748', 'Boeing 747-8'],
-  ['H125', 'Airbus Helicopters H125'],
+  // GA singles
+  ['C152', 'Cessna 152'], ['C172', 'Cessna 172'], ['DA40', 'Diamond DA40'], ['SR22', 'Cirrus SR22'],
+  ['SR20', 'Cirrus SR20'], ['BE36', 'Beechcraft Bonanza A36'], ['P28A', 'Piper PA-28 Cherokee'],
+  ['PA18', 'Piper PA-18 Super Cub'], ['C182', 'Cessna 182 Skylane'], ['C206', 'Cessna 206 Stationair'],
+  ['M20P', 'Mooney M20'],
+  // GA twins
+  ['BE58', 'Beechcraft Baron 58'], ['DA62', 'Diamond DA62'], ['BE60', 'Beechcraft Duke'],
+  ['BN2A', 'Britten-Norman Islander'],
+  // turboprops
+  ['C208', 'Cessna 208 Caravan'], ['TBM9', 'Daher TBM 930'], ['PC12', 'Pilatus PC-12'],
+  ['B350', 'Beechcraft King Air 350'], ['BE20', 'Beechcraft King Air 200'],
+  ['DHC6', 'De Havilland Canada DHC-6 Twin Otter'], ['PC6', 'Pilatus PC-6 Porter'],
+  ['AT802', 'Air Tractor AT-802'],
+  // business jets
+  ['C25C', 'Cessna Citation CJ4'], ['C68A', 'Cessna Citation Longitude'], ['SF50', 'Cirrus Vision Jet'],
+  ['E55P', 'Embraer Phenom 300'], ['LJ45', 'Learjet 45'], ['GLF6', 'Gulfstream G650'],
+  ['CL60', 'Bombardier Challenger 650'],
+  // airliners & regional
+  ['A20N', 'Airbus A320neo'], ['A319', 'Airbus A319'], ['A21N', 'Airbus A321neo'],
+  ['B738', 'Boeing 737-800'], ['B38M', 'Boeing 737 MAX 8'], ['B77W', 'Boeing 777-300ER'],
+  ['B789', 'Boeing 787-9'], ['A359', 'Airbus A350-900'], ['A388', 'Airbus A380'],
+  ['B748', 'Boeing 747-8'], ['E75L', 'Embraer E175'], ['CRJ7', 'Bombardier CRJ700'],
+  ['AT76', 'ATR 72'], ['DH8D', 'Bombardier Dash 8 Q400'],
+  // helicopters
+  ['H125', 'Airbus Helicopters H125'], ['B06', 'Bell 206'], ['B407', 'Bell 407'],
+  ['H145', 'Airbus Helicopters H145'], ['R44', 'Robinson R44'],
+  // warbirds / military
+  ['F117', 'Lockheed F-117 Nighthawk'], ['F22', 'F-22 Raptor'], ['SPIT', 'Supermarine Spitfire'],
+  ['P51', 'North American P-51 Mustang'],
 ];
 
 const OK_LICENSE = /^(cc0|cc[- ]by([- ]sa)?[- ][0-9.]+|public domain)/i;
