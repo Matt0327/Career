@@ -1,8 +1,9 @@
 name: Release
 
-# Every push to main builds a fresh Callsign, packs the Velopack installer + update feed, and uploads the
-# feed to the public Supabase 'releases' bucket -- so every installed copy auto-updates on its next launch.
-# One-time setup: add a repository secret SUPABASE_SERVICE_KEY (Settings -> Secrets and variables -> Actions).
+# Every push to main builds a fresh Callsign, packs the Velopack installer + a delta, and publishes them as a
+# GitHub Release -- so every installed copy auto-updates on its next launch. No secret to configure: the
+# built-in GITHUB_TOKEN carries the release-write permission granted below. NOTE: the repo must be PUBLIC so
+# the shipped app can download updates anonymously (GithubSource in Program.cs).
 on:
   push:
     branches: [main]
@@ -12,6 +13,9 @@ on:
 concurrency:
   group: release
   cancel-in-progress: false
+
+permissions:
+  contents: write   # let the built-in GITHUB_TOKEN create GitHub Releases
 
 jobs:
   release:
@@ -49,22 +53,19 @@ jobs:
       - name: Publish the app (self-contained folder)
         run: dotnet publish app/Callsign.Desktop/Callsign.Desktop.csproj -c Release -r win-x64 --self-contained true -p:Version=${{ steps.ver.outputs.version }} -o publish
 
-      - name: Pack the installer + update feed (Velopack)
-        shell: pwsh
-        run: |
-          dotnet tool install --global vpk --version 0.0.1053
-          vpk pack --packId Callsign --packVersion ${{ steps.ver.outputs.version }} --packDir publish --mainExe Callsign.exe --packTitle Callsign --packAuthors Callsign --icon app/Callsign.Desktop/callsign.ico --splashImage app/Callsign.Desktop/splash.png --outputDir releases
-
-      - name: Publish the feed to Supabase
+      - name: Pack + publish the release (Velopack -> GitHub Releases)
         shell: pwsh
         env:
-          SUPABASE_URL: https://ewmjygogceutvgalnlns.supabase.co
-          SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_URL: https://github.com/${{ github.repository }}
+          VER: ${{ steps.ver.outputs.version }}
         run: |
-          if (-not $env:SERVICE_KEY) { throw "Add the SUPABASE_SERVICE_KEY repository secret (Settings -> Secrets and variables -> Actions)." }
-          $headers = @{ apikey = $env:SERVICE_KEY; Authorization = "Bearer $env:SERVICE_KEY"; 'x-upsert' = 'true' }
-          foreach ($f in Get-ChildItem releases -File) {
-            Write-Host "Uploading $($f.Name)..."
-            Invoke-RestMethod -Uri "$env:SUPABASE_URL/storage/v1/object/releases/$($f.Name)" -Method Post -Headers $headers -InFile $f.FullName -ContentType 'application/octet-stream' | Out-Null
-          }
-          Write-Host "Published ${{ steps.ver.outputs.version }} - installed copies will update on next launch."
+          dotnet tool install --global vpk --version 0.0.1053
+          # Pull the latest prior release so Velopack can build a small delta. First run finds none -- fine.
+          vpk download github --repoUrl $env:REPO_URL --token $env:GH_TOKEN --outputDir releases
+          if ($LASTEXITCODE -ne 0) { Write-Host "No prior release to delta against (first run) -- continuing." }
+          vpk pack --packId Callsign --packVersion $env:VER --packDir publish --mainExe Callsign.exe --packTitle Callsign --packAuthors Callsign --icon app/Callsign.Desktop/callsign.ico --splashImage app/Callsign.Desktop/splash.png --outputDir releases
+          if ($LASTEXITCODE -ne 0) { throw "vpk pack failed" }
+          vpk upload github --repoUrl $env:REPO_URL --token $env:GH_TOKEN --outputDir releases --releaseName "Callsign $env:VER" --tag "v$env:VER" --merge --publish
+          if ($LASTEXITCODE -ne 0) { throw "vpk upload failed" }
+          Write-Host "Published v$env:VER to GitHub Releases -- installed copies update on next launch."

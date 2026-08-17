@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Callsign.Host;
 using Velopack;
+using Velopack.Sources;
 
 namespace Callsign.Desktop;
 
@@ -84,16 +85,16 @@ internal static class Program
         app?.StopAsync().GetAwaiter().GetResult();
     }
 
-    // The release feed Velopack reads (a folder of RELEASES + package files served over HTTP). Override
-    // with the CALLSIGN_UPDATE_FEED env var; defaults to the Supabase public 'releases' bucket.
-    private static string UpdateFeed =>
-        Environment.GetEnvironmentVariable("CALLSIGN_UPDATE_FEED")
-        ?? "https://ewmjygogceutvgalnlns.supabase.co/storage/v1/object/public/releases";
+    // The update feed lives in this GitHub repo's Releases — a public repo, so the app downloads updates
+    // anonymously and there's no file-size limit on the packages. Override with the CALLSIGN_UPDATE_REPO env var.
+    private static string UpdateRepo =>
+        Environment.GetEnvironmentVariable("CALLSIGN_UPDATE_REPO")
+        ?? "https://github.com/Matt0327/Career";
 
     private static void UpdateIfAvailable()
     {
-        if (string.IsNullOrWhiteSpace(UpdateFeed)) return;
-        var mgr = new UpdateManager(UpdateFeed);
+        if (string.IsNullOrWhiteSpace(UpdateRepo)) return;
+        var mgr = new UpdateManager(new GithubSource(UpdateRepo, null, false));
         if (!mgr.IsInstalled) return;                        // portable / dev run — nothing to update
         var update = mgr.CheckForUpdatesAsync().GetAwaiter().GetResult();
         if (update is null) return;                          // already current
