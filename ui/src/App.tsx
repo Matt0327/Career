@@ -34,7 +34,7 @@ export function App() {
   useEffect(() => { if (state) loadAirline() }, [state, loadAirline])
 
   if (state === undefined) return <Splash />
-  if (state === null) return <NewCareer onStarted={reload} />
+  if (state === null) return <Onboarding onStarted={reload} />
 
   return (
     <div className="app">
@@ -142,16 +142,63 @@ function Splash() {
   return <div className="splash"><div className="mark big">◄</div><div>Loading Callsign…</div></div>
 }
 
-// ─── New career ──────────────────────────────────────────────────────────────
+// ─── Onboarding (first run) ───────────────────────────────────────────────────
 
-function NewCareer({ onStarted }: { onStarted: () => void }) {
-  const [name, setName] = useState('Amelia Hart')
+/** A minimal live link to the sim for the onboarding "connect" step — the same reconnecting
+ *  WebSocket as useTelemetry, without the flight/settlement plumbing. */
+function useSimLink() {
+  const [wsOpen, setWsOpen] = useState(false)
+  const [link, setLink] = useState('Disconnected')
+  useEffect(() => {
+    let ws: WebSocket | null = null
+    let closed = false
+    let retry: ReturnType<typeof setTimeout>
+    const connect = () => {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+      ws = new WebSocket(`${proto}://${location.host}/ws/telemetry`)
+      ws.onopen = () => setWsOpen(true)
+      ws.onmessage = e => {
+        const m = JSON.parse(e.data) as WsEvent
+        if (m.type === 'telemetry' || m.type === 'state') setLink(m.connection)
+      }
+      ws.onclose = () => { setWsOpen(false); if (!closed) retry = setTimeout(connect, 1500) }
+      ws.onerror = () => ws?.close()
+    }
+    connect()
+    return () => { closed = true; clearTimeout(retry); ws?.close() }
+  }, [])
+  return { wsOpen, link }
+}
+
+// Starting bankroll is whole dollars (server default 25,000). Presets keep the choice easy but meaningful.
+const CASH_PRESETS = [
+  { amount: 10000, name: 'Bootstrap', blurb: 'Start lean and grind up from a light single.' },
+  { amount: 25000, name: 'Standard', blurb: 'Balanced start — a solid GA aircraft is in reach.' },
+  { amount: 100000, name: 'Backed', blurb: 'Open with capital for a faster, capable airframe.' },
+]
+
+function FeatIcon({ k }: { k: 'plane' | 'airline' | 'cloud' }) {
+  return (
+    <svg className="feat-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      {k === 'plane' && <path d="M4 13l16-6-6 16-2-7-8-3z" />}
+      {k === 'airline' && <><path d="M3 21h18" /><path d="M6 21V8l6-3 6 3v13" /><path d="M10 21v-5h4v5" /></>}
+      {k === 'cloud' && <path d="M7 18a4 4 0 0 1 0-8 5 5 0 0 1 9.6-1.3A3.5 3.5 0 0 1 17 18H7z" />}
+    </svg>
+  )
+}
+
+function Onboarding({ onStarted }: { onStarted: () => void }) {
+  const [step, setStep] = useState(0) // 0 welcome · 1 pilot · 2 sim · 3 ready
+  const [name, setName] = useState('')
   const [home, setHome] = useState('EHAM')
   const [cash, setCash] = useState(25000)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const { wsOpen, link } = useSimLink()
+  const connected = link === 'Connected'
+  const canPilot = name.trim().length > 0 && home.trim().length >= 3
 
-  const start = async () => {
+  const commit = async () => {
     setBusy(true); setErr(null)
     try {
       await api.newCareer(name.trim() || 'New Pilot', home.trim().toUpperCase() || 'EHAM', cash)
@@ -162,18 +209,99 @@ function NewCareer({ onStarted }: { onStarted: () => void }) {
   }
 
   return (
-    <div className="splash">
-      <div className="card new-career">
-        <div className="brand big"><span className="mark">◄</span> CALLSIGN</div>
-        <p className="muted">Start a new career. You fly the aircraft you already own in the sim — Callsign scans them for you.</p>
-        <label>Pilot name<input value={name} onChange={e => setName(e.target.value)} /></label>
-        <label>Home base (ICAO)<input value={home} onChange={e => setHome(e.target.value)} maxLength={4} /></label>
-        <label>Starting cash
-          <input type="number" value={cash} min={0} step={1000} onChange={e => setCash(Number(e.target.value))} />
-        </label>
-        {err && <div className="banner error">{err}</div>}
-        <button className="primary" disabled={busy} onClick={start}>{busy ? 'Setting up…' : 'Start career'}</button>
-        <p className="hint">First run imports a public-domain airport database — it can take a minute.</p>
+    <div className="onboard">
+      <div className="onboard-card">
+        <div className="onboard-top">
+          <div className="brand"><span className="mark">◄</span> CALLSIGN</div>
+          <div className="step-dots">
+            {[0, 1, 2, 3].map(i => <span key={i} className={`dot ${i === step ? 'on' : ''} ${i < step ? 'done' : ''}`} />)}
+          </div>
+        </div>
+
+        {step === 0 && (
+          <div className="onboard-body" key="s0">
+            <h1>Welcome to Callsign</h1>
+            <p className="lede">A living career for Microsoft Flight Simulator — fly for hire, build an airline, and climb the ranks.</p>
+            <ul className="feat">
+              <li><FeatIcon k="plane" /><span>Fly the aircraft you <b>already own</b> — Callsign detects them in your sim.</span></li>
+              <li><FeatIcon k="airline" /><span>Grow an airline: <b>jobs, routes, staff, bases</b> and real finances.</span></li>
+              <li><FeatIcon k="cloud" /><span>Your career <b>syncs to the cloud</b> and ranks on the global leaderboards.</span></li>
+            </ul>
+            <div className="onboard-foot">
+              <span />
+              <button className="primary" onClick={() => setStep(1)}>Get started →</button>
+            </div>
+          </div>
+        )}
+
+        {step === 1 && (
+          <div className="onboard-body" key="s1">
+            <h1>Create your pilot</h1>
+            <p className="lede">This is you. You can rebrand your airline any time later.</p>
+            <label className="ob-field">Pilot name
+              <input autoFocus value={name} placeholder="e.g. Amelia Hart" onChange={e => setName(e.target.value)} />
+            </label>
+            <label className="ob-field">Home base — ICAO code
+              <input value={home} maxLength={4} placeholder="EHAM" onChange={e => setHome(e.target.value.toUpperCase())} />
+              <span className="ob-hint">Where your first aircraft is parked. Four letters — e.g. KJFK, EGLL, EHAM.</span>
+            </label>
+            <div className="ob-field">Starting bankroll
+              <div className="presets">
+                {CASH_PRESETS.map(p => (
+                  <button key={p.amount} type="button" className={`preset ${cash === p.amount ? 'on' : ''}`} onClick={() => setCash(p.amount)}>
+                    <div className="preset-amt num">{money(p.amount * 100)}</div>
+                    <div className="preset-name">{p.name}</div>
+                    <div className="preset-blurb">{p.blurb}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="onboard-foot">
+              <button className="ghost" onClick={() => setStep(0)}>← Back</button>
+              <button className="primary" disabled={!canPilot} onClick={() => setStep(2)}>Continue →</button>
+            </div>
+          </div>
+        )}
+
+        {step === 2 && (
+          <div className="onboard-body" key="s2">
+            <h1>Connect your simulator</h1>
+            <p className="lede">Callsign links to Microsoft Flight Simulator automatically — there's nothing to install.</p>
+            <div className={`simlink ${connected ? 'up' : ''}`}>
+              <span className={`simdot ${connected ? 'up' : wsOpen ? 'warn' : 'down'}`} />
+              <div>
+                <div className="simlink-state">{connected ? 'Simulator connected' : wsOpen ? 'Waiting for Flight Simulator…' : 'Starting link…'}</div>
+                <div className="simlink-sub">{connected
+                  ? "You're linked — flights and landings will track live."
+                  : 'Launch MSFS 2020 or 2024 any time and this turns green on its own.'}</div>
+              </div>
+            </div>
+            <p className="ob-hint">No sim running right now? No problem — you can connect later. This step is optional.</p>
+            <div className="onboard-foot">
+              <button className="ghost" onClick={() => setStep(1)}>← Back</button>
+              <button className="primary" onClick={() => setStep(3)}>{connected ? 'Continue ✓' : 'Continue →'}</button>
+            </div>
+          </div>
+        )}
+
+        {step === 3 && (
+          <div className="onboard-body" key="s3">
+            <h1>Cleared for departure</h1>
+            <p className="lede">Here's your setup. Start flying and your first jobs will be waiting.</p>
+            <div className="summary">
+              <div className="srow"><span className="muted">Pilot</span><b>{name.trim() || 'New Pilot'}</b></div>
+              <div className="srow"><span className="muted">Home base</span><b className="loc">{home.trim().toUpperCase() || 'EHAM'}</b></div>
+              <div className="srow"><span className="muted">Starting bankroll</span><b className="num">{money(cash * 100)}</b></div>
+              <div className="srow"><span className="muted">Simulator</span><b className={connected ? 'pos' : 'muted'}>{connected ? 'Connected' : 'Connect later'}</b></div>
+            </div>
+            {err && <div className="banner error">{err}</div>}
+            <div className="onboard-foot">
+              <button className="ghost" disabled={busy} onClick={() => setStep(2)}>← Back</button>
+              <button className="primary" disabled={busy} onClick={commit}>{busy ? 'Setting up your world…' : 'Enter Callsign →'}</button>
+            </div>
+            {busy && <p className="ob-hint">First run imports a public-domain airport database — this can take a minute.</p>}
+          </div>
+        )}
       </div>
     </div>
   )
