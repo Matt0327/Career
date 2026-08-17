@@ -1,31 +1,20 @@
-// Seed the Callsign aircraft-image index with openly-licensed photos from Wikimedia Commons.
+// Seed the Callsign aircraft-image index with the BEST openly-licensed photo of each aircraft from
+// Wikimedia Commons — full-aircraft shots (prefers in-flight / large / landscape), not cockpits or details.
 //
-// Run ONCE, locally, with your Supabase service_role key (it bypasses Row-Level Security so it can write
-// approved images). Keep that key secret — never commit or share it; it is only used here, on your machine.
+// Run locally with your Supabase service_role key (it bypasses Row-Level Security to write approved images).
+// Keep that key secret — never commit or share it. It is only used here, on your machine.
 //
-//   Windows PowerShell:
-//     $env:SUPABASE_URL="https://ewmjygogceutvgalnlns.supabase.co"
-//     $env:SUPABASE_SERVICE_KEY="<your service_role key from Supabase - Settings - API>"
+//   Put SUPABASE_URL and SUPABASE_SERVICE_KEY in a git-ignored .env in the repo root, then:
 //     node scripts/seed-aircraft-images.mjs
+//   (or pass them inline: SUPABASE_URL=... SUPABASE_SERVICE_KEY=... node scripts/seed-aircraft-images.mjs)
 //
-//   bash:
-//     SUPABASE_URL=... SUPABASE_SERVICE_KEY=... node scripts/seed-aircraft-images.mjs
-//
-//   Or (cleaner) put them in a git-ignored .env in the repo root and just run:
-//     node scripts/seed-aircraft-images.mjs
-//   .env:
-//     SUPABASE_URL=https://ewmjygogceutvgalnlns.supabase.co
-//     SUPABASE_SERVICE_KEY=eyJ... (your service_role key)
-//
-// For each aircraft type it searches Commons for a FREELY-LICENSED photo (CC0 / public domain / CC BY /
-// CC BY-SA — nothing else), downloads a ~1200px version, uploads it to the public 'aircraft-images' bucket,
-// and inserts an APPROVED aircraft_images row with the license + author attribution. Re-runnable: it skips
-// any type that already has an approved image. Requires Node 18+ (global fetch).
+// It scores up to 40 candidates per type and picks the best whole-aircraft photo, uploads it to the public
+// aircraft-images bucket, and inserts an APPROVED row with license + attribution. Re-running REPLACES the
+// previously-seeded image for each type (community submissions are left untouched). Requires Node 18+.
 
 import { readFileSync, existsSync } from 'node:fs';
 
 // Load a local .env (KEY=VALUE per line) if present, so your service_role key stays out of shell history.
-// Looks in the current directory and the repo root. .env is git-ignored — never commit it.
 for (const envPath of ['.env', new URL('../.env', import.meta.url).pathname]) {
   try {
     if (!existsSync(envPath)) continue;
@@ -40,12 +29,11 @@ for (const envPath of ['.env', new URL('../.env', import.meta.url).pathname]) {
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 if (!SUPABASE_URL || !SERVICE_KEY) {
-  console.error('Set SUPABASE_URL and SUPABASE_SERVICE_KEY environment variables first.');
+  console.error('Set SUPABASE_URL and SUPABASE_SERVICE_KEY (env vars or a .env in the repo root).');
   process.exit(1);
 }
 
 // Aircraft key (must match AircraftType.Key, i.e. the ICAO type designator) -> Commons search term.
-// Start with the curated MSFS-2024 default fleet; add more rows any time and re-run.
 const FLEET = [
   ['C152', 'Cessna 152'],
   ['C172', 'Cessna 172'],
@@ -65,45 +53,56 @@ const FLEET = [
   ['H125', 'Airbus Helicopters H125'],
 ];
 
-// Only these licenses are acceptable. Anything else (fair use, non-free, unknown) is rejected.
 const OK_LICENSE = /^(cc0|cc[- ]by([- ]sa)?[- ][0-9.]+|public domain)/i;
+// Reject shots that are NOT a clean view of the whole aircraft.
+const BAD = /(cockpit|interior|cabin|panel|instrument|avionic|glareshield|seat|engine|propeller|\bprop\b|close[\s-]?up|detail|diagram|drawing|schematic|blueprint|\d[\s-]?view|three[\s-]?view|silhouette|crash|wreck|accident|\bmodel\b|toy|patch|\blogo\b|emblem|insignia|\bmap\b|\bsign\b)/i;
 
 const AUTH = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` };
 const UA = 'CallsignImageSeeder/1.0 (https://callsign.app; aircraft image index)';
+const stripHtml = (s) => String(s || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim().slice(0, 180);
 
-async function alreadyApproved(key) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/aircraft_images?key=eq.${key}&status=eq.approved&select=id&limit=1`, { headers: AUTH });
-  const rows = await r.json().catch(() => []);
-  return Array.isArray(rows) && rows.length > 0;
-}
-
-function stripHtml(s) { return String(s || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim().slice(0, 200); }
-
-async function findFreeImage(term) {
+// Score up to 40 candidates and return the best full-aircraft photo (or null).
+async function findBestImage(term) {
   const api = `https://commons.wikimedia.org/w/api.php?action=query&generator=search`
-    + `&gsrsearch=${encodeURIComponent(term + ' aircraft')}&gsrnamespace=6&gsrlimit=12`
-    + `&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=1200&format=json`;
+    + `&gsrsearch=${encodeURIComponent(term)}&gsrnamespace=6&gsrlimit=40`
+    + `&prop=imageinfo&iiprop=url|size|extmetadata&iiurlwidth=1280&format=json`;
   const r = await fetch(api, { headers: { 'User-Agent': UA } });
   const j = await r.json();
   const pages = j?.query?.pages ? Object.values(j.query.pages) : [];
+  const scored = [];
   for (const p of pages) {
-    const info = p.imageinfo?.[0];
+    const info = p.imageinfo && p.imageinfo[0];
     if (!info) continue;
-    // Commons now appends a "?utm_..." query to file URLs, so test the TITLE for the real extension.
-    if (!/\.(jpe?g|png)$/i.test(p.title || '')) continue;            // photos only, no svg/gif/tif/pdf
+    const title = p.title || '';
+    if (!/\.(jpe?g|png)$/i.test(title) || BAD.test(title)) continue;      // photos, whole aircraft only
     const license = stripHtml(info.extmetadata?.LicenseShortName?.value);
-    if (!OK_LICENSE.test(license)) continue;                          // free licenses only
-    const downloadUrl = info.thumburl || info.url || '';             // prefer the ~1200px render
-    const author = stripHtml(info.extmetadata?.Artist?.value) || 'Unknown';
-    return { downloadUrl, license, author, sourceUrl: info.descriptionurl || '' };
+    if (!OK_LICENSE.test(license)) continue;                              // free licenses only
+    const w = info.width || 0, h = info.height || 0;
+    if (w < 1100 || h < 700) continue;                                    // big enough to be a real photo
+    const ar = w / h;
+    if (ar < 1.15 || ar > 2.6) continue;                                  // landscape-ish, not a square/portrait crop
+    let score = Math.min(w * h, 30_000_000) / 1_000_000;                  // resolution
+    if (/\b(in[\s-]?flight|flying|airborne|takeoff|take[\s-]?off|climb|approach|landing|banking)\b/i.test(title)) score += 14;
+    if (ar >= 1.4 && ar <= 2.1) score += 6;                               // ideal aircraft framing
+    const assess = stripHtml(info.extmetadata?.Assessments?.value);
+    if (/featured/i.test(assess)) score += 12; else if (/quality|valued/i.test(assess)) score += 8;
+    scored.push({ score, info, title, license });
   }
-  return null;
+  if (!scored.length) return null;
+  scored.sort((a, b) => b.score - a.score);
+  const best = scored[0];
+  return {
+    downloadUrl: best.info.thumburl || best.info.url || '',
+    license: best.license,
+    author: stripHtml(best.info.extmetadata?.Artist?.value) || 'Unknown',
+    sourceUrl: best.info.descriptionurl || '',
+    w: best.info.width, h: best.info.height,
+  };
 }
 
 async function seed(key, term) {
-  if (await alreadyApproved(key)) { console.log(`${key.padEnd(5)} already has an image — skipping`); return; }
-  const hit = await findFreeImage(term);
-  if (!hit) { console.log(`${key.padEnd(5)} no freely-licensed image found for "${term}"`); return; }
+  const hit = await findBestImage(term);
+  if (!hit) { console.log(`${key.padEnd(5)} no good full-aircraft image found for "${term}"`); return; }
 
   const img = await fetch(hit.downloadUrl, { headers: { 'User-Agent': UA } });
   if (!img.ok) { console.log(`${key.padEnd(5)} download failed (${img.status})`); return; }
@@ -117,17 +116,17 @@ async function seed(key, term) {
   });
   if (!up.ok) { console.log(`${key.padEnd(5)} storage upload failed (${up.status}) ${await up.text()}`); return; }
 
-  const row = {
-    key, storage_path: storagePath, content_type: contentType,
-    attribution: `${hit.author} · via Wikimedia Commons`,
-    license: hit.license, source_url: hit.sourceUrl, status: 'approved',
-  };
+  // Replace the previously-seeded row for this key (submitted_by is null = seeded, not a community upload).
+  await fetch(`${SUPABASE_URL}/rest/v1/aircraft_images?key=eq.${key}&submitted_by=is.null`, { method: 'DELETE', headers: AUTH });
   const ins = await fetch(`${SUPABASE_URL}/rest/v1/aircraft_images`, {
     method: 'POST', headers: { ...AUTH, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
-    body: JSON.stringify(row),
+    body: JSON.stringify({
+      key, storage_path: storagePath, content_type: contentType,
+      attribution: `${hit.author} · via Wikimedia Commons`, license: hit.license, source_url: hit.sourceUrl, status: 'approved',
+    }),
   });
   if (!ins.ok) { console.log(`${key.padEnd(5)} row insert failed (${ins.status}) ${await ins.text()}`); return; }
-  console.log(`${key.padEnd(5)} seeded — ${hit.license}, ${hit.author}`);
+  console.log(`${key.padEnd(5)} seeded — ${hit.w}x${hit.h} ${hit.license}, ${hit.author}`);
 }
 
 console.log(`Seeding ${FLEET.length} aircraft images into ${SUPABASE_URL} ...`);
