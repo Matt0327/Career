@@ -267,6 +267,22 @@ public sealed class CloudGateway
         catch { return null; }
     }
 
+    /// <summary>The credit (attribution + license) for the approved index image of a key, for the caption.</summary>
+    public async Task<(string? Attribution, string? License, string? SourceUrl)?> GetTypeImageMetaAsync(string key)
+    {
+        try
+        {
+            var k = Uri.EscapeDataString(key.Trim().ToUpperInvariant());
+            var resp = await _http.SendAsync(Rest(HttpMethod.Get,
+                $"/rest/v1/aircraft_images?key=eq.{k}&status=eq.approved&select=attribution,license,source_url&order=sort_rank.desc&limit=1", authed: false));
+            if (!resp.IsSuccessStatusCode) return null;
+            var rows = await ReadAsync<List<ImageMetaRow>>(resp);
+            if (rows is not { Count: > 0 }) return null;
+            return (rows[0].Attribution, rows[0].License, rows[0].SourceUrl);
+        }
+        catch { return null; }
+    }
+
     // ── leaderboards ────────────────────────────────────────────────────────────────────────────────
     public async Task<Result> SubmitLeaderboardAsync(LeaderboardSubmit stats)
     {
@@ -384,6 +400,12 @@ public sealed class CloudGateway
     {
         public string? StoragePath { get; set; }
         public string? ContentType { get; set; }
+    }
+    private sealed class ImageMetaRow
+    {
+        public string? Attribution { get; set; }
+        public string? License { get; set; }
+        public string? SourceUrl { get; set; }
     }
     private sealed class RpcRow
     {

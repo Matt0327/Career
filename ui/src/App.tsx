@@ -597,12 +597,22 @@ function SettlementCard({ settled }: { settled: Settled }) {
 // (so it looks intentional on a machine with no MSFS, or for an aircraft that ships no thumbnail).
 function AircraftImage({ typeId, category, mini }: { typeId?: string; category?: string; mini?: boolean }) {
   const [failed, setFailed] = useState(false)
-  useEffect(() => { setFailed(false) }, [typeId])
+  const [credit, setCredit] = useState<string | null>(null)
+  useEffect(() => {
+    setFailed(false); setCredit(null)
+    if (!typeId || mini) return // caption only on the larger cards, and never for your own local thumbnail
+    let live = true
+    api.aircraftImageMeta(typeId)
+      .then(m => { if (live && m?.attribution) setCredit(`${m.attribution}${m.license ? ' · ' + m.license : ''}`) })
+      .catch(() => {})
+    return () => { live = false }
+  }, [typeId, mini])
   return (
     <div className={`ac-img ${mini ? 'mini' : ''}`}>
       {typeId && !failed
         ? <img src={api.aircraftImageUrl(typeId)} alt="" loading="lazy" onError={() => setFailed(true)} />
         : <AircraftSilhouette category={category} />}
+      {credit && !failed && <span className="ac-credit" title={credit}>{credit}</span>}
     </div>
   )
 }

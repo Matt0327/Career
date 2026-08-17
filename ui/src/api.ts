@@ -447,6 +447,12 @@ export interface CloudResult {
   error?: string
 }
 
+export interface ImageMeta {
+  attribution?: string | null
+  license?: string | null
+  sourceUrl?: string | null
+}
+
 export interface LeaderboardRow {
   position: number
   displayName: string
@@ -542,6 +548,7 @@ export const api = {
   hangar: () => fetch('/api/aircraft').then(ok<OwnedAircraft[]>),
   aircraftThumbUrl: (typeId: string) => `/api/aircraft/type/${typeId}/thumbnail`,
   aircraftImageUrl: (typeId: string) => `/api/aircraft/type/${typeId}/image`,
+  aircraftImageMeta: (typeId: string) => fetch(`/api/aircraft/type/${typeId}/image/meta`).then(ok<ImageMeta>),
   quals: () => fetch('/api/quals').then(ok<QualClass[]>),
   beginCheckFlight: (cls: string) => POST('/api/checkflights/begin', { class: cls }).then(ok),
   buyAircraft: (typeId: string) => POST_IDEM('/api/aircraft/buy', { typeId }).then(ok),

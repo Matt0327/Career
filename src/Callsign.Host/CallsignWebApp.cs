@@ -486,6 +486,20 @@ public static class CallsignWebApp
             return Results.NotFound();
         });
 
+        // The credit for whatever the cascade shows: nothing for the player's own installed thumbnail
+        // (their asset), else the cloud index image's attribution + license — for the on-image caption.
+        app.MapGet("/api/aircraft/type/{typeId:guid}/image/meta", async (Guid typeId, CallsignDbContext db, Callsign.Host.Cloud.CloudGateway cloud) =>
+        {
+            var pkg = await db.InstalledPackages.FirstOrDefaultAsync(p => p.AircraftTypeId == typeId && p.IsOnDisk);
+            if (pkg is not null && MsfsInstallLocator.TryGetInstalledPackagesPath(out var ipp)
+                && AircraftThumbnails.TryResolve(ipp, pkg.Source, pkg.PackageFolder, pkg.AircraftFolder) is not null)
+                return Results.Ok(new { attribution = (string?)null, license = (string?)null, sourceUrl = (string?)null });
+
+            var type = await db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == typeId);
+            var meta = type is null ? null : await cloud.GetTypeImageMetaAsync(type.Key);
+            return Results.Ok(new { attribution = meta?.Attribution, license = meta?.License, sourceUrl = meta?.SourceUrl });
+        });
+
         app.MapPost("/api/aircraft/{id:guid}/maintain", async (Guid id, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, AircraftDealerService dealer) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
