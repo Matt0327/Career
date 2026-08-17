@@ -1,16 +1,17 @@
 -- Callsign Cloud — Supabase-native backend schema.
 --
--- Apply this to a fresh Supabase project (SQL Editor → paste → Run, or `supabase db push`).
+-- Apply this to a Supabase project (SQL Editor → paste → Run, or `supabase db push`).
 -- It defines the whole online backend: profiles, cloud-save metadata, the aircraft-image index, and
 -- leaderboards — with Row-Level Security so the database itself guarantees a player can only touch their
 -- own data. Auth is Supabase Auth (auth.users); large blobs (save files, images) live in Storage.
 --
+-- This script is idempotent — safe to run more than once (e.g. after a partial run).
 -- Design mirrors the C# server we proved locally (Callsign.Server), so the client contracts barely change.
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Profiles: one public row per auth user (display name shown on leaderboards).
 -- ─────────────────────────────────────────────────────────────────────────────
-create table public.profiles (
+create table if not exists public.profiles (
   id           uuid primary key references auth.users (id) on delete cascade,
   display_name text not null default 'Pilot' check (char_length(display_name) between 2 and 40),
   is_admin     boolean not null default false,   -- moderates the image index (grant manually, see the guide)
@@ -25,11 +26,13 @@ security definer set search_path = public
 as $$
 begin
   insert into public.profiles (id, display_name)
-  values (new.id, coalesce(nullif(new.raw_user_meta_data ->> 'display_name', ''), 'Pilot'));
+  values (new.id, coalesce(nullif(new.raw_user_meta_data ->> 'display_name', ''), 'Pilot'))
+  on conflict (id) do nothing;
   return new;
 end;
 $$;
 
+drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
@@ -46,7 +49,7 @@ $$;
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Cloud saves: metadata only. The save file lives in Storage at saves/{user_id}/save.db.
 -- ─────────────────────────────────────────────────────────────────────────────
-create table public.cloud_saves (
+create table if not exists public.cloud_saves (
   user_id    uuid primary key references auth.users (id) on delete cascade,
   size_bytes bigint not null default 0,
   device     text,
@@ -58,9 +61,13 @@ create table public.cloud_saves (
 -- Keyed by the stable AircraftType.Key (e.g. 'C172'). Clean-room: license + attribution are mandatory,
 -- and only 'approved' rows are ever served.
 -- ─────────────────────────────────────────────────────────────────────────────
-create type public.image_status as enum ('pending', 'approved', 'rejected');
+do $$ begin
+  create type public.image_status as enum ('pending', 'approved', 'rejected');
+exception
+  when duplicate_object then null;
+end $$;
 
-create table public.aircraft_images (
+create table if not exists public.aircraft_images (
   id           uuid primary key default gen_random_uuid(),
   key          text not null,
   storage_path text not null,
@@ -73,25 +80,26 @@ create table public.aircraft_images (
   sort_rank    int not null default 0,
   created_at   timestamptz not null default now()
 );
-create index aircraft_images_key_status on public.aircraft_images (key, status);
+create index if not exists aircraft_images_key_status on public.aircraft_images (key, status);
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Leaderboards: one standing per player. Self-reported for now (the app clamps); authoritative
 -- validation arrives with the shared economy. Display name is joined from profiles, never duplicated.
 -- ─────────────────────────────────────────────────────────────────────────────
-create table public.leaderboard_stats (
-  user_id         uuid primary key references auth.users (id) on delete cascade,
-  net_worth_cents bigint not null default 0 check (net_worth_cents >= 0),
-  flights         int    not null default 0 check (flights >= 0),
-  reputation_milli int   not null default 0,
-  xp              bigint not null default 0 check (xp >= 0),
-  rank_key        text,
-  updated_at      timestamptz not null default now()
+create table if not exists public.leaderboard_stats (
+  user_id          uuid primary key references auth.users (id) on delete cascade,
+  net_worth_cents  bigint not null default 0 check (net_worth_cents >= 0),
+  flights          int    not null default 0 check (flights >= 0),
+  reputation_milli int    not null default 0,
+  xp               bigint not null default 0 check (xp >= 0),
+  rank_key         text,
+  updated_at       timestamptz not null default now()
 );
 
 -- A ranked board by metric. Called from the client via PostgREST RPC (/rest/v1/rpc/leaderboard).
+-- "position" is quoted because it is a reserved word in SQL.
 create or replace function public.leaderboard(board text, lim int default 100)
-returns table (position bigint, user_id uuid, display_name text, value bigint, rank_key text)
+returns table ("position" bigint, user_id uuid, display_name text, "value" bigint, rank_key text)
 language sql stable
 as $$
   with scored as (
@@ -106,7 +114,7 @@ as $$
     from public.leaderboard_stats s
     join public.profiles p on p.id = s.user_id
   )
-  select row_number() over (order by value desc) as position, user_id, display_name, value, rank_key
+  select row_number() over (order by value desc) as "position", user_id, display_name, value, rank_key
   from scored
   order by value desc
   limit greatest(1, least(lim, 500));
@@ -121,26 +129,37 @@ alter table public.aircraft_images    enable row level security;
 alter table public.leaderboard_stats  enable row level security;
 
 -- profiles: everyone may read (leaderboard names); you may edit only your own.
-create policy "profiles readable"     on public.profiles         for select using (true);
-create policy "update own profile"    on public.profiles         for update using (auth.uid() = id);
+drop policy if exists "profiles readable"  on public.profiles;
+drop policy if exists "update own profile" on public.profiles;
+create policy "profiles readable"  on public.profiles for select using (true);
+create policy "update own profile" on public.profiles for update using (auth.uid() = id);
 
 -- cloud_saves: strictly your own row.
-create policy "own save select"       on public.cloud_saves      for select using (auth.uid() = user_id);
-create policy "own save insert"       on public.cloud_saves      for insert with check (auth.uid() = user_id);
-create policy "own save update"       on public.cloud_saves      for update using (auth.uid() = user_id);
+drop policy if exists "own save select" on public.cloud_saves;
+drop policy if exists "own save insert" on public.cloud_saves;
+drop policy if exists "own save update" on public.cloud_saves;
+create policy "own save select" on public.cloud_saves for select using (auth.uid() = user_id);
+create policy "own save insert" on public.cloud_saves for insert with check (auth.uid() = user_id);
+create policy "own save update" on public.cloud_saves for update using (auth.uid() = user_id);
 
 -- aircraft_images: public sees approved; you see your own submissions; admins see all. Submit as pending
 -- (yourself); only admins change status.
-create policy "images visible"        on public.aircraft_images  for select
+drop policy if exists "images visible"  on public.aircraft_images;
+drop policy if exists "images submit"   on public.aircraft_images;
+drop policy if exists "images moderate" on public.aircraft_images;
+create policy "images visible"  on public.aircraft_images for select
   using (status = 'approved' or auth.uid() = submitted_by or public.is_admin());
-create policy "images submit"         on public.aircraft_images  for insert
+create policy "images submit"   on public.aircraft_images for insert
   with check (auth.uid() = submitted_by and status = 'pending');
-create policy "images moderate"       on public.aircraft_images  for update using (public.is_admin());
+create policy "images moderate" on public.aircraft_images for update using (public.is_admin());
 
 -- leaderboard_stats: public reads; you upsert only your own standing.
-create policy "leaderboard readable"  on public.leaderboard_stats for select using (true);
-create policy "own standing insert"   on public.leaderboard_stats for insert with check (auth.uid() = user_id);
-create policy "own standing update"   on public.leaderboard_stats for update using (auth.uid() = user_id);
+drop policy if exists "leaderboard readable" on public.leaderboard_stats;
+drop policy if exists "own standing insert"  on public.leaderboard_stats;
+drop policy if exists "own standing update"  on public.leaderboard_stats;
+create policy "leaderboard readable" on public.leaderboard_stats for select using (true);
+create policy "own standing insert"  on public.leaderboard_stats for insert with check (auth.uid() = user_id);
+create policy "own standing update"  on public.leaderboard_stats for update using (auth.uid() = user_id);
 
 -- Table + function grants (RLS still governs which rows; these govern table-level access).
 grant select on public.profiles to anon, authenticated;
@@ -161,11 +180,14 @@ values ('saves', 'saves', false), ('aircraft-images', 'aircraft-images', true)
 on conflict (id) do nothing;
 
 -- saves: a user may only touch files under saves/{their uid}/...
+drop policy if exists "own save files" on storage.objects;
 create policy "own save files" on storage.objects for all
   using      (bucket_id = 'saves' and (storage.foldername(name))[1] = auth.uid()::text)
   with check (bucket_id = 'saves' and (storage.foldername(name))[1] = auth.uid()::text);
 
 -- aircraft-images: anyone may read; any signed-in user may upload (the DB row governs moderation).
+drop policy if exists "aircraft images public read" on storage.objects;
+drop policy if exists "aircraft images upload"      on storage.objects;
 create policy "aircraft images public read" on storage.objects for select
   using (bucket_id = 'aircraft-images');
 create policy "aircraft images upload" on storage.objects for insert
