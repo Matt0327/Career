@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api, money,
   type Achievement, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type CheckFlightDone, type CloudSaveMeta, type CloudStatus, type Diverted,
-  type FinancesData, type FlightLog, type Insurance, type Inventory, type Job, type LeaderboardRow, type LedgerEntry, type Loan, type LoanOffer, type Loans, type MyStanding,
+  type FinancesData, type FlightLog, type Insurance, type Inventory, type Job, type LeaderboardRow, type LedgerEntry, type Loan, type LoanOffer, type Loans,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
   type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type VersionInfo, type WsEvent,
 } from './api'
@@ -1570,7 +1570,6 @@ function Community() {
   const [status, setStatus] = useState<CloudStatus | null>(null)
   const [board, setBoard] = useState<string>('networth')
   const [rows, setRows] = useState<LeaderboardRow[]>([])
-  const [mine, setMine] = useState<MyStanding | null>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
 
@@ -1580,7 +1579,6 @@ function Community() {
       const s = await api.cloud.status(); setStatus(s)
       if (!s.signedIn) return
       await api.cloud.submitStanding().catch(() => undefined)
-      setMine(await api.cloud.myStanding().catch(() => null))
     } catch (e) { setMsg(cleanErr(e)) }
   }, [])
   useEffect(() => { void init() }, [init])
@@ -1595,7 +1593,6 @@ function Community() {
     try {
       const r = await api.cloud.submitStanding()
       if (!r.ok) { setMsg(r.error ?? 'Could not submit your standing.'); return }
-      setMine(await api.cloud.myStanding().catch(() => null))
       await loadBoard(board)
       setMsg('Your standing is up to date.')
     } finally { setBusy(false) }
@@ -1612,9 +1609,7 @@ function Community() {
     )
   }
 
-  const myPos = mine
-    ? ({ networth: mine.netWorth, flights: mine.flights, reputation: mine.reputation, xp: mine.xp } as Record<string, number | null | undefined>)[board]
-    : null
+  const myPos = rows.find(r => r.isYou)?.position ?? null
   const boardLabel = BOARDS.find(b => b.key === board)?.label
 
   return (

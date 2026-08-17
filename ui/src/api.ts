@@ -583,7 +583,6 @@ export const api = {
     push: () => cloudPost('/api/cloud/push'),
     pull: () => cloudPost('/api/cloud/pull'),
     leaderboard: (board: string) => fetch(`/api/cloud/leaderboard?board=${encodeURIComponent(board)}`).then(ok<LeaderboardRow[]>),
-    myStanding: () => fetch('/api/cloud/leaderboard/me').then(ok<MyStanding>),
     submitStanding: () => cloudPost('/api/cloud/leaderboard/submit'),
   },
 }

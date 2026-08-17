@@ -38,13 +38,17 @@ public static class CallsignWebApp
         builder.Services.AddDbContext<CallsignDbContext>(o => o.UseSqlite($"Data Source={dbPath}"));
         builder.Services.AddSingleton(new SaveService(dbPath));
 
-        // --- Callsign Cloud gateway: the app reaches the online service THROUGH the Host (no CORS, the
-        //     session token never sits in the browser, and save transfers stream server-to-server). The
-        //     base URL is overridable via config "Cloud:BaseUrl" / env Cloud__BaseUrl. ---
-        var cloudBaseUrl = builder.Configuration["Cloud:BaseUrl"] ?? "http://127.0.0.1:5218";
+        // --- Callsign Cloud gateway: the app reaches Callsign Cloud (Supabase) THROUGH the Host (no CORS,
+        //     the session lives in the Host not the browser, save transfers stream server-to-server). URL +
+        //     anon key are overridable via config "Supabase:Url" / "Supabase:AnonKey". The anon key is a
+        //     public, ship-safe value — Row-Level Security is what actually protects data. ---
+        var supabaseUrl = builder.Configuration["Supabase:Url"] ?? "https://ewmjygogceutvgalnlns.supabase.co";
+        var supabaseAnonKey = builder.Configuration["Supabase:AnonKey"]
+            ?? "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3bWp5Z29nY2V1dHZnYWxubG5zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5Njc0OTAsImV4cCI6MjEwMjU0MzQ5MH0.-UhY1YC2chis3cc1uDS3oq9LXolk3ivNZcBmQHTB3nE";
         var cloudSessionPath = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(dbPath))!, "cloud-session.json");
+        builder.Services.AddSingleton(new Callsign.Host.Cloud.SupabaseConfig(supabaseUrl, supabaseAnonKey));
         builder.Services.AddSingleton(new Callsign.Host.Cloud.CloudSession(cloudSessionPath));
-        builder.Services.AddHttpClient<Callsign.Host.Cloud.CloudGateway>(c => c.BaseAddress = new Uri(cloudBaseUrl));
+        builder.Services.AddHttpClient<Callsign.Host.Cloud.CloudGateway>(c => c.BaseAddress = new Uri(supabaseUrl));
         var imageCacheDir = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(dbPath))!, "image-cache");
         builder.Services.AddSingleton(new Callsign.Host.Cloud.AircraftImageCache(imageCacheDir));
 
@@ -247,8 +251,8 @@ public static class CallsignWebApp
             Results.Ok(new
             {
                 signedIn = cloud.Session.IsSignedIn,
-                email = cloud.Session.Profile?.Email,
-                displayName = cloud.Session.Profile?.DisplayName,
+                email = cloud.Session.Email,
+                displayName = cloud.Session.DisplayName,
                 baseUrl = cloud.BaseUrl,
             }));
 
@@ -304,12 +308,6 @@ public static class CallsignWebApp
 
         app.MapGet("/api/cloud/leaderboard", async (string? board, int? limit, Callsign.Host.Cloud.CloudGateway cloud) =>
             Results.Ok(await cloud.GetLeaderboardAsync(board ?? "networth", Math.Clamp(limit ?? 100, 1, 500))));
-
-        app.MapGet("/api/cloud/leaderboard/me", async (Callsign.Host.Cloud.CloudGateway cloud) =>
-        {
-            if (!cloud.Session.IsSignedIn) return Results.Unauthorized();
-            return Results.Ok(await cloud.GetMyStandingAsync() ?? new Callsign.Host.Cloud.MyStanding(null, null, null, null));
-        });
 
         app.MapPost("/api/game/new", async (NewCareerRequest req, GameSetupService setup) =>
         {

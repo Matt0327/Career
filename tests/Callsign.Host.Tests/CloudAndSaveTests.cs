@@ -21,13 +21,13 @@ public class CloudSessionTests
         {
             var first = new CloudSession(path);
             Assert.False(first.IsSignedIn);
-            first.Set("tok-123", new CloudProfile("id-1", "a@b.com", "Ace", null));
+            first.Set("tok-123", "refresh-1", DateTimeOffset.UtcNow.AddHours(1), "id-1", "a@b.com", "Ace");
 
             var reloaded = new CloudSession(path); // a fresh instance loads from disk, as after a restart
             Assert.True(reloaded.IsSignedIn);
-            Assert.Equal("tok-123", reloaded.Token);
-            Assert.Equal("a@b.com", reloaded.Profile!.Email);
-            Assert.Equal("Ace", reloaded.Profile!.DisplayName);
+            Assert.Equal("tok-123", reloaded.AccessToken);
+            Assert.Equal("a@b.com", reloaded.Email);
+            Assert.Equal("Ace", reloaded.DisplayName);
         }
         finally { File.Delete(path); }
     }
@@ -37,7 +37,7 @@ public class CloudSessionTests
     {
         var path = TempPath();
         var session = new CloudSession(path);
-        session.Set("tok", new CloudProfile("id", "a@b.com", "Ace", null));
+        session.Set("tok", null, DateTimeOffset.UtcNow.AddHours(1), "id", "a@b.com", "Ace");
         Assert.True(File.Exists(path));
 
         session.Clear();
