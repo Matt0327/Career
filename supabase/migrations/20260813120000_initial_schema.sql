@@ -192,3 +192,49 @@ create policy "aircraft images public read" on storage.objects for select
   using (bucket_id = 'aircraft-images');
 create policy "aircraft images upload" on storage.objects for insert
   with check (bucket_id = 'aircraft-images' and auth.role() = 'authenticated');
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Community aircraft catalog: the union of aircraft types players actually have. It grows as the app
+-- reports what it scans — only aircraft-type facts (ICAO key + name), never who owns what. Drives image
+-- seeding coverage toward "everything anyone flies", cleanly.
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists public.aircraft_catalog (
+  key          text primary key,
+  display_name text not null default '',
+  manufacturer text,
+  category     text,
+  seen_count   int not null default 1,
+  updated_at   timestamptz not null default now()
+);
+
+alter table public.aircraft_catalog enable row level security;
+drop policy if exists "catalog readable" on public.aircraft_catalog;
+create policy "catalog readable" on public.aircraft_catalog for select using (true);
+grant select on public.aircraft_catalog to anon, authenticated;
+
+-- Register (upsert) a batch of aircraft types. security definer so signed-in players can grow the catalog
+-- under RLS; it only writes type metadata. Payload example:
+--   [{"key":"C172","name":"Cessna 172","manufacturer":"Cessna","category":"LightSingle"}, ...]
+create or replace function public.register_aircraft(items jsonb)
+returns void
+language plpgsql
+security definer set search_path = public
+as $$
+declare it jsonb;
+begin
+  for it in select * from jsonb_array_elements(coalesce(items, '[]'::jsonb))
+  loop
+    continue when coalesce(it->>'key','') = '';
+    insert into public.aircraft_catalog (key, display_name, manufacturer, category)
+    values (upper(trim(it->>'key')), coalesce(it->>'name',''), nullif(it->>'manufacturer',''), nullif(it->>'category',''))
+    on conflict (key) do update set
+      display_name = coalesce(nullif(excluded.display_name,''), public.aircraft_catalog.display_name),
+      manufacturer = coalesce(excluded.manufacturer, public.aircraft_catalog.manufacturer),
+      category     = coalesce(excluded.category, public.aircraft_catalog.category),
+      seen_count   = public.aircraft_catalog.seen_count + 1,
+      updated_at   = now();
+  end loop;
+end;
+$$;
+
+grant execute on function public.register_aircraft(jsonb) to authenticated;

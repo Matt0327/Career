@@ -309,6 +309,20 @@ public static class CallsignWebApp
         app.MapGet("/api/cloud/leaderboard", async (string? board, int? limit, Callsign.Host.Cloud.CloudGateway cloud) =>
             Results.Ok(await cloud.GetLeaderboardAsync(board ?? "networth", Math.Clamp(limit ?? 100, 1, 500))));
 
+        // Report the aircraft types this app knows into the shared community catalog (facts only).
+        app.MapPost("/api/cloud/aircraft/report", async (CallsignDbContext db, Callsign.Host.Cloud.CloudGateway cloud) =>
+        {
+            if (!cloud.Session.IsSignedIn) return Results.Ok(new { reported = 0 });
+            var types = await db.AircraftTypes.AsNoTracking()
+                .Select(t => new { t.Key, t.CanonicalName, t.Manufacturer, t.Category })
+                .ToListAsync();
+            var items = types
+                .Select(t => (object)new { key = t.Key, name = t.CanonicalName, manufacturer = t.Manufacturer, category = t.Category.ToString() })
+                .ToList();
+            if (items.Count > 0) await cloud.ReportAircraftAsync(items);
+            return Results.Ok(new { reported = items.Count });
+        });
+
         app.MapPost("/api/game/new", async (NewCareerRequest req, GameSetupService setup) =>
         {
             var (company, pilot) = await setup.StartNewCareerAsync(

@@ -324,6 +324,20 @@ public sealed class CloudGateway
         catch { return new List<LeaderboardRow>(); }
     }
 
+    /// <summary>Report the aircraft types the app knows (facts only) into the shared community catalog.</summary>
+    public async Task ReportAircraftAsync(IEnumerable<object> items)
+    {
+        if (!Session.IsSignedIn) return;
+        await EnsureFreshTokenAsync();
+        try
+        {
+            var req = Rest(HttpMethod.Post, "/rest/v1/rpc/register_aircraft", authed: true);
+            req.Content = JsonContent.Create(new { items }, options: Json);
+            await _http.SendAsync(req);
+        }
+        catch { /* catalog reporting is best-effort */ }
+    }
+
     // ── plumbing ────────────────────────────────────────────────────────────────────────────────────
     private HttpRequestMessage Rest(HttpMethod method, string path, bool authed)
     {

@@ -113,12 +113,37 @@ async function findBestImage(term) {
   };
 }
 
-async function seed(key, term) {
+async function alreadyApproved(key) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/aircraft_images?key=eq.${key}&status=eq.approved&select=id&limit=1`, { headers: AUTH });
+  const rows = await r.json().catch(() => []);
+  return Array.isArray(rows) && rows.length > 0;
+}
+
+// Bootstrap the shared catalog with a set of {key, display_name} rows (upsert, keeps player reports).
+async function upsertCatalog(rows) {
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/aircraft_catalog?on_conflict=key`, {
+      method: 'POST', headers: { ...AUTH, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify(rows),
+    });
+  } catch { /* best-effort */ }
+}
+
+async function readCatalog() {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/aircraft_catalog?select=key,display_name`, { headers: AUTH });
+    const rows = await r.json();
+    return Array.isArray(rows) ? rows : [];
+  } catch { return []; }
+}
+
+async function seed(key, term, refresh) {
+  if (!refresh && await alreadyApproved(key)) { console.log(`${String(key).padEnd(5)} has an image — skip`); return; }
   const hit = await findBestImage(term);
-  if (!hit) { console.log(`${key.padEnd(5)} no good full-aircraft image found for "${term}"`); return; }
+  if (!hit) { console.log(`${String(key).padEnd(5)} no good full-aircraft image for "${term}"`); return; }
 
   const img = await fetch(hit.downloadUrl, { headers: { 'User-Agent': UA } });
-  if (!img.ok) { console.log(`${key.padEnd(5)} download failed (${img.status})`); return; }
+  if (!img.ok) { console.log(`${String(key).padEnd(5)} download failed (${img.status})`); return; }
   const bytes = Buffer.from(await img.arrayBuffer());
   const ext = /\.png($|\?)/i.test(hit.downloadUrl) ? 'png' : 'jpg';
   const contentType = ext === 'png' ? 'image/png' : 'image/jpeg';
@@ -127,10 +152,9 @@ async function seed(key, term) {
   const up = await fetch(`${SUPABASE_URL}/storage/v1/object/aircraft-images/${storagePath}`, {
     method: 'POST', headers: { ...AUTH, 'Content-Type': contentType, 'x-upsert': 'true' }, body: bytes,
   });
-  if (!up.ok) { console.log(`${key.padEnd(5)} storage upload failed (${up.status}) ${await up.text()}`); return; }
+  if (!up.ok) { console.log(`${String(key).padEnd(5)} upload failed (${up.status}) ${await up.text()}`); return; }
 
-  // Replace the previously-seeded row for this key (submitted_by is null = seeded, not a community upload).
-  await fetch(`${SUPABASE_URL}/rest/v1/aircraft_images?key=eq.${key}&submitted_by=is.null`, { method: 'DELETE', headers: AUTH });
+  if (refresh) await fetch(`${SUPABASE_URL}/rest/v1/aircraft_images?key=eq.${key}&submitted_by=is.null`, { method: 'DELETE', headers: AUTH });
   const ins = await fetch(`${SUPABASE_URL}/rest/v1/aircraft_images`, {
     method: 'POST', headers: { ...AUTH, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
     body: JSON.stringify({
@@ -138,12 +162,21 @@ async function seed(key, term) {
       attribution: `${hit.author} · via Wikimedia Commons`, license: hit.license, source_url: hit.sourceUrl, status: 'approved',
     }),
   });
-  if (!ins.ok) { console.log(`${key.padEnd(5)} row insert failed (${ins.status}) ${await ins.text()}`); return; }
-  console.log(`${key.padEnd(5)} seeded — ${hit.w}x${hit.h} ${hit.license}, ${hit.author}`);
+  if (!ins.ok) { console.log(`${String(key).padEnd(5)} insert failed (${ins.status}) ${await ins.text()}`); return; }
+  console.log(`${String(key).padEnd(5)} seeded — ${hit.w}x${hit.h} ${hit.license}, ${hit.author}`);
 }
 
-console.log(`Seeding ${FLEET.length} aircraft images into ${SUPABASE_URL} ...`);
-for (const [key, term] of FLEET) {
-  try { await seed(key, term); } catch (e) { console.log(`${key.padEnd(5)} error: ${e.message}`); }
+const refresh = process.env.SEED_REFRESH === '1';
+const fleetTerms = new Map(FLEET.map(([k, t]) => [k, t]));
+
+// Seed the whole community catalog (built-in fleet + whatever players have reported). The built-in fleet is
+// registered first so there's always content; player-reported types fill in over time.
+await upsertCatalog(FLEET.map(([key, term]) => ({ key, display_name: term })));
+const catalog = await readCatalog();
+const list = catalog.length ? catalog : FLEET.map(([key, term]) => ({ key, display_name: term }));
+console.log(`Catalog: ${list.length} aircraft. Seeding images${refresh ? ' (refresh all)' : ' (missing only)'} into ${SUPABASE_URL} ...`);
+for (const { key, display_name } of list) {
+  const term = fleetTerms.get(key) || display_name || key;
+  try { await seed(key, term, refresh); } catch (e) { console.log(`${String(key).padEnd(5)} error: ${e.message}`); }
 }
 console.log('Done. Open the Hangar in Callsign to see them.');

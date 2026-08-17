@@ -18,6 +18,9 @@ export function App() {
   const [error, setError] = useState<string | null>(null)
   const [airline, setAirline] = useState<AirlineData | null>(null)
 
+  // Grow the shared aircraft catalog with the types this install knows (facts only, best-effort).
+  useEffect(() => { void api.cloud.reportAircraft().catch(() => undefined) }, [])
+
   const reload = useCallback(async () => {
     try {
       setState(await api.state())

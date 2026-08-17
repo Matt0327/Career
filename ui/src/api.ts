@@ -591,6 +591,7 @@ export const api = {
     pull: () => cloudPost('/api/cloud/pull'),
     leaderboard: (board: string) => fetch(`/api/cloud/leaderboard?board=${encodeURIComponent(board)}`).then(ok<LeaderboardRow[]>),
     submitStanding: () => cloudPost('/api/cloud/leaderboard/submit'),
+    reportAircraft: () => cloudPost('/api/cloud/aircraft/report'),
   },
 }
 
