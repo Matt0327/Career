@@ -104,7 +104,29 @@ public record InventoryDto(
 public record TradeRequest(string Good, int Qty);
 public record TradeResultDto(int Quantity, long ProceedsCents, long CostBasisCents, long PnlCents);
 
-public record FlightDto(Guid Id, string AircraftTitle, double TouchdownFpm, long PayoutCents, int Xp, DateTimeOffset SettledAt);
+// --- Logbook (Phase 6): the widened flight row, the per-flight drill-down, and lifetime totals ---
+public record FlightDto(
+    Guid Id, string AircraftTitle, Guid? AircraftTypeId, string? Tail, string? Mission,
+    string Origin, string Dest, string DestName,
+    double DistanceNm, double FuelUsedLbs, double DurationHours, double TouchdownFpm,
+    long PayoutCents, int Xp,
+    DateTimeOffset DepartedAt, DateTimeOffset ArrivedAt, DateTimeOffset SettledAt,
+    double OriginLat, double OriginLon, double DestLat, double DestLon);
+
+public record FlightDetailDto(
+    Guid Id, string AircraftTitle, Guid? AircraftTypeId, string? Tail, string? AircraftName, string? AircraftCategory,
+    string? Mission, string Origin, string OriginName, string Dest, string DestName,
+    double DistanceNm, double FuelUsedLbs, double DurationHours, double TouchdownFpm,
+    long PayoutCents, int Xp,
+    DateTimeOffset DepartedAt, DateTimeOffset ArrivedAt, DateTimeOffset SettledAt,
+    double OriginLat, double OriginLon, double DestLat, double DestLon,
+    int? Pax, int? WeightLbs, string? Commodity,
+    IReadOnlyList<PayoutLineDto> Lines);
+
+public record FlightTotalsDto(
+    int Flights, double TotalHours, double TotalDistanceNm, double TotalFuelLbs,
+    long LifetimeEarningsCents, int TotalXp, double AvgTouchdownFpm, double BestTouchdownFpm,
+    long BestPayoutCents, double LongestLegNm);
 
 public record BeginFlightRequest(Guid AssignmentId, Guid? AircraftInstanceId);
 

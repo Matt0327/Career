@@ -1,6 +1,7 @@
 using Callsign.Core.Achievements;
 using Callsign.Core.Aircraft;
 using Callsign.Core.Airline;
+using System.Text.Json;
 using Callsign.Core.Airports;
 using Callsign.Core.Campaigns;
 using Callsign.Core.Data;
@@ -875,10 +876,96 @@ public static class CallsignWebApp
             return Results.Ok(entries.Select(e => new LedgerDto(e.At, e.Category.ToString(), e.AmountCents, e.Description)));
         });
 
-        app.MapGet("/api/flights", async (CallsignDbContext db) =>
+        // The logbook feed (Phase 6): widened, joined flight rows. Paged via ?skip&take; the frozen
+        // JobAssignment supplies dep/arr ICAO + mission, Airports supply coords + name, the owned airframe
+        // supplies the tail. Newest-first.
+        app.MapGet("/api/flights", async (int? skip, int? take, CallsignDbContext db) =>
         {
-            var flights = await db.Flights.OrderByDescending(f => f.SettledAt).Take(50).ToListAsync();
-            return Results.Ok(flights.Select(f => new FlightDto(f.Id, f.AircraftTitle, f.TouchdownFpm, f.PayoutCents, f.Xp, f.SettledAt)));
+            var n = Math.Clamp(take ?? 50, 1, 200);
+            var s = Math.Max(0, skip ?? 0);
+            var flights = await db.Flights.OrderByDescending(f => f.SettledAt).Skip(s).Take(n).ToListAsync();
+
+            var asgIds = flights.Where(f => f.JobAssignmentId is not null).Select(f => f.JobAssignmentId!.Value).Distinct().ToList();
+            var asgs = await db.JobAssignments.Where(a => asgIds.Contains(a.Id)).ToDictionaryAsync(a => a.Id, a => a);
+            var instIds = flights.Where(f => f.AircraftInstanceId is not null).Select(f => f.AircraftInstanceId!.Value).Distinct().ToList();
+            var tails = await db.AircraftInstances.Where(a => instIds.Contains(a.Id)).ToDictionaryAsync(a => a.Id, a => a.Tail);
+            var ports = await AirportsByIdentAsync(db, asgs.Values.SelectMany(a => new[] { a.OriginIcao, a.DestIcao }));
+
+            return Results.Ok(flights.Select(f =>
+            {
+                JobAssignment? a = f.JobAssignmentId is { } id && asgs.TryGetValue(id, out var av) ? av : null;
+                Callsign.Core.Domain.Airport? o = a is not null && ports.TryGetValue(a.OriginIcao, out var ov) ? ov : null;
+                Callsign.Core.Domain.Airport? d = a is not null && ports.TryGetValue(a.DestIcao, out var dv) ? dv : null;
+                double dur = Math.Max(0, (f.ArrivedAt - f.DepartedAt).TotalHours);
+                return new FlightDto(
+                    f.Id, f.AircraftTitle, f.AircraftTypeId,
+                    f.AircraftInstanceId is { } iid && tails.TryGetValue(iid, out var t) ? t : null,
+                    a?.Type.ToString(),
+                    a?.OriginIcao ?? "—", a?.DestIcao ?? "—", d?.Name ?? a?.DestIcao ?? "—",
+                    f.DistanceNm, f.FuelUsedLbs, dur, f.TouchdownFpm, f.PayoutCents, f.Xp,
+                    f.DepartedAt, f.ArrivedAt, f.SettledAt,
+                    o?.Latitude ?? 0, o?.Longitude ?? 0, d?.Latitude ?? 0, d?.Longitude ?? 0);
+            }));
+        });
+
+        // Lifetime totals over EVERY flight — the logbook footer stays true past the paged window.
+        app.MapGet("/api/flights/totals", async (CallsignDbContext db) =>
+        {
+            var f = await db.Flights
+                .Select(x => new { x.DepartedAt, x.ArrivedAt, x.DistanceNm, x.FuelUsedLbs, x.TouchdownFpm, x.PayoutCents, x.Xp })
+                .ToListAsync();
+            if (f.Count == 0)
+                return Results.Ok(new FlightTotalsDto(0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
+            double hours = f.Sum(x => Math.Max(0, (x.ArrivedAt - x.DepartedAt).TotalHours));
+            return Results.Ok(new FlightTotalsDto(
+                f.Count, hours, f.Sum(x => x.DistanceNm), f.Sum(x => x.FuelUsedLbs),
+                f.Sum(x => x.PayoutCents), f.Sum(x => x.Xp),
+                f.Average(x => x.TouchdownFpm), f.Min(x => Math.Abs(x.TouchdownFpm)),
+                f.Max(x => x.PayoutCents), f.Max(x => x.DistanceNm)));
+        });
+
+        // One flight in full, incl. the itemised payout from the frozen breakdown JSON. The literal
+        // "/totals" route above always wins over this {id:guid}, so ordering is safe.
+        app.MapGet("/api/flights/{id:guid}", async (Guid id, CallsignDbContext db) =>
+        {
+            var f = await db.Flights.FirstOrDefaultAsync(x => x.Id == id);
+            if (f is null) return Results.NotFound();
+
+            JobAssignment? a = f.JobAssignmentId is { } aid
+                ? await db.JobAssignments.FirstOrDefaultAsync(x => x.Id == aid) : null;
+            var ports = a is null
+                ? new Dictionary<string, Callsign.Core.Domain.Airport>()
+                : await AirportsByIdentAsync(db, new[] { a.OriginIcao, a.DestIcao });
+            Callsign.Core.Domain.Airport? o = a is not null && ports.TryGetValue(a.OriginIcao, out var ov) ? ov : null;
+            Callsign.Core.Domain.Airport? d = a is not null && ports.TryGetValue(a.DestIcao, out var dv) ? dv : null;
+
+            string? tail = f.AircraftInstanceId is { } iid
+                ? (await db.AircraftInstances.FirstOrDefaultAsync(x => x.Id == iid))?.Tail : null;
+            string? acName = null, acCat = null;
+            if (f.AircraftTypeId is { } tid)
+            {
+                var ty = await db.AircraftTypes.FirstOrDefaultAsync(x => x.Id == tid);
+                acName = ty?.CanonicalName; acCat = ty?.Category.ToString();
+            }
+
+            var lines = new List<PayoutLineDto>();
+            try
+            {
+                var bd = JsonSerializer.Deserialize<Callsign.Core.Economy.PayoutBreakdown>(f.PayoutBreakdownJson);
+                if (bd is not null)
+                    lines = bd.Lines.Select(l => new PayoutLineDto(l.Label, l.AmountCents)).ToList();
+            }
+            catch { /* tolerate a legacy/empty breakdown — the row still renders without lines */ }
+
+            double dur = Math.Max(0, (f.ArrivedAt - f.DepartedAt).TotalHours);
+            return Results.Ok(new FlightDetailDto(
+                f.Id, f.AircraftTitle, f.AircraftTypeId, tail, acName, acCat,
+                a?.Type.ToString(), a?.OriginIcao ?? "—", o?.Name ?? a?.OriginIcao ?? "—",
+                a?.DestIcao ?? "—", d?.Name ?? a?.DestIcao ?? "—",
+                f.DistanceNm, f.FuelUsedLbs, dur, f.TouchdownFpm, f.PayoutCents, f.Xp,
+                f.DepartedAt, f.ArrivedAt, f.SettledAt,
+                o?.Latitude ?? 0, o?.Longitude ?? 0, d?.Latitude ?? 0, d?.Longitude ?? 0,
+                a?.Pax, a?.WeightLbs, a?.Commodity, lines));
         });
 
         // --- Live flight: begin tracking an accepted assignment; the next landing auto-settles it ---

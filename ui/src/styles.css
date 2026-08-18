@@ -610,3 +610,26 @@ input { font: inherit; }
 .jd-accept{align-self:stretch;margin-top:2px}
 .satmap.jobsmap{height:340px}
 .jobs-pick{min-height:130px;display:grid;place-items:center}
+
+/* ── Logbook (Phase 6: deep flight history) ─────────────────────────────────── */
+.logbook-screen{display:flex;flex-direction:column;gap:16px}
+.logbook-totals{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.logbook-filters{margin-bottom:12px}
+.logbook-work{align-items:start}
+.logbook-table th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
+.logbook-table th.sortable:hover{color:var(--ink)}
+.logbook-table td{white-space:nowrap}
+.logbook-foot td{border-top:2px solid var(--line);border-bottom:none;font-weight:700;color:var(--ink);position:sticky;bottom:0;background:var(--panel)}
+.logbook-foot td .muted{font-weight:500}
+.logbook-more{padding:12px;display:flex;justify-content:center;border-top:1px solid var(--line)}
+.satmap.logbookmap{height:360px}
+.flt-detail .ac-img{margin-top:2px}
+.flt-route-names{font-size:12.5px;margin-top:-4px}
+.flt-grid{grid-template-columns:repeat(3,1fr)}
+.flt-pay-head{margin-bottom:2px}
+.flt-when{font-size:12px;border-top:1px solid var(--line);padding-top:8px}
+.ledger-filter{font-family:var(--sans);font-size:13px;padding:5px 9px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+.ledger-cat{display:inline-flex;align-items:center;gap:9px}
+.ledger-glyph{width:24px;height:24px;flex:none;border-radius:7px;display:grid;place-items:center}
+.ledger-glyph svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.ledger-table td{vertical-align:middle}

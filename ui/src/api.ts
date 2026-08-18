@@ -82,10 +82,71 @@ export interface LedgerEntry {
 export interface FlightLog {
   id: string
   aircraftTitle: string
+  aircraftTypeId: string | null
+  tail: string | null
+  mission: string | null
+  origin: string
+  dest: string
+  destName: string
+  distanceNm: number
+  fuelUsedLbs: number
+  durationHours: number
   touchdownFpm: number
   payoutCents: number
   xp: number
+  departedAt: string
+  arrivedAt: string
   settledAt: string
+  originLat: number
+  originLon: number
+  destLat: number
+  destLon: number
+}
+
+export interface PayoutLine { label: string; amountCents: number }
+
+export interface FlightDetail {
+  id: string
+  aircraftTitle: string
+  aircraftTypeId: string | null
+  tail: string | null
+  aircraftName: string | null
+  aircraftCategory: string | null
+  mission: string | null
+  origin: string
+  originName: string
+  dest: string
+  destName: string
+  distanceNm: number
+  fuelUsedLbs: number
+  durationHours: number
+  touchdownFpm: number
+  payoutCents: number
+  xp: number
+  departedAt: string
+  arrivedAt: string
+  settledAt: string
+  originLat: number
+  originLon: number
+  destLat: number
+  destLon: number
+  pax: number | null
+  weightLbs: number | null
+  commodity: string | null
+  lines: PayoutLine[]
+}
+
+export interface FlightTotals {
+  flights: number
+  totalHours: number
+  totalDistanceNm: number
+  totalFuelLbs: number
+  lifetimeEarningsCents: number
+  totalXp: number
+  avgTouchdownFpm: number
+  bestTouchdownFpm: number
+  bestPayoutCents: number
+  longestLegNm: number
 }
 
 export interface PriceFactor {
@@ -557,7 +618,9 @@ export const api = {
   beginFlight: (assignmentId: string, aircraftInstanceId?: string) =>
     POST('/api/flight/begin', { assignmentId, aircraftInstanceId }).then(ok),
   ledger: (limit = 50) => fetch(`/api/ledger?limit=${limit}`).then(ok<LedgerEntry[]>),
-  flights: () => fetch('/api/flights').then(ok<FlightLog[]>),
+  flights: (skip = 0, take = 50): Promise<FlightLog[]> => fetch(`/api/flights?skip=${skip}&take=${take}`).then(ok<FlightLog[]>),
+  flight: (id: string) => fetch(`/api/flights/${id}`).then(ok<FlightDetail>),
+  flightTotals: () => fetch('/api/flights/totals').then(ok<FlightTotals>),
   market: () => fetch('/api/aircraft/market').then(ok<AircraftOffer[]>),
   hangar: () => fetch('/api/aircraft').then(ok<OwnedAircraft[]>),
   aircraftThumbUrl: (typeId: string) => `/api/aircraft/type/${typeId}/thumbnail`,

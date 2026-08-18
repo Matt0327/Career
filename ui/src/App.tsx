@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 import {
   api, money,
   type Achievement, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type CheckFlightDone, type CloudSaveMeta, type CloudStatus, type Diverted,
-  type FinancesData, type FlightLog, type Insurance, type Inventory, type Job, type LeaderboardRow, type LedgerEntry, type Loan, type LoanOffer, type Loans,
+  type FinancesData, type FlightLog, type FlightDetail, type FlightTotals, type Insurance, type Inventory, type Job, type LeaderboardRow, type LedgerEntry, type Loan, type LoanOffer, type Loans,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
   type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type VersionInfo, type WsEvent,
 } from './api'
@@ -1872,15 +1872,98 @@ function Finances({ state, onChanged }: { state: State; onChanged: () => void })
 
 // ─── Logbook ─────────────────────────────────────────────────────────────────
 
+// ─── Logbook (Phase 6: deep flight history + ledger) ─────────────────────────
+
+// Great-circle interpolation (slerp on the unit sphere) so long legs bow correctly on the map
+// instead of cutting a flat Mercator chord.
+function gcPoints(a: [number, number], b: [number, number], segs = 48): [number, number][] {
+  const rad = Math.PI / 180, deg = 180 / Math.PI
+  const lat1 = a[0] * rad, lon1 = a[1] * rad, lat2 = b[0] * rad, lon2 = b[1] * rad
+  const dLat = lat2 - lat1, dLon = lon2 - lon1
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2
+  const dist = 2 * Math.asin(Math.min(1, Math.sqrt(h)))
+  if (dist === 0) return [a, b]
+  const out: [number, number][] = []
+  for (let i = 0; i <= segs; i++) {
+    const t = i / segs
+    const A = Math.sin((1 - t) * dist) / Math.sin(dist)
+    const B = Math.sin(t * dist) / Math.sin(dist)
+    const x = A * Math.cos(lat1) * Math.cos(lon1) + B * Math.cos(lat2) * Math.cos(lon2)
+    const y = A * Math.cos(lat1) * Math.sin(lon1) + B * Math.cos(lat2) * Math.sin(lon2)
+    const z = A * Math.sin(lat1) + B * Math.sin(lat2)
+    out.push([Math.atan2(z, Math.sqrt(x * x + y * y)) * deg, Math.atan2(y, x) * deg])
+  }
+  return out
+}
+
+function hoursText(h: number): string {
+  const m = Math.round(h * 60)
+  return m >= 60 ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m` : `${m}m`
+}
+// Tone for a touchdown rate — green for smooth, red for hard, neutral between.
+function landTone(fpm: number): string { const f = Math.abs(fpm); return f <= 180 ? 'pos' : f <= 360 ? '' : 'neg' }
+
+// Per-category identity for the ledger: a hue + an original stroke glyph, so the ledger reads at a
+// glance instead of as a wall of text. Keyed by the LedgerCategory enum name the API sends.
+const LEDGER_HUE: Record<string, string> = {
+  JobPayout: '#3ecf8e', JobBonus: '#3ecf8e', CampaignReward: '#39b56a', InsuranceClaim: '#3ecf8e',
+  StartingBalance: '#8a97a7', LoanPrincipal: '#6d84ff', Trade: '#2bb6c4', Transfer: '#8a97a7', Adjustment: '#8a97a7',
+  AirportFee: '#e0912f', Penalty: '#f26a5c', Fuel: '#d9a11c', Repair: '#e0912f', CheckFlightFee: '#8b7be8',
+  AircraftPurchase: '#6d84ff', AircraftRental: '#6d84ff', BaseRent: '#d9b84a', StaffWage: '#39b56a',
+  LoanInterest: '#f26a5c', LoanPayment: '#6d84ff', InsurancePremium: '#8b7be8',
+}
+function ledgerHue(cat: string): string { return LEDGER_HUE[cat] ?? 'var(--accent)' }
+function ledgerIcon(cat: string) {
+  switch (cat) {
+    case 'JobPayout': case 'JobBonus': case 'CampaignReward': case 'InsuranceClaim':
+      return <><circle cx="12" cy="12" r="8" /><path d="M12 8v8M9.5 10.5h4a1.5 1.5 0 0 1 0 3h-3a1.5 1.5 0 0 0 0 3h4" /></>
+    case 'AirportFee': case 'Penalty': case 'CheckFlightFee':
+      return <><path d="M12 4l9 16H3z" /><path d="M12 10v4M12 17.2h0" /></>
+    case 'Fuel': return <><path d="M7 20V6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v14M5 20h12" /><path d="M15 9h2.5a1.5 1.5 0 0 1 1.5 1.5V15a1.5 1.5 0 0 0 1.5 1.5" /></>
+    case 'Repair': return <><path d="M14 6a3.5 3.5 0 0 0-4.7 4.5L4 15.8V20h4.2l5.3-5.3A3.5 3.5 0 0 0 18 10l-2.3 2.3-2-2z" /></>
+    case 'AircraftPurchase': case 'AircraftRental':
+      return <path d="M12 3c.6 0 1 .9 1 2.2v4.2l7 4v1.6l-7-2.3v3.7l2 1.4v1.2L12 20l-3-1.8v-1.2l2-1.4V12.9L4 15.2V13.6l7-4V5.2C11 3.9 11.4 3 12 3z" />
+    case 'BaseRent': return <><rect x="4" y="8" width="16" height="12" rx="1" /><path d="M4 8l8-4 8 4M9 20v-5h6v5" /></>
+    case 'StaffWage': return <><circle cx="12" cy="8" r="3.2" /><path d="M5.5 20c0-3.4 2.9-5.5 6.5-5.5s6.5 2.1 6.5 5.5" /></>
+    case 'LoanPrincipal': case 'LoanInterest': case 'LoanPayment':
+      return <><path d="M4 10l8-5 8 5" /><path d="M5 10v8M12 10v8M19 10v8M4 20h16" /></>
+    case 'InsurancePremium': return <><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z" /><path d="M9 11.5l2 2 4-4" /></>
+    case 'Trade': return <><path d="M4 9h13l-3-3M20 15H7l3 3" /></>
+    default: return <><circle cx="12" cy="12" r="8" /><path d="M8 12h8" /></>
+  }
+}
+
+type FlightSort = 'date' | 'payout' | 'dist' | 'dur' | 'fuel' | 'landing' | 'xp'
+type LandBand = { label: string; test: (f: number) => boolean; tone: 'pos' | 'neg' | 'accent' }
+const LAND_BANDS: LandBand[] = [
+  { label: 'Butter ≤60', test: f => f <= 60, tone: 'pos' },
+  { label: 'Smooth ≤180', test: f => f > 60 && f <= 180, tone: 'pos' },
+  { label: 'Firm ≤360', test: f => f > 180 && f <= 360, tone: 'accent' },
+  { label: 'Hard ≤600', test: f => f > 360 && f <= 600, tone: 'neg' },
+  { label: 'Rough >600', test: f => f > 600, tone: 'neg' },
+]
+
 function Logbook({ state }: { state: State }) {
   const [flights, setFlights] = useState<FlightLog[]>([])
   const [ledger, setLedger] = useState<LedgerEntry[]>([])
+  const [totals, setTotals] = useState<FlightTotals | null>(null)
+  const [take, setTake] = useState(100)
+  const [more, setMore] = useState(true)
+  const [selected, setSelected] = useState<string | null>(null)
+  const [types, setTypes] = useState<Set<string>>(new Set()) // empty = all missions
+  const [sort, setSort] = useState<FlightSort>('date')
+  const [asc, setAsc] = useState(false)
+  const [ledgerCat, setLedgerCat] = useState('') // '' = all categories
+
   useEffect(() => {
-    api.flights().then(setFlights).catch(() => {})
-    api.ledger(50).then(setLedger).catch(() => {})
+    api.flights(0, take).then(f => { setFlights(f); setMore(f.length >= take) }).catch(() => {})
+  }, [take])
+  useEffect(() => {
+    api.ledger(200).then(setLedger).catch(() => {})
+    api.flightTotals().then(setTotals).catch(() => {})
   }, [])
 
-  // Reconstruct the cash-balance curve from the ledger window, anchored so it ends at your current cash.
+  // Cash-balance curve reconstructed from the ledger window, anchored to end at current cash.
   const balances = (() => {
     const sorted = [...ledger].sort((a, b) => a.at.localeCompare(b.at))
     if (sorted.length < 2) return [] as number[]
@@ -1890,8 +1973,49 @@ function Logbook({ state }: { state: State }) {
   })()
   const fpms = [...flights].reverse().map(f => Math.round(f.touchdownFpm))
 
+  // Flights: mission filter + sort, with a live totals footer over the shown rows.
+  const missions = Array.from(new Set(flights.map(f => f.mission).filter((m): m is string => !!m)))
+  const skey = (f: FlightLog) =>
+    sort === 'payout' ? f.payoutCents : sort === 'dist' ? f.distanceNm : sort === 'dur' ? f.durationHours
+      : sort === 'fuel' ? f.fuelUsedLbs : sort === 'landing' ? Math.abs(f.touchdownFpm) : sort === 'xp' ? f.xp
+        : new Date(f.settledAt).getTime()
+  const shown = flights
+    .filter(f => types.size === 0 || (f.mission != null && types.has(f.mission)))
+    .sort((a, b) => (skey(a) - skey(b)) * (asc ? 1 : -1))
+  const sel = flights.find(f => f.id === selected) ?? null
+  const foot = shown.reduce((s, f) => ({
+    dist: s.dist + f.distanceNm, dur: s.dur + f.durationHours, fuel: s.fuel + f.fuelUsedLbs,
+    pay: s.pay + f.payoutCents, xp: s.xp + f.xp, land: s.land + f.touchdownFpm,
+  }), { dist: 0, dur: 0, fuel: 0, pay: 0, xp: 0, land: 0 })
+  const avgLand = shown.length ? Math.round(foot.land / shown.length) : 0
+
+  const toggleType = (t: string) => setTypes(s => { const n = new Set(s); n.has(t) ? n.delete(t) : n.add(t); return n })
+  const setSortKey = (k: FlightSort) => { if (sort === k) setAsc(a => !a); else { setSort(k); setAsc(k === 'landing') } }
+
+  // Ledger: running-balance annotation (computed over the full window, before filtering) + category filter.
+  const ledgerRows = (() => {
+    const ascRows = [...ledger].sort((a, b) => a.at.localeCompare(b.at))
+    const net = ascRows.reduce((s, e) => s + e.amountCents, 0)
+    let running = state.cashCents - net
+    const withBal = ascRows.map(e => { running += e.amountCents; return { ...e, balanceCents: running } })
+    return withBal.reverse().filter(e => !ledgerCat || e.category === ledgerCat)
+  })()
+  const ledgerCats = Array.from(new Set(ledger.map(e => e.category)))
+
   return (
-    <div className="grid">
+    <div className="logbook-screen">
+      {/* Lifetime totals strip */}
+      {totals && totals.flights > 0 && (
+        <div className="hero-stats logbook-totals">
+          <HeroStat label="Flights" value={totals.flights.toLocaleString()} accent />
+          <HeroStat label="Hours flown" value={totals.totalHours.toFixed(1)} unit="h" />
+          <HeroStat label="Distance" value={Math.round(totals.totalDistanceNm).toLocaleString()} unit="nm" />
+          <HeroStat label="Avg landing" value={`${Math.round(totals.avgTouchdownFpm)}`} unit="fpm" />
+          <HeroStat label="Best landing" value={`${Math.round(totals.bestTouchdownFpm)}`} unit="fpm" />
+          <HeroStat label="Lifetime earnings" value={money(totals.lifetimeEarningsCents)} />
+        </div>
+      )}
+
       {(balances.length > 1 || fpms.length > 1) && (
         <section className="card">
           <h2>Trends</h2>
@@ -1907,37 +2031,121 @@ function Logbook({ state }: { state: State }) {
           </div>
         </section>
       )}
+
+      {flights.length > 0 && (
+        <section className="card">
+          <div className="row-head"><h2>Landing performance</h2><span className="hint">last {flights.length} legs · best {totals ? Math.round(totals.bestTouchdownFpm) : '—'} fpm</span></div>
+          <div className="bars">
+            {LAND_BANDS.map(b => {
+              const count = flights.filter(f => b.test(Math.abs(f.touchdownFpm))).length
+              return <BarRow key={b.label} label={b.label} value={count} max={flights.length} tone={b.tone} />
+            })}
+          </div>
+        </section>
+      )}
+
       <section className="card">
-        <h2>Flights</h2>
-        {flights.length === 0 ? <div className="empty">No flights logged yet.</div> : (
-          <table className="tbl">
-            <thead><tr><th>Aircraft</th><th className="r">Touchdown</th><th className="r">Payout</th><th className="r">XP</th><th className="r">When</th></tr></thead>
-            <tbody>
-              {flights.map(f => (
-                <tr key={f.id}>
-                  <td>{f.aircraftTitle}</td>
-                  <td className="r num">{signed(Math.round(f.touchdownFpm))} <span className="muted">{landingWord(f.touchdownFpm)}</span></td>
-                  <td className="r num pos">{money(f.payoutCents)}</td>
-                  <td className="r num">+{f.xp}</td>
-                  <td className="r muted">{when(f.settledAt)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="row-head">
+          <h2>Flights <span className="muted">· {shown.length} of {flights.length}</span></h2>
+        </div>
+        {flights.length === 0 ? <div className="empty">No flights logged yet — accept a job and fly it.</div> : (
+          <>
+            {missions.length > 1 && (
+              <div className="jf-types logbook-filters">
+                {missions.map(t => {
+                  const m = missionMeta(t); const on = types.size === 0 || types.has(t)
+                  return (
+                    <button key={t} type="button" className={`jf-type ${on ? 'on' : ''}`} style={on ? { borderColor: m.color, color: m.color } : undefined} onClick={() => toggleType(t)}>
+                      <svg viewBox="0 0 24 24">{missionIcon(t)}</svg>{m.label}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+            <div className="jobs-work logbook-work">
+              <div className="jobs-tablewrap">
+                <table className="tbl logbook-table">
+                  <thead><tr>
+                    <th>Route</th>
+                    <th>Aircraft</th>
+                    <th className="r sortable" onClick={() => setSortKey('dist')}>Dist{sortMark(sort, 'dist', asc)}</th>
+                    <th className="r sortable" onClick={() => setSortKey('dur')}>Time{sortMark(sort, 'dur', asc)}</th>
+                    <th className="r sortable" onClick={() => setSortKey('fuel')}>Fuel{sortMark(sort, 'fuel', asc)}</th>
+                    <th className="r sortable" onClick={() => setSortKey('landing')}>Touchdown{sortMark(sort, 'landing', asc)}</th>
+                    <th className="r sortable" onClick={() => setSortKey('payout')}>Payout{sortMark(sort, 'payout', asc)}</th>
+                    <th className="r sortable" onClick={() => setSortKey('xp')}>XP{sortMark(sort, 'xp', asc)}</th>
+                    <th className="r sortable" onClick={() => setSortKey('date')}>When{sortMark(sort, 'date', asc)}</th>
+                  </tr></thead>
+                  <tbody>
+                    {shown.map(f => {
+                      const m = missionMeta(f.mission ?? '')
+                      return (
+                        <tr key={f.id} className={`jrow ${selected === f.id ? 'on' : ''}`} onClick={() => setSelected(f.id)}>
+                          <td><span className="jrow-type" style={{ background: m.color }} title={f.mission ? m.label : 'Flight'} /><span className="loc">{f.origin}</span> <span className="muted">→</span> <span className="loc">{f.dest}</span></td>
+                          <td className="muted">{f.tail ? <span className="loc">{f.tail}</span> : f.aircraftTitle}</td>
+                          <td className="r num">{Math.round(f.distanceNm).toLocaleString()}</td>
+                          <td className="r num">{hoursText(f.durationHours)}</td>
+                          <td className="r num">{Math.round(f.fuelUsedLbs).toLocaleString()}</td>
+                          <td className={`r num ${landTone(f.touchdownFpm)}`}>{signed(Math.round(f.touchdownFpm))}</td>
+                          <td className="r num pos">{money(f.payoutCents)}</td>
+                          <td className="r num">+{f.xp}</td>
+                          <td className="r muted">{when(f.settledAt)}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="logbook-foot">
+                      <td>{shown.length} legs</td>
+                      <td />
+                      <td className="r num">{Math.round(foot.dist).toLocaleString()}</td>
+                      <td className="r num">{hoursText(foot.dur)}</td>
+                      <td className="r num">{Math.round(foot.fuel).toLocaleString()}</td>
+                      <td className="r num">{avgLand} <span className="muted">avg</span></td>
+                      <td className="r num pos">{money(foot.pay)}</td>
+                      <td className="r num">+{foot.xp}</td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                </table>
+                {more && <div className="logbook-more"><button className="ghost" onClick={() => setTake(t => t + 100)}>Load older flights</button></div>}
+              </div>
+              <div className="jobs-side">
+                {sel ? <FlightDetail id={sel.id} /> : <div className="card jobs-pick"><div className="empty">Select a flight for the full record.</div></div>}
+                <LogbookMap legs={shown} selectedId={selected} onSelect={setSelected} />
+              </div>
+            </div>
+          </>
         )}
       </section>
 
       <section className="card">
-        <h2>Ledger</h2>
-        {ledger.length === 0 ? <div className="empty">No entries yet.</div> : (
-          <table className="tbl">
-            <thead><tr><th>Category</th><th>Description</th><th className="r">Amount</th><th className="r">When</th></tr></thead>
+        <div className="row-head">
+          <h2>Ledger</h2>
+          {ledgerCats.length > 1 && (
+            <select className="ledger-filter" value={ledgerCat} onChange={e => setLedgerCat(e.target.value)}>
+              <option value="">All categories</option>
+              {ledgerCats.map(c => <option key={c} value={c}>{spaced(c)}</option>)}
+            </select>
+          )}
+        </div>
+        {ledgerRows.length === 0 ? <div className="empty">No entries yet.</div> : (
+          <table className="tbl ledger-table">
+            <thead><tr><th>Category</th><th>Description</th><th className="r">Amount</th><th className="r">Balance</th><th className="r">When</th></tr></thead>
             <tbody>
-              {ledger.map((e, i) => (
+              {ledgerRows.map((e, i) => (
                 <tr key={i}>
-                  <td>{spaced(e.category)}</td>
+                  <td>
+                    <span className="ledger-cat">
+                      <span className="ledger-glyph" style={{ color: ledgerHue(e.category), background: `color-mix(in srgb, ${ledgerHue(e.category)} 15%, transparent)` }}>
+                        <svg viewBox="0 0 24 24">{ledgerIcon(e.category)}</svg>
+                      </span>
+                      {spaced(e.category)}
+                    </span>
+                  </td>
                   <td className="muted">{e.description}</td>
                   <td className={`r num ${e.amountCents < 0 ? 'neg' : 'pos'}`}>{money(e.amountCents)}</td>
+                  <td className="r num muted">{money(e.balanceCents)}</td>
                   <td className="r muted">{when(e.at)}</td>
                 </tr>
               ))}
@@ -1947,6 +2155,122 @@ function Logbook({ state }: { state: State }) {
       </section>
     </div>
   )
+}
+
+// The full record for one flight — mission, aircraft imagery, derived stats, and the itemised payout
+// (fetched from /api/flights/{id}, whose lines come straight from the frozen PayoutBreakdownJson).
+function FlightDetail({ id }: { id: string }) {
+  const [d, setD] = useState<FlightDetail | null>(null)
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    let live = true
+    setLoading(true); setD(null)
+    api.flight(id).then(x => { if (live) setD(x) }).catch(() => {}).finally(() => { if (live) setLoading(false) })
+    return () => { live = false }
+  }, [id])
+
+  if (loading) return <div className="card jdetail"><div className="empty">Loading record…</div></div>
+  if (!d) return <div className="card jdetail"><div className="empty">Couldn't load this flight.</div></div>
+
+  const m = missionMeta(d.mission ?? '')
+  const geo = (d.originLat || d.originLon) && (d.destLat || d.destLon)
+  const hdg = geo ? Math.round(bearing([d.originLat, d.originLon], [d.destLat, d.destLon])) : null
+  const kts = d.durationHours > 0 ? Math.round(d.distanceNm / d.durationHours) : 0
+  const lbnm = d.distanceNm > 0 ? d.fuelUsedLbs / d.distanceNm : 0
+
+  return (
+    <div className="card jdetail flt-detail">
+      <div className="mission-head">
+        <span className="mission-badge" style={{ background: `color-mix(in srgb, ${m.color} 16%, transparent)`, color: m.color }}><svg viewBox="0 0 24 24">{missionIcon(d.mission ?? '')}</svg></span>
+        <div className="mission-title">
+          <div className="mission-type">{d.mission ? m.label : 'Flight'}</div>
+          <div className="mission-route"><b>{d.origin}</b> <span className="arrow">→</span> <b>{d.dest}</b></div>
+        </div>
+      </div>
+      <AircraftImage typeId={d.aircraftTypeId ?? undefined} category={d.aircraftCategory ?? undefined} />
+      <div className="jd-dest">{d.tail && <span className="loc">{d.tail} · </span>}{d.aircraftName ?? d.aircraftTitle}</div>
+      <div className="flt-route-names muted">{d.originName} → {d.destName}</div>
+      <div className="jd-grid flt-grid">
+        <div><span className="metalabel">Distance</span><span className="num">{Math.round(d.distanceNm).toLocaleString()} nm</span></div>
+        <div><span className="metalabel">Block time</span><span className="num">{hoursText(d.durationHours)}</span></div>
+        <div><span className="metalabel">Avg speed</span><span className="num">{kts} kt</span></div>
+        <div><span className="metalabel">Fuel used</span><span className="num">{Math.round(d.fuelUsedLbs).toLocaleString()} lb</span></div>
+        <div><span className="metalabel">Fuel burn</span><span className="num">{lbnm.toFixed(1)} lb/nm</span></div>
+        {hdg !== null && <div><span className="metalabel">Bearing</span><span className="num">{String(hdg).padStart(3, '0')}°</span></div>}
+        <div><span className="metalabel">Touchdown</span><span className={`num ${landTone(d.touchdownFpm)}`}>{signed(Math.round(d.touchdownFpm))} <span className="muted">{landingWord(d.touchdownFpm)}</span></span></div>
+        <div><span className="metalabel">XP</span><span className="num">+{d.xp}</span></div>
+        {d.pax != null && d.pax > 0
+          ? <div><span className="metalabel">Passengers</span><span className="num">{d.pax}</span></div>
+          : d.weightLbs != null && d.weightLbs > 0
+            ? <div><span className="metalabel">Payload</span><span className="num">{d.weightLbs.toLocaleString()} lb</span></div>
+            : null}
+      </div>
+      <div className="jd-pay flt-pay">
+        <div className="metalabel flt-pay-head">Payout breakdown</div>
+        {d.lines.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>No itemised breakdown recorded.</div>
+          : d.lines.map((l, i) => (
+            <div className="jd-payrow" key={i}>
+              <span className={l.amountCents < 0 ? 'muted' : ''}>{l.label}</span>
+              <span className={`num ${l.amountCents < 0 ? 'neg' : 'pos'}`}>{money(l.amountCents)}</span>
+            </div>
+          ))}
+        <div className="jd-payrow jd-net"><span>Net payout</span><span className="num">{money(d.payoutCents)}</span></div>
+      </div>
+      <div className="flt-when muted">Departed {when(d.departedAt)} · settled {when(d.settledAt)}</div>
+    </div>
+  )
+}
+
+// The route network: every flown leg as a great-circle line coloured by mission, endpoints pinned,
+// the selected leg lifted. Esri satellite tiles (keyless), rebuilt only when the leg set changes.
+function LogbookMap({ legs, selectedId, onSelect }: { legs: FlightLog[]; selectedId: string | null; onSelect: (id: string) => void }) {
+  const host = useRef<HTMLDivElement>(null)
+  const lines = useRef<Record<string, { line: L.Polyline; color: string }>>({})
+  const online = typeof navigator === 'undefined' ? true : navigator.onLine
+  const plotted = legs.filter(l => (l.originLat !== 0 || l.originLon !== 0) && (l.destLat !== 0 || l.destLon !== 0))
+  const sig = plotted.map(l => l.id).join('|')
+  const onSelRef = useRef(onSelect); onSelRef.current = onSelect
+
+  useEffect(() => {
+    if (!host.current || !online || plotted.length === 0) return
+    const map = L.map(host.current, { attributionControl: true, zoomControl: true, worldCopyJump: true })
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics', maxZoom: 18 }).addTo(map)
+    lines.current = {}
+    const group: L.Layer[] = []
+    const seen = new Set<string>()
+    for (const l of plotted) {
+      const m = missionMeta(l.mission ?? '')
+      const line = L.polyline(gcPoints([l.originLat, l.originLon], [l.destLat, l.destLon]), { color: m.color, weight: 2, opacity: .7 }).addTo(map)
+      line.on('click', () => onSelRef.current(l.id))
+      line.bindTooltip(`${l.origin} → ${l.dest} · ${money(l.payoutCents)}`, { direction: 'top', className: 'sat-tip', sticky: true })
+      lines.current[l.id] = { line, color: m.color }
+      group.push(line)
+      for (const [lat, lon, code] of [[l.originLat, l.originLon, l.origin], [l.destLat, l.destLon, l.dest]] as const) {
+        const key = `${lat.toFixed(3)},${lon.toFixed(3)}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        const dot = L.circleMarker([lat, lon], { radius: 3.5, weight: 1.5, color: '#e9eef5', fillColor: '#8a97a7', fillOpacity: .85 }).addTo(map)
+        dot.bindTooltip(String(code), { direction: 'top', className: 'sat-tip' })
+        group.push(dot)
+      }
+    }
+    map.fitBounds(L.featureGroup(group).getBounds().pad(0.25), { maxZoom: 8 })
+    const t = setTimeout(() => map.invalidateSize(), 60)
+    return () => { clearTimeout(t); map.remove(); lines.current = {} }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sig, online])
+
+  useEffect(() => {
+    for (const [id, { line, color }] of Object.entries(lines.current)) {
+      const on = id === selectedId
+      line.setStyle({ weight: on ? 4 : 2, opacity: on ? 1 : .55, color: on ? '#ffffff' : color })
+      if (on) line.bringToFront()
+    }
+  }, [selectedId, sig])
+
+  if (!online) return <div className="card"><div className="empty" style={{ padding: 16 }}>Map needs a connection.</div></div>
+  if (plotted.length === 0) return <div className="card"><div className="empty" style={{ padding: 16 }}>No mapped legs yet.</div></div>
+  return <div className="satmap logbookmap" ref={host} role="img" aria-label="Route network map" />
 }
 
 // ─── Airline identity (Phase 5c) ─────────────────────────────────────────────
