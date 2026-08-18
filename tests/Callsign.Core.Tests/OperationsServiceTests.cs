@@ -189,4 +189,37 @@ public class OperationsServiceTests
             Assert.True(inst.AirframeHours <= Cfg.MaxDutyHoursPerDay * 4 + 2); // but only ~8 h/day, not round the clock
         }
     }
+
+    [Fact]
+    public async Task CreateStandingOrder_RefusesAPilotAlreadyFlyingAnotherLine()
+    {
+        // Otherwise one pilot on two tails would fly the daily duty cap on EACH, doubling autonomous income
+        // and defeating the FTL limit — one crew flies one line.
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Guid companyId, staffId, tailA, tailB;
+        using (var db = tdb.NewContext())
+        {
+            var company = new Company { Id = Guid.NewGuid(), Name = "Co" };
+            db.Companies.Add(company);
+            db.Airports.AddRange(A("EHAM", 52.3086, 4.7639), A("EHRD", 51.9569, 4.4372));
+            var type = new AircraftType { Id = Guid.NewGuid(), Key = "C172", CanonicalName = "C172", Category = AircraftCategory.LightSingle, CruiseKtas = 150, UsefulLoadLbs = 900 };
+            db.AircraftTypes.Add(type);
+            var i1 = new AircraftInstance { Id = Guid.NewGuid(), TypeId = type.Id, CompanyId = company.Id, Tail = "CS-1", LocationIcao = "EHAM" };
+            var i2 = new AircraftInstance { Id = Guid.NewGuid(), TypeId = type.Id, CompanyId = company.Id, Tail = "CS-2", LocationIcao = "EHAM" };
+            db.AircraftInstances.AddRange(i1, i2);
+            var staff = new Staff { Id = Guid.NewGuid(), CompanyId = company.Id, Name = "Solo", SkillMilli = 50_000, WagePerDayCents = 10_000, IsActive = true, HiredAt = clock.UtcNow, LastPaidAt = clock.UtcNow };
+            db.Staff.Add(staff);
+            await db.SaveChangesAsync();
+            companyId = company.Id; staffId = staff.Id; tailA = i1.Id; tailB = i2.Id;
+        }
+
+        using (var db = tdb.NewContext())
+        {
+            var ops = new OperationsService(db, new LedgerService(db, clock), clock, Cfg);
+            await ops.CreateStandingOrderAsync(companyId, staffId, tailA, "EHRD");  // first line: fine
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                ops.CreateStandingOrderAsync(companyId, staffId, tailB, "EHRD"));   // same pilot, second tail: refused
+        }
+    }
 }

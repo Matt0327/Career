@@ -50,6 +50,12 @@ public sealed class RouteService
             throw new InvalidOperationException("That aircraft isn't available.");
         var staff = await _db.Staff.FirstOrDefaultAsync(s => s.Id == staffId && s.CompanyId == companyId && s.IsActive, ct)
                     ?? throw new InvalidOperationException("Pilot not found.");
+        // One pilot flies one line, so the per-line FTL duty cap equals the crew's real daily limit (Phase 7f).
+        bool alreadyFlying = await _db.StandingOrders.AnyAsync(o => o.StaffId == staffId && o.IsActive && !o.IsDeleted, ct)
+                          || await _db.Routes.AnyAsync(r => r.StaffId == staffId && r.Active && !r.IsDeleted, ct);
+        if (alreadyFlying)
+            throw new InvalidOperationException($"{staff.Name} already flies another line — assign a different pilot or hire one.");
+
         var oAir = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == originIcao, ct)
                    ?? throw new InvalidOperationException($"Airport {originIcao} is unknown.");
         var dAir = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == destIcao, ct)

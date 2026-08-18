@@ -70,6 +70,11 @@ public sealed class OperationsService
         return staff;
     }
 
+    /// <summary>True if a pilot already crews an active standing order or route — one crew flies one line (Phase 7f).</summary>
+    public async Task<bool> CrewAlreadyFlyingAsync(Guid staffId, CancellationToken ct = default)
+        => await _db.StandingOrders.AnyAsync(o => o.StaffId == staffId && o.IsActive && !o.IsDeleted, ct)
+        || await _db.Routes.AnyAsync(r => r.StaffId == staffId && r.Active && !r.IsDeleted, ct);
+
     /// <summary>Assign a pilot + an owned aircraft to a repeating route (its reward frozen at economy price).</summary>
     public async Task<StandingOrder> CreateStandingOrderAsync(
         Guid companyId, Guid staffId, Guid aircraftId, string destIcao, CancellationToken ct = default)
@@ -80,6 +85,10 @@ public sealed class OperationsService
                        ?? throw new InvalidOperationException("Aircraft not found in your fleet.");
         if (aircraft.Availability != AircraftAvailability.Available)
             throw new InvalidOperationException("That aircraft isn't available.");
+        // One pilot flies one line: without this a single crew stacked on two lines would fly the daily duty
+        // limit on EACH, defeating the FTL cap (Phase 7f). Assign a different pilot — or hire one.
+        if (await CrewAlreadyFlyingAsync(staffId, ct))
+            throw new InvalidOperationException($"{staff.Name} already flies another route — assign a different pilot or hire one.");
 
         var origin = aircraft.LocationIcao;
         var oAir = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == origin, ct)
