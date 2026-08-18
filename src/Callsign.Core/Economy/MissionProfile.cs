@@ -27,7 +27,7 @@ public static class MissionProfiles
 {
     public static readonly MissionOutcome FullMark = new(MissionGrade.Full, 100_000, null);
 
-    public static MissionOutcome Evaluate(MissionType type, FlightRecord f) => type switch
+    public static MissionOutcome Evaluate(MissionType type, FlightRecord f, DateTimeOffset? deadlineAt = null) => type switch
     {
         // Fragile freight — the touchdown (and any rough handling) is what damages the load.
         MissionType.Sensitive => Fragile(f, softFpm: 200, failFloorMilli: 55_000, mishandling: "cargo"),
@@ -35,9 +35,26 @@ public static class MissionProfiles
         // Passenger ride quality — smoothness and no exceedances keep the client happy.
         MissionType.Vip     => Comfort(f, canFail: true,  failFloorMilli: 50_000, who: "The client"),
         MissionType.Tourist => Comfort(f, canFail: false, failFloorMilli: 0,      who: "The tour group"),
+        // Time-critical — a frozen deadline; late shaves the fee, way late is a failed delivery.
+        MissionType.Express   => Clock(f, deadlineAt, "Parcel"),
+        MissionType.Emergency => Clock(f, deadlineAt, "Relief load"),
         // Everything else keeps the lax baseline — unchanged economics.
         _ => FullMark,
     };
+
+    private const int LatePenaltyPerMinMilli = 2_000; // 2% of the fee per minute late
+    private const int ClockFailFloorMilli = 50_000;   // ~25 min late = the delivery is refused
+
+    private static MissionOutcome Clock(FlightRecord f, DateTimeOffset? deadlineAt, string what)
+    {
+        if (deadlineAt is not { } due) return FullMark; // no clock frozen (legacy job) — treat as on time
+        double lateMin = (f.ArrivedAt - due).TotalMinutes;
+        if (lateMin <= 0) return FullMark;              // on time
+        int quality = (int)Math.Clamp(100_000 - LatePenaltyPerMinMilli * lateMin, 0, 100_000);
+        if (quality < ClockFailFloorMilli)
+            return new(MissionGrade.Failed, 0, $"{what} missed the deadline");
+        return new(MissionGrade.Partial, quality, $"{what} delivered late");
+    }
 
     private static MissionOutcome Fragile(FlightRecord f, double softFpm, int failFloorMilli, string mishandling)
     {

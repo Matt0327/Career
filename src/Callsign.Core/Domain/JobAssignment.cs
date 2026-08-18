@@ -35,4 +35,8 @@ public sealed class JobAssignment
     public AssignmentStatus Status { get; set; }
     public DateTimeOffset AcceptedAt { get; set; }
     public DateTimeOffset? SettledAt { get; set; }
+
+    /// <summary>Frozen at accept for time-critical missions (Express, Emergency) — the clock the player
+    /// saw is the clock they get (Phase 7d). Null for missions with no delivery deadline.</summary>
+    public DateTimeOffset? DeadlineAt { get; set; }
 }

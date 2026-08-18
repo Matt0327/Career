@@ -435,7 +435,7 @@ public static class CallsignWebApp
                 return new AssignmentDto(a.Id, a.Type.ToString(), a.OriginIcao, a.DestIcao,
                     d?.Name ?? a.DestIcao, a.Commodity, a.WeightLbs, a.Pax, a.DistanceNm, a.RewardQuoteCents, a.XpQuote, a.Status.ToString(),
                     o?.Latitude ?? 0, o?.Longitude ?? 0, d?.Latitude ?? 0, d?.Longitude ?? 0,
-                    kind.ToString(), d?.LongestRunwayFt, cfg.LandingFeeCents(kind));
+                    kind.ToString(), d?.LongestRunwayFt, cfg.LandingFeeCents(kind), a.DeadlineAt);
             }));
         });
 

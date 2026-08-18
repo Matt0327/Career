@@ -49,7 +49,7 @@ public sealed class SettlementService
         // Mission completion (Phase 7d): judge the DELIVERY against this mission type's own rules — a firm
         // arrival damages fragile freight, a rough flight loses a VIP client. This scales (or, on a Failed
         // grade, zeroes) the base reward before anything else. Ordinary jobs grade Full and are unchanged.
-        var outcome = MissionProfiles.Evaluate(a.Type, flight);
+        var outcome = MissionProfiles.Evaluate(a.Type, flight, a.DeadlineAt);
         long baseCents = outcome.Grade == MissionGrade.Failed
             ? 0
             : (long)Math.Round((decimal)grossBase * outcome.QualityMilli / 100_000m, MidpointRounding.AwayFromZero);

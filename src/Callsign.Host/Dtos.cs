@@ -22,7 +22,7 @@ public record AssignmentDto(
     Guid Id, string Type, string Origin, string Dest, string DestName, string Commodity, int WeightLbs, int Pax,
     double DistanceNm, long RewardQuoteCents, int XpQuote, string Status,
     double OriginLat, double OriginLon, double DestLat, double DestLon,
-    string DestKind, int? DestLongestRunwayFt, long ExpectedLandingFeeCents);
+    string DestKind, int? DestLongestRunwayFt, long ExpectedLandingFeeCents, DateTimeOffset? DeadlineAt);
 
 public record PayoutLineDto(string Label, long AmountCents);
 

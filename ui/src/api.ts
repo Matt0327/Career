@@ -70,6 +70,7 @@ export interface Assignment {
   destKind: string
   destLongestRunwayFt: number | null
   expectedLandingFeeCents: number
+  deadlineAt: string | null // Phase 7d — delivery deadline for time-critical missions (Express/Emergency)
 }
 
 export interface LedgerEntry {

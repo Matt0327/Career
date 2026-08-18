@@ -66,7 +66,49 @@ public class SettlementServiceTests
 
         Assert.Equal(200_000, a.RewardQuoteCents);
         Assert.Equal(AssignmentStatus.Accepted, a.Status);
+        Assert.Null(a.DeadlineAt); // a cargo job has no delivery clock
         Assert.Empty(await db.Jobs.ToListAsync()); // taken off the board; settlement can't read it
+    }
+
+    [Fact]
+    public async Task Accept_Express_FreezesADeliveryDeadline()
+    {
+        using var tdb = new TestDb();
+        using var db = tdb.NewContext();
+        var s = await SeedAsync(db, missionType: MissionType.Express);
+
+        var a = await new JobAssignmentService(db, new FakeClock(), EconomyConfig.Default)
+            .AcceptAsync(s.JobId, s.CompanyId, s.PilotId);
+
+        Assert.NotNull(a.DeadlineAt);
+        Assert.True(a.DeadlineAt > a.AcceptedAt); // the clock is ticking from the moment you accept
+    }
+
+    [Fact]
+    public async Task Settle_Express_ArrivedLate_FailsOnTheClock()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Guid assignmentId;
+        DateTimeOffset deadline;
+        using (var db = tdb.NewContext())
+        {
+            var s = await SeedAsync(db, missionType: MissionType.Express);
+            var a = await new JobAssignmentService(db, clock, EconomyConfig.Default).AcceptAsync(s.JobId, s.CompanyId, s.PilotId);
+            assignmentId = a.Id;
+            deadline = a.DeadlineAt!.Value;
+        }
+
+        // Arrive a full hour past the frozen deadline — the parcel is refused.
+        var record = Flown(-80) with { ArrivedAt = deadline.AddMinutes(60) };
+        using (var db = tdb.NewContext())
+        {
+            var r = await new SettlementService(db, new LedgerService(db, clock), clock, EconomyConfig.Default)
+                .SettleAsync(assignmentId, record);
+            Assert.Equal(0, r.PayoutCents);
+        }
+        using (var db = tdb.NewContext())
+            Assert.Equal((int)MissionGrade.Failed, (await db.Flights.SingleAsync()).OutcomeGrade);
     }
 
     [Fact]

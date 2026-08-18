@@ -1346,6 +1346,14 @@ function scoreTone(s: number | null): string {
   if (s == null) return 'muted'
   return s >= 75 ? 'pos' : s >= 45 ? '' : 'neg'
 }
+
+// A frozen delivery deadline to a short "due in …" label (Phase 7d). Recomputed each render/reload.
+function dueText(iso: string): string {
+  const ms = Date.parse(iso) - Date.now()
+  if (ms <= 0) return 'overdue'
+  const min = Math.round(ms / 60000)
+  return min >= 60 ? `due in ${Math.floor(min / 60)}h ${min % 60}m` : `due in ${min}m`
+}
 interface LogEntry { id: number; at: string; sev: LogSev; text: string }
 const clock = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
@@ -1517,6 +1525,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
                     <span>{Math.round(a.distanceNm)} nm</span>
                     <span>{loadText(a.type, a.weightLbs, a.pax)}</span>
                     <span className="pos">{money(a.rewardQuoteCents)}</span>
+                    {a.deadlineAt && <span className={`due ${Date.parse(a.deadlineAt) < Date.now() ? 'neg' : 'warn'}`}>{dueText(a.deadlineAt)}</span>}
                   </div>
                   <button className="primary" disabled={begun?.id === a.id || !aircraftId} onClick={() => begin(a)}>
                     {begun?.id === a.id ? 'In progress…' : 'Begin flight'}

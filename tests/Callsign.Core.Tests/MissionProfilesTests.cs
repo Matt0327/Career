@@ -61,6 +61,28 @@ public class MissionProfilesTests
     public void Vip_ViolentFlight_LosesTheClient()
         => Assert.Equal(MissionGrade.Failed, MissionProfiles.Evaluate(MissionType.Vip, Landed(-300, g: 2.5, bank: 30, violations: 2)).Grade);
 
+    // Express/Emergency carry a frozen deadline; the record's ArrivedAt (Landed uses T0 + 30 min) is
+    // compared against it. On time is Full, late shaves the fee, way late is a failed delivery.
+    [Fact]
+    public void Express_OnTime_IsFull()
+        => Assert.Equal(MissionGrade.Full, MissionProfiles.Evaluate(MissionType.Express, Landed(-80), deadlineAt: T0.AddMinutes(30)).Grade);
+
+    [Fact]
+    public void Express_Late_IsPartial_AndShavesTheFee()
+    {
+        var o = MissionProfiles.Evaluate(MissionType.Express, Landed(-80), deadlineAt: T0.AddMinutes(15)); // 15 min late
+        Assert.Equal(MissionGrade.Partial, o.Grade);
+        Assert.Equal(70_000, o.QualityMilli); // 2000/min × 15 = 30000 off
+    }
+
+    [Fact]
+    public void Express_WayLate_MissesTheDeadline()
+        => Assert.Equal(MissionGrade.Failed, MissionProfiles.Evaluate(MissionType.Express, Landed(-80), deadlineAt: T0).Grade); // 30 min late
+
+    [Fact]
+    public void Clock_WithNoFrozenDeadline_IsFull()
+        => Assert.Equal(MissionGrade.Full, MissionProfiles.Evaluate(MissionType.Express, Landed(-80)).Grade);
+
     [Fact]
     public void Tourist_NeverFails_ButIsGraded()
     {

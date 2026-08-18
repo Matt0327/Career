@@ -120,6 +120,25 @@ public sealed record EconomyConfig
     /// <summary>Reputation hit for a failed delivery (Phase 7d) — a destroyed load or a lost client.</summary>
     public int FailedDeliveryReputationMilli { get; init; } = -1_000;
 
+    // --- Delivery clock (Phase 7d): time-critical missions freeze a deadline at accept ---
+    public double DeadlineNominalCruiseKts { get; init; } = 140;  // a typical light-twin cruise, for the estimate
+    public double ExpressClockSlack { get; init; } = 1.6;         // 60% margin over a nominal direct flight
+    public double EmergencyClockSlack { get; init; } = 1.35;      // tighter — relief can't wait
+
+    /// <summary>The delivery deadline for a time-critical mission, or null if the type has no clock.</summary>
+    public DateTimeOffset? MissionDeadline(MissionType type, double distanceNm, DateTimeOffset acceptedAt)
+    {
+        double? slack = type switch
+        {
+            MissionType.Express => ExpressClockSlack,
+            MissionType.Emergency => EmergencyClockSlack,
+            _ => null,
+        };
+        if (slack is not double s) return null;
+        double hours = distanceNm / Math.Max(60, DeadlineNominalCruiseKts) * s;
+        return acceptedAt.AddHours(hours);
+    }
+
     /// <summary>Continuous hull wear from the touchdown — scales with the worst-of-three sink rate over a
     /// 200 fpm floor and with peak g over 1.4, so a firm arrival wears the airframe proportionally
     /// (replacing the old binary hard-landing step for a tracker-flown leg).</summary>

@@ -11,11 +11,13 @@ public sealed class JobAssignmentService
 {
     private readonly CallsignDbContext _db;
     private readonly IClock _clock;
+    private readonly EconomyConfig _cfg;
 
-    public JobAssignmentService(CallsignDbContext db, IClock clock)
+    public JobAssignmentService(CallsignDbContext db, IClock clock, EconomyConfig? cfg = null)
     {
         _db = db;
         _clock = clock;
+        _cfg = cfg ?? EconomyConfig.Default;
     }
 
     public async Task<JobAssignment> AcceptAsync(Guid jobId, Guid accountId, Guid pilotId, CancellationToken ct = default)
@@ -35,6 +37,7 @@ public sealed class JobAssignmentService
             throw new InvalidOperationException(
                 $"Reputation {def.MinReputationMilli / 1000.0:0.0} required — yours is {pilot.ReputationMilli / 1000.0:0.0}.");
 
+        var now = _clock.UtcNow;
         var assignment = new JobAssignment
         {
             Id = Guid.NewGuid(),
@@ -51,7 +54,8 @@ public sealed class JobAssignmentService
             RewardQuoteCents = job.RewardCents, // FREEZE the quote
             XpQuote = job.Xp,
             Status = AssignmentStatus.Accepted,
-            AcceptedAt = _clock.UtcNow,
+            AcceptedAt = now,
+            DeadlineAt = _cfg.MissionDeadline(job.Type, job.DistanceNm, now), // FREEZE the clock (Express/Emergency)
         };
 
         _db.JobAssignments.Add(assignment);
