@@ -1,5 +1,6 @@
 using Callsign.Core.Data;
 using Callsign.Core.Domain;
+using Callsign.Core.Geo;
 using Callsign.Core.Time;
 using Microsoft.EntityFrameworkCore;
 
@@ -172,6 +173,137 @@ public sealed class AircraftDealerService
             throw;
         }
         return cost;
+    }
+
+    /// <summary>Market sticker for a type (same formula the buy market and net-worth use).</summary>
+    public long MarketValueCents(AircraftType type) => AircraftPricing.Quote(_cfg, type).TotalCents;
+
+    /// <summary>
+    /// What an airframe fetches if sold now: market × resale haircut × its worst condition —
+    /// the exact figure <see cref="FinanceService.NetWorthAsync"/> already books it at as an asset.
+    /// </summary>
+    public long ResaleValueCents(AircraftInstance inst, AircraftType type)
+    {
+        double condition = Math.Min(inst.HullConditionMilli, inst.EngineConditionMilli) / 100_000.0;
+        return (long)Math.Round(MarketValueCents(type) * _cfg.AircraftResaleFactor * condition);
+    }
+
+    /// <summary>
+    /// Sell an owned airframe at its condition-adjusted resale value. Credits the ledger, retires the
+    /// tail (soft-delete) and any policy on it. Refuses if the aircraft is busy or still flown by a
+    /// standing order / route. Idempotent via <paramref name="idempotencyKey"/>.
+    /// </summary>
+    public async Task<long> SellAsync(
+        Guid companyId, Guid instanceId, string? idempotencyKey = null, CancellationToken ct = default)
+    {
+        string? dedupe = idempotencyKey is null ? null : $"sell:{idempotencyKey}";
+        if (dedupe is not null && await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct) is { } prior)
+            return prior.AmountCents; // already sold under this key — replay the proceeds, no second credit
+
+        var inst = await _db.AircraftInstances
+            .FirstOrDefaultAsync(a => a.Id == instanceId && a.CompanyId == companyId && !a.IsDeleted, ct)
+            ?? throw new InvalidOperationException("Aircraft not found in your fleet.");
+        if (inst.Availability != AircraftAvailability.Available)
+            throw new InvalidOperationException("This airframe is busy — it must be available (not in flight or reserved) to sell.");
+
+        bool inUse = await _db.StandingOrders.AnyAsync(o => o.AircraftInstanceId == instanceId && o.IsActive && !o.IsDeleted, ct)
+                  || await _db.Routes.AnyAsync(r => r.AircraftInstanceId == instanceId && r.Active && !r.IsDeleted, ct);
+        if (inUse)
+            throw new InvalidOperationException("Cancel the standing orders and routes this aircraft flies before selling it.");
+
+        var type = await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == inst.TypeId, ct)
+                   ?? throw new InvalidOperationException("Aircraft type not found.");
+        long proceeds = ResaleValueCents(inst, type);
+        var now = _clock.UtcNow;
+
+        // Positive AircraftPurchase posting keeps aircraft capital in one category (buy − sell nets cleanly).
+        await _ledger.StageBatchAsync(companyId, new[]
+        {
+            new LedgerPosting(LedgerCategory.AircraftPurchase, proceeds / 100m,
+                $"Sold {type.CanonicalName} ({inst.Tail})",
+                AircraftInstanceId: inst.Id, DedupeKey: dedupe ?? $"sell:{inst.Id}"),
+        }, ct);
+
+        inst.IsDeleted = true;
+        inst.Availability = AircraftAvailability.Grounded;
+        inst.UpdatedAt = now;
+
+        foreach (var p in await _db.InsurancePolicies
+                     .Where(p => p.AircraftInstanceId == instanceId && p.Active && !p.IsDeleted).ToListAsync(ct))
+        {
+            p.Active = false; p.IsDeleted = true; p.UpdatedAt = now;
+        }
+
+        try { await _db.SaveChangesAsync(ct); }
+        catch (DbUpdateException) when (dedupe is not null)
+        {
+            _db.ChangeTracker.Clear();
+            if (await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct) is { } raced) return raced.AmountCents;
+            throw;
+        }
+        return proceeds;
+    }
+
+    /// <summary>
+    /// Ferry an idle airframe to another field. Charges a base + per-nm fee, and — because a ferry is a real
+    /// leg — burns airframe hours and wears hull/engine accordingly. Idempotent via <paramref name="idempotencyKey"/>.
+    /// Returns the fee charged.
+    /// </summary>
+    public async Task<long> RelocateAsync(
+        Guid companyId, Guid instanceId, string destIcao, string? idempotencyKey = null, CancellationToken ct = default)
+    {
+        string? dedupe = idempotencyKey is null ? null : $"ferry:{idempotencyKey}";
+        if (dedupe is not null && await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct) is { } prior)
+            return -prior.AmountCents;
+
+        var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId, ct)
+                      ?? throw new InvalidOperationException($"Company {companyId} not found.");
+        var inst = await _db.AircraftInstances
+            .FirstOrDefaultAsync(a => a.Id == instanceId && a.CompanyId == companyId && !a.IsDeleted, ct)
+            ?? throw new InvalidOperationException("Aircraft not found in your fleet.");
+        if (inst.Availability != AircraftAvailability.Available)
+            throw new InvalidOperationException("This airframe is busy — it must be available to ferry.");
+
+        destIcao = (destIcao ?? "").Trim().ToUpperInvariant();
+        if (destIcao.Length == 0) throw new InvalidOperationException("Pick a destination.");
+        if (string.Equals(destIcao, inst.LocationIcao, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("The aircraft is already there.");
+
+        var to = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == destIcao, ct)
+                 ?? throw new InvalidOperationException($"Unknown airport {destIcao}.");
+        var from = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == inst.LocationIcao, ct);
+        double distanceNm = from is null ? 0 : GeoMath.DistanceNm(from.Latitude, from.Longitude, to.Latitude, to.Longitude);
+
+        long fee = _cfg.AircraftFerryBaseCents + (long)Math.Round(distanceNm * _cfg.AircraftFerryPerNmCents);
+        if (company.CashCents < fee)
+            throw new InvalidOperationException($"Not enough cash: the ferry costs {fee / 100m:C0}, you have {company.Cash:C0}.");
+
+        var now = _clock.UtcNow;
+        await _ledger.StageBatchAsync(companyId, new[]
+        {
+            new LedgerPosting(LedgerCategory.Fuel, -(fee / 100m),
+                $"Ferry {inst.Tail}: {inst.LocationIcao} → {destIcao} ({distanceNm:F0} nm)",
+                AircraftInstanceId: inst.Id, DedupeKey: dedupe ?? $"ferry:{inst.Id}:{destIcao}:{inst.AirframeHours:F1}"),
+        }, ct);
+
+        var type = await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == inst.TypeId, ct);
+        double cruise = type?.CruiseKtas is int c && c > 60 ? c : 140;
+        double hours = distanceNm / cruise;
+        int wear = (int)Math.Round(hours * _cfg.ConditionWearMilliPerHour);
+        inst.AirframeHours += hours;
+        inst.HullConditionMilli = Math.Max(0, inst.HullConditionMilli - wear);
+        inst.EngineConditionMilli = Math.Max(0, inst.EngineConditionMilli - wear);
+        inst.LocationIcao = destIcao;
+        inst.UpdatedAt = now;
+
+        try { await _db.SaveChangesAsync(ct); }
+        catch (DbUpdateException) when (dedupe is not null)
+        {
+            _db.ChangeTracker.Clear();
+            if (await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct) is { } raced) return -raced.AmountCents;
+            throw;
+        }
+        return fee;
     }
 
     // A friendly tail: "CS-" + 6 hex from a fresh guid (~16.7M space; collisions negligible per fleet).

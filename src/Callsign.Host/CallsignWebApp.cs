@@ -470,22 +470,56 @@ public static class CallsignWebApp
                 o.Quote.Factors.Select(f => new PriceFactorDto(f.Label, f.AmountCents)).ToList())));
         });
 
-        app.MapGet("/api/aircraft", async (CallsignDbContext db, AircraftDealerService dealer, QualificationService quals) =>
+        app.MapGet("/api/aircraft", async (CallsignDbContext db, AircraftDealerService dealer, QualificationService quals, EconomyConfig cfg) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
+
             var hangar = await dealer.GetHangarAsync(pilot.CompanyId);
-            var held = await quals.HeldClassesAsync(pilot.Id); // which licence classes the pilot holds (3c)
+            var held = await quals.HeldClassesAsync(pilot.Id);
+            var onDisk = (await db.InstalledPackages.Where(i => i.IsOnDisk).Select(i => i.AircraftTypeId).ToListAsync()).ToHashSet();
+            var ids = hangar.Select(h => h.Instance.Id).ToList();
+            var ports = await AirportsByIdentAsync(db, hangar.Select(h => h.Instance.LocationIcao));
+
+            var flightAgg = (await db.Flights
+                    .Where(f => f.AircraftInstanceId != null && ids.Contains(f.AircraftInstanceId!.Value)).ToListAsync())
+                .GroupBy(f => f.AircraftInstanceId!.Value)
+                .ToDictionary(g => g.Key, g => (Flights: g.Count(), Dist: g.Sum(f => f.DistanceNm),
+                    Fuel: g.Sum(f => f.FuelUsedLbs), Earn: g.Sum(f => f.PayoutCents)));
+            var upkeepAgg = (await db.LedgerEntries
+                    .Where(e => e.AircraftInstanceId != null && ids.Contains(e.AircraftInstanceId!.Value) && e.AmountCents < 0
+                        && (e.Category == LedgerCategory.Repair || e.Category == LedgerCategory.Fuel
+                            || e.Category == LedgerCategory.InsurancePremium)).ToListAsync())
+                .GroupBy(e => e.AircraftInstanceId!.Value)
+                .ToDictionary(g => g.Key, g => -g.Sum(e => e.AmountCents));
+            var byInst = (await db.InsurancePolicies
+                    .Where(p => p.CompanyId == pilot.CompanyId && p.Active && !p.IsDeleted && p.AircraftInstanceId != null).ToListAsync())
+                .ToDictionary(p => p.AircraftInstanceId!.Value);
+
             return Results.Ok(hangar.Select(h =>
             {
-                var reqd = QualificationClasses.ForCategory(h.Type.Category);
+                var inst = h.Instance; var t = h.Type;
+                var reqd = QualificationClasses.ForCategory(t.Category);
+                ports.TryGetValue(inst.LocationIcao, out var port);
+                flightAgg.TryGetValue(inst.Id, out var fa);
+                upkeepAgg.TryGetValue(inst.Id, out var upkeep);
+                byInst.TryGetValue(inst.Id, out var pol);
+                double hoursToService = Math.Max(0, cfg.MaintenanceIntervalHours - (inst.AirframeHours - inst.MaintenanceHoursWatermark));
+
                 return new OwnedAircraftDto(
-                    h.Instance.Id, h.Type.Id, h.Instance.Tail, h.Type.CanonicalName, h.Type.Category.ToString(),
-                    h.Instance.LocationIcao, h.Instance.Availability.ToString(),
-                    h.Instance.PurchasePriceCents, h.Instance.AirframeHours,
-                    h.Instance.HullConditionMilli, h.Instance.EngineConditionMilli,
-                    dealer.MaintenanceDue(h.Instance), dealer.MaintenanceQuoteCents(h.Instance),
-                    QualificationClasses.Def(reqd).DisplayName, held.Contains(reqd));
+                    inst.Id, t.Id, inst.Tail, t.CanonicalName, t.Category.ToString(),
+                    inst.LocationIcao, inst.Availability.ToString(),
+                    inst.PurchasePriceCents, inst.AirframeHours,
+                    inst.HullConditionMilli, inst.EngineConditionMilli,
+                    dealer.MaintenanceDue(inst), dealer.MaintenanceQuoteCents(inst),
+                    QualificationClasses.Def(reqd).DisplayName, held.Contains(reqd),
+                    t.Manufacturer, t.IcaoTypeDesignator, t.IcaoModel, onDisk.Contains(t.Id),
+                    t.Seats, t.UsefulLoadLbs, t.FuelCapacityLbs, t.CruiseKtas, t.MinRunwayFt,
+                    dealer.MarketValueCents(t), dealer.ResaleValueCents(inst, t), inst.AcquiredAt,
+                    port?.Latitude ?? 0, port?.Longitude ?? 0, port?.Name ?? inst.LocationIcao,
+                    inst.MaintenanceHoursWatermark, cfg.MaintenanceIntervalHours, hoursToService, cfg.ConditionWearMilliPerHour,
+                    pol != null, pol?.CoverageMilli, pol?.CoveredValueCents,
+                    fa.Flights, fa.Dist, fa.Fuel, fa.Earn, upkeep);
             }));
         });
 
@@ -574,6 +608,67 @@ public static class CallsignWebApp
             {
                 return Results.BadRequest(new { error = ex.Message });
             }
+        });
+
+        // Per-airframe drill-down: full flight log, attributed ledger, and lifetime economics.
+        app.MapGet("/api/aircraft/{id:guid}/history", async (Guid id, CallsignDbContext db, AircraftDealerService dealer) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var inst = await db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == id && a.CompanyId == pilot.CompanyId && !a.IsDeleted);
+            if (inst is null) return Results.NotFound(new { error = "Aircraft not found in your fleet." });
+            var type = await db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == inst.TypeId);
+            if (type is null) return Results.NotFound();
+
+            var flights = await db.Flights.Where(f => f.AircraftInstanceId == id).OrderByDescending(f => f.SettledAt).ToListAsync();
+            var asgIds = flights.Where(f => f.JobAssignmentId != null).Select(f => f.JobAssignmentId!.Value).Distinct().ToList();
+            var asg = await db.JobAssignments.Where(a => asgIds.Contains(a.Id)).ToDictionaryAsync(a => a.Id);
+            var flightDtos = flights.Select(f =>
+            {
+                JobAssignment? a = f.JobAssignmentId != null && asg.TryGetValue(f.JobAssignmentId.Value, out var x) ? x : null;
+                return new AircraftFlightDto(f.Id, a?.OriginIcao, a?.DestIcao, (a?.Type ?? MissionType.Cargo).ToString(),
+                    f.DistanceNm, f.FuelUsedLbs, f.TouchdownFpm, f.PayoutCents, f.Xp, f.SettledAt);
+            }).ToList();
+
+            var ledger = await db.LedgerEntries.Where(e => e.AircraftInstanceId == id).OrderByDescending(e => e.At).ToListAsync();
+            var ledgerDtos = ledger.Select(e => new AircraftLedgerDto(e.At, e.Category.ToString(), e.AmountCents, e.Description)).ToList();
+
+            long earnings = flights.Sum(f => f.PayoutCents);
+            long repair = -ledger.Where(e => e.Category == LedgerCategory.Repair && e.AmountCents < 0).Sum(e => e.AmountCents);
+            long fuel = -ledger.Where(e => e.Category == LedgerCategory.Fuel && e.AmountCents < 0).Sum(e => e.AmountCents);
+            long insurance = -ledger.Where(e => e.Category == LedgerCategory.InsurancePremium && e.AmountCents < 0).Sum(e => e.AmountCents);
+            int n = flights.Count;
+            double dist = flights.Sum(f => f.DistanceNm);
+            double fuelLbs = flights.Sum(f => f.FuelUsedLbs);
+            double avgFpm = n > 0 ? flights.Average(f => f.TouchdownFpm) : 0;
+            long opNet = earnings - repair - fuel - insurance;
+            long perFlight = n > 0 ? earnings / n : 0;
+            long perHour = inst.AirframeHours > 0.05 ? (long)Math.Round(opNet / inst.AirframeHours) : 0;
+
+            var eco = new AircraftEconomicsDto(
+                inst.PurchasePriceCents ?? 0, dealer.MarketValueCents(type), dealer.ResaleValueCents(inst, type),
+                earnings, fuel, repair, insurance, opNet, n, dist, fuelLbs, avgFpm, perFlight, perHour);
+            return Results.Ok(new AircraftHistoryDto(inst.Id, inst.Tail, type.CanonicalName, eco, flightDtos, ledgerDtos));
+        });
+
+        // Sell an owned airframe at its resale value.
+        app.MapPost("/api/aircraft/{id:guid}/sell", async (Guid id, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, AircraftDealerService dealer) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try { return Results.Ok(new { proceedsCents = await dealer.SellAsync(pilot.CompanyId, id, idem) }); }
+            catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "Cash changed at the same time — try again." }); }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        // Ferry an idle airframe to another field.
+        app.MapPost("/api/aircraft/{id:guid}/relocate", async (Guid id, RelocateAircraftRequest req, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, AircraftDealerService dealer) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try { return Results.Ok(new { feeCents = await dealer.RelocateAsync(pilot.CompanyId, id, req.DestIcao, idem) }); }
+            catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "Cash changed at the same time — try again." }); }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
         // --- Staff + standing orders (Phase 2d) ---

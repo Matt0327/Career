@@ -169,6 +169,10 @@ public sealed record EconomyConfig
     /// <summary>Resale haircut: a pristine airframe is worth this fraction of its market price as an asset.</summary>
     public double AircraftResaleFactor { get; init; } = 0.70;
 
+    // --- Ferry / relocate (Phase 6 hangar) — positioning an idle airframe between fields ---
+    public long AircraftFerryBaseCents { get; init; } = 30_000;  // $300 to move a tail at all
+    public long AircraftFerryPerNmCents { get; init; } = 350;    // $3.50 per nm ferried
+
     // --- Insurance (Phase 4c) ---
     public int InsuranceDefaultCoverageMilli { get; init; } = 80_000;      // insure 80% of hull by default
     public int InsuranceWeeklyRateBps { get; init; } = 40;                 // 0.40%/week of the covered value

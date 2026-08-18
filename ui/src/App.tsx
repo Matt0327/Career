@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import {
   api, money,
-  type Achievement, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type CheckFlightDone, type CloudSaveMeta, type CloudStatus, type Diverted,
+  type Achievement, type AircraftHistory, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type CheckFlightDone, type CloudSaveMeta, type CloudStatus, type Diverted,
   type FinancesData, type FlightLog, type FlightDetail, type FlightTotals, type Insurance, type Inventory, type Job, type LeaderboardRow, type LedgerEntry, type Loan, type LoanOffer, type Loans,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
   type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type VersionInfo, type WsEvent,
@@ -763,6 +763,14 @@ function bearing(a: [number, number], b: [number, number]): number {
   return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360
 }
 
+// Great-circle distance in nm (matches the server's GeoMath) — for the ferry fee estimate.
+function distNm(a: [number, number], b: [number, number]): number {
+  const R = 3440.065, toR = (d: number) => (d * Math.PI) / 180
+  const dLat = toR(b[0] - a[0]), dLon = toR(b[1] - a[1])
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(toR(a[0])) * Math.cos(toR(b[0])) * Math.sin(dLon / 2) ** 2
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)))
+}
+
 function planeIcon(hdg: number): L.DivIcon {
   return L.divIcon({
     className: 'plane-marker',
@@ -1141,17 +1149,24 @@ function ConditionRing({ label, milli }: { label: string; milli: number }) {
 }
 
 // One owned aircraft as a premium card: full imagery, hull + engine condition rings, and its papers.
-function FleetCard({ a, busy, onMaintain }: { a: OwnedAircraft; busy: boolean; onMaintain: (a: OwnedAircraft) => void }) {
+// One owned aircraft as a premium, selectable card: imagery, hull + engine rings, value, papers.
+function FleetCard({ a, selected, busy, onSelect, onMaintain }: {
+  a: OwnedAircraft; selected: boolean; busy: boolean; onSelect: (a: OwnedAircraft) => void; onMaintain: (a: OwnedAircraft) => void
+}) {
   const avail = a.availability === 'Available'
   return (
-    <div className="card fleet-card">
+    <div className={`card fleet-card ${selected ? 'sel' : ''}`} onClick={() => onSelect(a)} role="button" tabIndex={0}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(a) } }}>
       <AircraftImage typeId={a.typeId} category={a.category} />
       <div className="fleet-head">
         <div className="fleet-idy">
           <div className="fleet-tail loc">{a.tail}</div>
           <div className="fleet-name">{a.name}<span className="muted"> · {spaced(a.category)}</span></div>
         </div>
-        <span className={`avail-pill ${avail ? 'ok' : ''}`}>{avail ? 'Available' : a.availability}</span>
+        <div className="fleet-chips">
+          <span className={`avail-pill ${avail ? 'ok' : ''}`}>{avail ? 'Available' : spaced(a.availability)}</span>
+          {a.insured && <span className="insured-chip" title="Insured">◈ Insured</span>}
+        </div>
       </div>
       <div className="fleet-mid">
         <ConditionRing label="Hull" milli={a.hullConditionMilli} />
@@ -1162,91 +1177,353 @@ function FleetCard({ a, busy, onMaintain }: { a: OwnedAircraft; busy: boolean; o
           <div><span className="metalabel">Rating</span>{a.rated ? <span className="pos">Rated</span> : <span className="muted" title={`Needs ${a.requiredClass}`}>🔒 {a.requiredClass}</span>}</div>
         </div>
       </div>
+      <div className="fleet-extra">
+        <span><span className="metalabel">Value</span> <span className="num">{money(a.resaleValueCents)}</span></span>
+        <span><span className="metalabel">Earned</span> <span className="num pos">{money(a.lifetimeEarningsCents)}</span></span>
+      </div>
       <div className="fleet-foot">
         {a.maintenanceDue
-          ? <><span className="warn-text">● Maintenance due</span><button className="primary small" disabled={busy} onClick={() => onMaintain(a)}>Service · {money(a.maintenanceQuoteCents)}</button></>
+          ? <><span className="warn-text">● Maintenance due</span><button className="primary small" disabled={busy} onClick={e => { e.stopPropagation(); onMaintain(a) }}>Service · {money(a.maintenanceQuoteCents)}</button></>
           : <><span className="muted">Next service</span><span className="muted num">{money(a.maintenanceQuoteCents)}</span></>}
       </div>
     </div>
   )
 }
 
+// A short maintenance-interval meter: how many hours are left before the next service is due.
+function MaintMeter({ a }: { a: OwnedAircraft }) {
+  const used = Math.max(0, a.maintenanceIntervalHours - a.hoursToService)
+  const pct = a.maintenanceIntervalHours > 0 ? Math.min(100, (used / a.maintenanceIntervalHours) * 100) : 0
+  const tone = a.maintenanceDue ? 'neg' : a.hoursToService < a.maintenanceIntervalHours * 0.25 ? 'warn' : 'pos'
+  return (
+    <div className="maint-meter">
+      <div className="maint-track"><div className={`maint-fill ${tone}`} style={{ width: `${Math.max(3, pct)}%` }} /></div>
+      <div className="maint-cap">
+        {a.maintenanceDue
+          ? <span className="warn-text">Service overdue</span>
+          : <span className="muted"><span className="num">{a.hoursToService.toFixed(1)} h</span> to next service</span>}
+      </div>
+    </div>
+  )
+}
+
+// The reusable drill-down: hero image, full spec sheet, condition + maintenance, per-airframe economics,
+// flight history, and every action for one tail. This is the detail-panel pattern the Hangar establishes.
+function AircraftDetail({ a, history, bases, busy, onService, onInsure, onRelocate, onSell }: {
+  a: OwnedAircraft; history: AircraftHistory | null; bases: BaseView[]; busy: boolean
+  onService: (a: OwnedAircraft) => void; onInsure: (a: OwnedAircraft) => void
+  onRelocate: (a: OwnedAircraft, dest: string) => void; onSell: (a: OwnedAircraft) => void
+}) {
+  const [dest, setDest] = useState('')
+  const [confirmSell, setConfirmSell] = useState(false)
+  useEffect(() => { setDest(''); setConfirmSell(false) }, [a.id])
+
+  const avail = a.availability === 'Available'
+  const eco = history?.economics
+  const ferryTargets = bases.filter(b => b.icao !== a.locationIcao)
+  const destBase = ferryTargets.find(b => b.icao === dest)
+  const ferryNm = destBase && (a.lat || a.lon) ? distNm([a.lat, a.lon], [destBase.latitude, destBase.longitude]) : 0
+  const ferryEst = destBase ? 30000 + Math.round(ferryNm * 350) : 0 // mirrors AircraftFerry{Base,PerNm}Cents
+  const netVsBuy = eco ? eco.operatingNetCents - eco.purchasePriceCents : 0
+
+  const spec: [string, string | null][] = [
+    ['Manufacturer', a.manufacturer],
+    ['ICAO type', a.icaoTypeDesignator],
+    ['Model', a.icaoModel],
+    ['Class', spaced(a.category)],
+    ['Seats', a.seats != null ? String(a.seats) : null],
+    ['Useful load', a.usefulLoadLbs != null ? `${a.usefulLoadLbs.toLocaleString()} lb` : null],
+    ['Fuel cap', a.fuelCapacityLbs != null ? `${a.fuelCapacityLbs.toLocaleString()} lb` : null],
+    ['Cruise', a.cruiseKtas != null ? `${a.cruiseKtas} kt` : null],
+    ['Min runway', a.minRunwayFt != null ? `${a.minRunwayFt.toLocaleString()} ft` : null],
+    ['Installed', a.onDisk ? 'On this sim' : 'Not installed'],
+  ]
+
+  const points: MapPoint[] = (a.lat || a.lon) ? [{ lat: a.lat, lon: a.lon, label: a.tail, kind: 'home' }] : []
+
+  return (
+    <div className="card acd">
+      <div className="acd-hero">
+        <div className="acd-shot"><AircraftImage typeId={a.typeId} category={a.category} /></div>
+        <div className="acd-idy">
+          <div className="acd-tail loc">{a.tail}</div>
+          <div className="acd-name">{a.name}</div>
+          <div className="acd-badges">
+            <span className={`avail-pill ${avail ? 'ok' : ''}`}>{avail ? 'Available' : spaced(a.availability)}</span>
+            {a.insured
+              ? <span className="insured-chip" title={a.insuredValueCents != null ? `Covers ${money(a.insuredValueCents)}` : 'Insured'}>◈ Insured{a.coverageMilli != null ? ` · ${Math.round(a.coverageMilli / 1000)}%` : ''}</span>
+              : <span className="uninsured-chip">Uninsured</span>}
+            {!a.rated && <span className="rate-chip" title={`Needs ${a.requiredClass}`}>🔒 {a.requiredClass}</span>}
+          </div>
+          <div className="acd-worth">
+            <div><span className="metalabel">Resale value</span><span className="num">{money(a.resaleValueCents)}</span></div>
+            <div><span className="metalabel">Market</span><span className="num muted">{money(a.marketValueCents)}</span></div>
+            <div><span className="metalabel">Paid</span><span className="num muted">{a.purchasePriceCents != null ? money(a.purchasePriceCents) : '—'}</span></div>
+            <div><span className="metalabel">Acquired</span><span className="num muted">{a.acquiredAt ? when(a.acquiredAt) : '—'}</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div className="acd-cond">
+        <ConditionRing label="Hull" milli={a.hullConditionMilli} />
+        <ConditionRing label="Engine" milli={a.engineConditionMilli} />
+        <div className="acd-cond-body">
+          <div className="acd-cond-row"><span className="metalabel">Airframe hours</span><span className="num">{a.airframeHours.toFixed(1)} h</span></div>
+          <MaintMeter a={a} />
+          <div className="acd-cond-row"><span className="metalabel">Next service</span><span className="num">{money(a.maintenanceQuoteCents)}</span></div>
+        </div>
+      </div>
+
+      <h3 className="sub-h">Spec sheet</h3>
+      <div className="spec-sheet">
+        {spec.filter(([, v]) => v != null).map(([k, v]) => (
+          <div key={k} className="metacell"><span className="metalabel">{k}</span><span className="num">{v}</span></div>
+        ))}
+      </div>
+
+      <h3 className="sub-h">Operating economics</h3>
+      {eco ? (
+        <>
+          <div className="eco-grid">
+            <Meta label="Lifetime earned" value={money(eco.lifetimeEarningsCents)} />
+            <Meta label="Legs flown" value={String(eco.lifetimeFlights)} />
+            <Meta label="Distance" value={`${Math.round(eco.lifetimeDistanceNm).toLocaleString()} nm`} />
+            <Meta label="Fuel burned" value={`${Math.round(eco.lifetimeFuelLbs).toLocaleString()} lb`} />
+            <Meta label="Per leg" value={money(eco.avgEarningsPerFlightCents)} />
+            <Meta label="Net / hour" value={money(eco.operatingNetPerHourCents)} />
+            <Meta label="Avg touchdown" value={eco.lifetimeFlights ? `${Math.round(eco.avgTouchdownFpm)} fpm` : '—'} />
+            <Meta label="Net vs. purchase" value={money(netVsBuy)} />
+          </div>
+          <div className="eco-bars">
+            <BarRow label="Earned" value={eco.lifetimeEarningsCents} max={eco.lifetimeEarningsCents || 1} tone="pos" />
+            <BarRow label="Repairs" value={-eco.lifetimeRepairCents} max={eco.lifetimeEarningsCents || 1} tone="neg" />
+            <BarRow label="Fuel / ferry" value={-eco.lifetimeFuelCents} max={eco.lifetimeEarningsCents || 1} tone="neg" />
+            <BarRow label="Insurance" value={-eco.lifetimeInsuranceCents} max={eco.lifetimeEarningsCents || 1} tone="neg" />
+            <BarRow label="Operating net" value={eco.operatingNetCents} max={eco.lifetimeEarningsCents || 1} tone={eco.operatingNetCents >= 0 ? 'pos' : 'neg'} />
+          </div>
+        </>
+      ) : <div className="chart-empty">Loading history…</div>}
+
+      <h3 className="sub-h">Where it sits</h3>
+      <SatelliteMap points={points} />
+      <div className="acd-loc muted">At <span className="loc">{a.locationIcao}</span> · {a.locationName}</div>
+
+      <h3 className="sub-h">Flight history {history && <span className="muted">· {history.flights.length}</span>}</h3>
+      {history && history.flights.length > 0 ? (
+        <div className="tbl-wrap"><table className="tbl hist-table">
+          <thead><tr><th>When</th><th>Leg</th><th className="r">Dist</th><th className="r">Fuel</th><th>Landing</th><th className="r">Payout</th><th className="r">XP</th></tr></thead>
+          <tbody>{history.flights.map(f => (
+            <tr key={f.id}>
+              <td className="muted">{when(f.settledAt)}</td>
+              <td>{f.origin && f.dest ? <><span className="loc">{f.origin}</span> → <span className="loc">{f.dest}</span></> : <span className="muted">—</span>}</td>
+              <td className="r num">{Math.round(f.distanceNm)}</td>
+              <td className="r num">{Math.round(f.fuelUsedLbs)}</td>
+              <td><span className={`land ${landingWord(f.touchdownFpm)}`}>{landingWord(f.touchdownFpm)}</span> <span className="muted num">{Math.round(Math.abs(f.touchdownFpm))}</span></td>
+              <td className="r num pos">{money(f.payoutCents)}</td>
+              <td className="r num">+{f.xp}</td>
+            </tr>
+          ))}</tbody>
+        </table></div>
+      ) : <div className="empty">No flights logged on this airframe yet.</div>}
+
+      <div className="acd-actions">
+        <button className="primary" disabled={busy || (!a.maintenanceDue && a.hullConditionMilli >= 100000 && a.engineConditionMilli >= 100000)}
+          onClick={() => onService(a)} title={a.maintenanceDue ? 'Service due' : 'Restore to full condition'}>
+          Service · {money(a.maintenanceQuoteCents)}
+        </button>
+        {!a.insured && <button disabled={busy} onClick={() => onInsure(a)}>Insure</button>}
+        {ferryTargets.length > 0 && (
+          <div className="relocate-form">
+            <select value={dest} onChange={e => setDest(e.target.value)} disabled={busy || !avail}>
+              <option value="">Ferry to base…</option>
+              {ferryTargets.map(b => <option key={b.icao} value={b.icao}>{b.icao} · {b.name}</option>)}
+            </select>
+            <button disabled={busy || !avail || !dest} onClick={() => onRelocate(a, dest)}>
+              Ferry{destBase ? ` · ~${money(ferryEst)}` : ''}
+            </button>
+          </div>
+        )}
+        {confirmSell
+          ? <><button className="danger" disabled={busy || !avail} onClick={() => onSell(a)}>Confirm sell · {money(a.resaleValueCents)}</button>
+              <button disabled={busy} onClick={() => setConfirmSell(false)}>Cancel</button></>
+          : <button className="danger-ghost" disabled={busy || !avail} onClick={() => setConfirmSell(true)}
+              title={avail ? 'Sell this airframe' : 'Must be available to sell'}>Sell</button>}
+      </div>
+      {!avail && <div className="hint">Ferry and sale are available only when the aircraft is idle.</div>}
+    </div>
+  )
+}
+
 // ─── Hangar (own aircraft) ───────────────────────────────────────────────────
+
+type FleetSort = 'value' | 'hours' | 'condition' | 'earned' | 'name'
 
 function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
   const [owned, setOwned] = useState<OwnedAircraft[] | null>(null)
   const [offers, setOffers] = useState<AircraftOffer[] | null>(null)
+  const [bases, setBases] = useState<BaseView[]>([])
+  const [selId, setSelId] = useState<string | null>(null)
+  const [history, setHistory] = useState<AircraftHistory | null>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const [q, setQ] = useState('')
+  const [sort, setSort] = useState<FleetSort>('value')
 
   const load = useCallback(async () => {
-    try { setOwned(await api.hangar()); setOffers(await api.market()) } catch (e) { setMsg(cleanErr(e)) }
+    try {
+      const h = await api.hangar()
+      setOwned(h)
+      setOffers(await api.market())
+      setBases(await api.bases())
+      setSelId(prev => (prev && h.some(a => a.id === prev)) ? prev : (h[0]?.id ?? null))
+    } catch (e) { setMsg(cleanErr(e)) }
   }, [])
   useEffect(() => { void load() }, [load])
+
+  // Pull the drill-down whenever the selection changes.
+  useEffect(() => {
+    if (!selId) { setHistory(null); return }
+    let live = true
+    setHistory(null)
+    api.aircraftHistory(selId).then(h => { if (live) setHistory(h) }).catch(() => { if (live) setHistory(null) })
+    return () => { live = false }
+  }, [selId, owned])
 
   const buy = async (o: AircraftOffer) => {
     setBusy(true); setMsg(null)
     try { await api.buyAircraft(o.typeId); await load(); onChanged(); setMsg(`Bought a ${o.name} — it's in your hangar.`) }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
-
   const maintain = async (a: OwnedAircraft) => {
     setBusy(true); setMsg(null)
     try { await api.maintain(a.id); await load(); onChanged(); setMsg(`Serviced ${a.tail} — good as new.`) }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
+  const insure = async (a: OwnedAircraft) => {
+    setBusy(true); setMsg(null)
+    try { await api.insure(a.id); await load(); onChanged(); setMsg(`${a.tail} is insured.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+  const relocate = async (a: OwnedAircraft, destIcao: string) => {
+    setBusy(true); setMsg(null)
+    try { const r = await api.relocateAircraft(a.id, destIcao); await load(); onChanged(); setMsg(`Ferried ${a.tail} to ${destIcao} for ${money(r.feeCents)}.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+  const sell = async (a: OwnedAircraft) => {
+    setBusy(true); setMsg(null)
+    try { const r = await api.sellAircraft(a.id); setSelId(null); await load(); onChanged(); setMsg(`Sold ${a.tail} for ${money(r.proceedsCents)}.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+
+  const fleet = owned ?? []
+  const filtered = fleet.filter(a => {
+    const s = q.trim().toLowerCase()
+    return !s || a.tail.toLowerCase().includes(s) || a.name.toLowerCase().includes(s)
+      || a.locationIcao.toLowerCase().includes(s) || spaced(a.category).toLowerCase().includes(s)
+  })
+  const condOf = (a: OwnedAircraft) => Math.min(a.hullConditionMilli, a.engineConditionMilli)
+  const sorted = [...filtered].sort((x, y) => {
+    switch (sort) {
+      case 'value': return y.resaleValueCents - x.resaleValueCents
+      case 'hours': return y.airframeHours - x.airframeHours
+      case 'condition': return condOf(x) - condOf(y)          // worst first — what needs you
+      case 'earned': return y.lifetimeEarningsCents - x.lifetimeEarningsCents
+      case 'name': return x.name.localeCompare(y.name)
+    }
+  })
+  const sel = fleet.find(a => a.id === selId) ?? null
+
+  // Fleet KPIs — the header NeoFly never gives you at a glance.
+  const totalValue = fleet.reduce((s, a) => s + a.resaleValueCents, 0)
+  const totalHours = fleet.reduce((s, a) => s + a.airframeHours, 0)
+  const totalEarned = fleet.reduce((s, a) => s + a.lifetimeEarningsCents, 0)
+  const availCount = fleet.filter(a => a.availability === 'Available').length
+  const dueCount = fleet.filter(a => a.maintenanceDue).length
+  const avgCond = fleet.length ? Math.round(fleet.reduce((s, a) => s + condOf(a), 0) / fleet.length / 1000) : 0
+
+  const sorts: [FleetSort, string][] = [['value', 'Value'], ['earned', 'Earned'], ['hours', 'Hours'], ['condition', 'Needs service'], ['name', 'Name']]
 
   return (
-    <div className="grid">
+    <div className="hangar-screen">
       <section className="card">
-        <h2>Your hangar</h2>
+        <div className="row-head"><h2>Your hangar <span className="muted">· {fleet.length} {fleet.length === 1 ? 'tail' : 'tails'}</span></h2></div>
+        {msg && <div className="banner">{msg}</div>}
         {owned === null ? <div className="empty">Loading…</div>
-          : owned.length === 0 ? <div className="empty">No aircraft yet — buy one below.</div>
-            : <div className="fleet">{owned.map(a => <FleetCard key={a.id} a={a} busy={busy} onMaintain={maintain} />)}</div>}
+          : fleet.length === 0 ? <div className="empty">No aircraft yet — buy one below.</div>
+          : (
+            <>
+              <div className="fleet-kpis">
+                <HeroStat label="Fleet value" value={money(totalValue)} accent />
+                <HeroStat label="Lifetime earned" value={money(totalEarned)} />
+                <HeroStat label="Airframe hours" value={totalHours.toFixed(0)} unit="h" />
+                <HeroStat label="Available" value={`${availCount}/${fleet.length}`} />
+                <HeroStat label="Avg condition" value={String(avgCond)} unit="%" />
+                <HeroStat label="Service due" value={String(dueCount)} />
+              </div>
+
+              <div className="hangar-toolbar">
+                <input className="hangar-search" placeholder="Search tail, type, or base…" value={q} onChange={e => setQ(e.target.value)} />
+                <div className="hangar-sort">
+                  {sorts.map(([k, lbl]) => (
+                    <button key={k} type="button" className={`hsort ${sort === k ? 'on' : ''}`} onClick={() => setSort(k)}>{lbl}</button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="fleet">
+                {sorted.map(a => <FleetCard key={a.id} a={a} selected={a.id === selId} busy={busy} onSelect={x => setSelId(x.id)} onMaintain={maintain} />)}
+              </div>
+              {sorted.length === 0 && <div className="empty">No aircraft match “{q}”.</div>}
+            </>
+          )}
       </section>
+
+      {sel && (
+        <section className="card acd-wrap">
+          <AircraftDetail a={sel} history={history} bases={bases} busy={busy}
+            onService={maintain} onInsure={insure} onRelocate={relocate} onSell={sell} />
+        </section>
+      )}
 
       <section className="card">
         <div className="row-head"><h2>Buy an aircraft</h2><span className="hint">Delivered to <span className="loc">{state.currentIcao}</span></span></div>
-        {msg && <div className="banner">{msg}</div>}
         {offers === null ? <div className="empty">Loading…</div>
           : offers.length === 0 ? <div className="empty">No aircraft types known yet.</div>
-            : (
-              <div className="jobs">
-                {offers.map(o => {
-                  const afford = state.cashCents >= o.priceCents
-                  return (
-                    <div className="card job" key={o.typeId}>
-                      <AircraftImage typeId={o.typeId} category={o.category} />
-                      <div className="job-top">
-                        <div className="leg"><b>{o.name}</b></div>
-                        {o.onDisk && <div className="tag">installed</div>}
-                      </div>
-                      <div className="commodity">{spaced(o.category)}</div>
-                      <div className="job-meta">
-                        {o.seats != null && <Meta label="Seats" value={String(o.seats)} />}
-                        {o.usefulLoadLbs != null && <Meta label="Payload" value={`${o.usefulLoadLbs.toLocaleString()} lb`} />}
-                        {o.cruiseKtas != null && <Meta label="Cruise" value={`${o.cruiseKtas} kt`} />}
-                      </div>
-                      <div className="price num">{money(o.priceCents)}</div>
-                      <details className="factors">
-                        <summary>why this price</summary>
-                        <ul>{o.factors.map((f, i) => <li key={i}><span>{f.label}</span><span className="num">{money(f.amountCents)}</span></li>)}</ul>
-                      </details>
-                      <div className="job-foot">
-                        <span className="hint">{afford ? '' : 'over budget'}</span>
-                        <button className="primary" disabled={busy || !afford} onClick={() => buy(o)}>Buy</button>
-                      </div>
+          : (
+            <div className="jobs">
+              {offers.map(o => {
+                const afford = state.cashCents >= o.priceCents
+                return (
+                  <div className="card job" key={o.typeId}>
+                    <AircraftImage typeId={o.typeId} category={o.category} />
+                    <div className="job-top">
+                      <div className="leg"><b>{o.name}</b></div>
+                      {o.onDisk && <div className="tag">installed</div>}
                     </div>
-                  )
-                })}
-              </div>
-            )}
+                    <div className="commodity">{spaced(o.category)}</div>
+                    <div className="job-meta">
+                      {o.seats != null && <Meta label="Seats" value={String(o.seats)} />}
+                      {o.usefulLoadLbs != null && <Meta label="Payload" value={`${o.usefulLoadLbs.toLocaleString()} lb`} />}
+                      {o.cruiseKtas != null && <Meta label="Cruise" value={`${o.cruiseKtas} kt`} />}
+                    </div>
+                    <div className="price num">{money(o.priceCents)}</div>
+                    <details className="factors">
+                      <summary>why this price</summary>
+                      <ul>{o.factors.map((f, i) => <li key={i}><span>{f.label}</span><span className="num">{money(f.amountCents)}</span></li>)}</ul>
+                    </details>
+                    <div className="job-foot">
+                      <span className="hint">{afford ? '' : 'over budget'}</span>
+                      <button className="primary" disabled={busy || !afford} onClick={() => buy(o)}>Buy</button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
       </section>
     </div>
   )
 }
-
-// ─── Staff & standing orders ─────────────────────────────────────────────────
 
 function Ops({ onChanged }: { onChanged: () => void }) {
   const [staff, setStaff] = useState<Staff[]>([])

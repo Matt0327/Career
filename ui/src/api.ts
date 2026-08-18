@@ -182,6 +182,74 @@ export interface OwnedAircraft {
   maintenanceQuoteCents: number
   requiredClass: string
   rated: boolean
+  manufacturer: string | null
+  icaoTypeDesignator: string | null
+  icaoModel: string | null
+  onDisk: boolean
+  seats: number | null
+  usefulLoadLbs: number | null
+  fuelCapacityLbs: number | null
+  cruiseKtas: number | null
+  minRunwayFt: number | null
+  marketValueCents: number
+  resaleValueCents: number
+  acquiredAt: string | null
+  lat: number
+  lon: number
+  locationName: string
+  maintenanceHoursWatermark: number
+  maintenanceIntervalHours: number
+  hoursToService: number
+  wearMilliPerHour: number
+  insured: boolean
+  coverageMilli: number | null
+  insuredValueCents: number | null
+  lifetimeFlights: number
+  lifetimeDistanceNm: number
+  lifetimeFuelLbs: number
+  lifetimeEarningsCents: number
+  lifetimeUpkeepCents: number
+}
+
+export interface AircraftFlight {
+  id: string
+  origin: string | null
+  dest: string | null
+  mission: string
+  distanceNm: number
+  fuelUsedLbs: number
+  touchdownFpm: number
+  payoutCents: number
+  xp: number
+  settledAt: string
+}
+
+export interface AircraftLedger { at: string; category: string; amountCents: number; description: string }
+
+export interface AircraftEconomics {
+  purchasePriceCents: number
+  marketValueCents: number
+  resaleValueCents: number
+  lifetimeEarningsCents: number
+  lifetimeFuelCents: number
+  lifetimeRepairCents: number
+  lifetimeInsuranceCents: number
+  operatingNetCents: number
+  lifetimeFlights: number
+  lifetimeDistanceNm: number
+  lifetimeFuelLbs: number
+  avgTouchdownFpm: number
+  avgEarningsPerFlightCents: number
+  operatingNetPerHourCents: number
+}
+
+export interface AircraftHistory {
+  id: string
+  tail: string
+  name: string
+  economics: AircraftEconomics
+  flights: AircraftFlight[]
+  ledger: AircraftLedger[]
 }
 
 export interface QualClass {
@@ -630,6 +698,10 @@ export const api = {
   beginCheckFlight: (cls: string) => POST('/api/checkflights/begin', { class: cls }).then(ok),
   buyAircraft: (typeId: string) => POST_IDEM('/api/aircraft/buy', { typeId }).then(ok),
   maintain: (id: string) => POST_IDEM(`/api/aircraft/${id}/maintain`).then(ok),
+  aircraftHistory: (id: string) => fetch(`/api/aircraft/${id}/history`).then(ok<AircraftHistory>),
+  sellAircraft: (id: string) => POST_IDEM(`/api/aircraft/${id}/sell`).then(ok<{ proceedsCents: number }>),
+  relocateAircraft: (id: string, destIcao: string) =>
+    POST_IDEM(`/api/aircraft/${id}/relocate`, { destIcao }).then(ok<{ feeCents: number }>),
   staffCandidates: () => fetch('/api/staff/candidates').then(ok<StaffCandidate[]>),
   staff: () => fetch('/api/staff').then(ok<Staff[]>),
   hire: (candidateSeed: number) => POST('/api/staff/hire', { candidateSeed }).then(ok),

@@ -47,7 +47,34 @@ public record OwnedAircraftDto(
     Guid Id, Guid TypeId, string Tail, string Name, string Category, string LocationIcao,
     string Availability, long? PurchasePriceCents, double AirframeHours,
     int HullConditionMilli, int EngineConditionMilli, bool MaintenanceDue, long MaintenanceQuoteCents,
-    string RequiredClass, bool Rated);
+    string RequiredClass, bool Rated,
+    string? Manufacturer, string? IcaoTypeDesignator, string? IcaoModel, bool OnDisk,
+    int? Seats, int? UsefulLoadLbs, int? FuelCapacityLbs, int? CruiseKtas, int? MinRunwayFt,
+    long MarketValueCents, long ResaleValueCents, DateTimeOffset? AcquiredAt,
+    double Lat, double Lon, string LocationName,
+    double MaintenanceHoursWatermark, double MaintenanceIntervalHours, double HoursToService, int WearMilliPerHour,
+    bool Insured, int? CoverageMilli, long? InsuredValueCents,
+    int LifetimeFlights, double LifetimeDistanceNm, double LifetimeFuelLbs,
+    long LifetimeEarningsCents, long LifetimeUpkeepCents);
+
+// --- Hangar depth (Phase 6): per-airframe drill-down ---
+public record AircraftFlightDto(
+    Guid Id, string? Origin, string? Dest, string Mission, double DistanceNm, double FuelUsedLbs,
+    double TouchdownFpm, long PayoutCents, int Xp, DateTimeOffset SettledAt);
+
+public record AircraftLedgerDto(DateTimeOffset At, string Category, long AmountCents, string Description);
+
+public record AircraftEconomicsDto(
+    long PurchasePriceCents, long MarketValueCents, long ResaleValueCents,
+    long LifetimeEarningsCents, long LifetimeFuelCents, long LifetimeRepairCents, long LifetimeInsuranceCents,
+    long OperatingNetCents, int LifetimeFlights, double LifetimeDistanceNm, double LifetimeFuelLbs,
+    double AvgTouchdownFpm, long AvgEarningsPerFlightCents, long OperatingNetPerHourCents);
+
+public record AircraftHistoryDto(
+    Guid Id, string Tail, string Name, AircraftEconomicsDto Economics,
+    IReadOnlyList<AircraftFlightDto> Flights, IReadOnlyList<AircraftLedgerDto> Ledger);
+
+public record RelocateAircraftRequest(string DestIcao);
 
 // --- Phase 3c: licence classes ---
 public record QualClassDto(string Class, string DisplayName, string Description, bool Held, int Stars, long CheckFlightFeeCents);
