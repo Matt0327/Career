@@ -15,7 +15,8 @@ public class SettlementServiceTests
 
     private sealed record Seed(Guid CompanyId, Guid PilotId, Guid JobId);
 
-    private static async Task<Seed> SeedAsync(CallsignDbContext db, long rewardCents = 200_000, int xp = 20, int weight = 500)
+    private static async Task<Seed> SeedAsync(CallsignDbContext db, long rewardCents = 200_000, int xp = 20, int weight = 500,
+        MissionType missionType = MissionType.Cargo)
     {
         var company = new Company { Id = Guid.NewGuid(), Name = "Test Co" };
         var pilot = new Pilot { Id = Guid.NewGuid(), CompanyId = company.Id, Name = "Amelia", HomeIcao = "EHAM", CurrentIcao = "EHAM" };
@@ -31,7 +32,7 @@ public class SettlementServiceTests
         var job = new Job
         {
             Id = Guid.NewGuid(),
-            Type = MissionType.Cargo,
+            Type = missionType,
             OriginIcao = "EHAM",
             DestIcao = "EHRD",
             Commodity = "Machine parts",
@@ -557,6 +558,69 @@ public class SettlementServiceTests
             Assert.DoesNotContain(ledger, e => e.Category == LedgerCategory.JobBonus); // bonus forfeited
             var flight = await db.Flights.SingleAsync();
             Assert.False(flight.ScoreValid);
+        }
+    }
+
+    [Fact]
+    public async Task Settle_SensitiveCargo_FirmArrival_PaysPartial_AndRecordsTheGrade()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Guid assignmentId;
+        using (var db = tdb.NewContext())
+        {
+            var s = await SeedAsync(db, missionType: MissionType.Sensitive);
+            assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, s.PilotId)).Id;
+        }
+
+        // A firm -450 fpm arrival damages fragile freight to 80% (score 60 → no performance delta, so the
+        // payout shows the mission grade cleanly): 200000 × 0.80 = 160000.
+        var record = Flown(-40) with
+        {
+            Scored = true, OverallScore = 60, ScoreValid = true, TouchdownFpmWorst3 = -450, TouchdownG = 1.2,
+        };
+        using (var db = tdb.NewContext())
+        {
+            var r = await new SettlementService(db, new LedgerService(db, clock), clock, EconomyConfig.Default)
+                .SettleAsync(assignmentId, record);
+            Assert.Equal(160_000, r.PayoutCents);
+        }
+        using (var db = tdb.NewContext())
+        {
+            var flight = await db.Flights.SingleAsync();
+            Assert.Equal((int)MissionGrade.Partial, flight.OutcomeGrade);
+            Assert.Contains("damaged", flight.OutcomeReason);
+        }
+    }
+
+    [Fact]
+    public async Task Settle_SensitiveCargo_Slam_Fails_NoBasePayout()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Guid assignmentId, companyId;
+        using (var db = tdb.NewContext())
+        {
+            var s = await SeedAsync(db, missionType: MissionType.Sensitive);
+            companyId = s.CompanyId;
+            assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, s.PilotId)).Id;
+        }
+
+        // A -1000 fpm slam destroys the load — the delivery fails and pays no base reward.
+        var record = Flown(-40) with { Scored = true, OverallScore = 60, ScoreValid = true, TouchdownFpmWorst3 = -1000, TouchdownG = 1.5 };
+        using (var db = tdb.NewContext())
+        {
+            var r = await new SettlementService(db, new LedgerService(db, clock), clock, EconomyConfig.Default)
+                .SettleAsync(assignmentId, record);
+            Assert.Equal(0, r.PayoutCents);
+        }
+        using (var db = tdb.NewContext())
+        {
+            var ledger = await db.LedgerEntries.Where(e => e.AccountId == companyId).ToListAsync();
+            Assert.DoesNotContain(ledger, e => e.Category == LedgerCategory.JobPayout); // no base paid
+            var flight = await db.Flights.SingleAsync();
+            Assert.Equal((int)MissionGrade.Failed, flight.OutcomeGrade);
+            Assert.Equal(AssignmentStatus.Settled, (await db.JobAssignments.FindAsync(assignmentId))!.Status); // still closes
         }
     }
 

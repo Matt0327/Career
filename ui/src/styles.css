@@ -627,6 +627,9 @@ input { font: inherit; }
 .flt-route-names{font-size:12.5px;margin-top:-4px}
 .flt-grid{grid-template-columns:repeat(3,1fr)}
 .flt-pay-head{margin-bottom:2px}
+.mission-grade{display:inline-block;margin-top:5px;font-size:12px;font-weight:600;padding:2px 9px;border-radius:6px}
+.mission-grade.partial{color:#d99a1c;background:color-mix(in srgb,#d99a1c 15%,transparent)}
+.mission-grade.failed{color:var(--neg);background:color-mix(in srgb,var(--neg) 15%,transparent)}
 .flt-scores{display:flex;align-items:center;gap:18px;border-top:1px solid var(--line);padding-top:12px}
 .fs-overall{display:flex;flex-direction:column;gap:1px;flex:none}
 .fs-big{font-size:30px;font-weight:720;line-height:1}

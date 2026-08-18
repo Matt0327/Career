@@ -117,6 +117,9 @@ public sealed record EconomyConfig
     public int ScoreReputationMilli(int overallScore, bool valid) =>
         !valid ? -800 : overallScore >= 90 ? 300 : overallScore < 35 ? -600 : 0;
 
+    /// <summary>Reputation hit for a failed delivery (Phase 7d) — a destroyed load or a lost client.</summary>
+    public int FailedDeliveryReputationMilli { get; init; } = -1_000;
+
     /// <summary>Continuous hull wear from the touchdown — scales with the worst-of-three sink rate over a
     /// 200 fpm floor and with peak g over 1.4, so a firm arrival wears the airframe proportionally
     /// (replacing the old binary hard-landing step for a tracker-flown leg).</summary>

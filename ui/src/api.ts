@@ -146,6 +146,9 @@ export interface FlightDetail {
   stabilizedApproach: boolean | null
   violationPoints: number | null
   scoreValid: boolean | null
+  // Phase 7d — mission completion grade (2 = Partial, 3 = Failed; null = an ordinary job).
+  outcomeGrade: number | null
+  outcomeReason: string | null
 }
 
 export interface FlightTotals {

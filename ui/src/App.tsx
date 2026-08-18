@@ -3188,6 +3188,11 @@ function FlightDetail({ id }: { id: string }) {
         <div className="mission-title">
           <div className="mission-type">{d.mission ? m.label : 'Flight'}</div>
           <div className="mission-route"><b>{d.origin}</b> <span className="arrow">→</span> <b>{d.dest}</b></div>
+          {d.outcomeGrade != null && (
+            <div className={`mission-grade ${d.outcomeGrade === 3 ? 'failed' : 'partial'}`}>
+              {d.outcomeGrade === 3 ? 'Delivery failed' : 'Partial delivery'}{d.outcomeReason ? ` · ${d.outcomeReason}` : ''}
+            </div>
+          )}
         </div>
       </div>
       <AircraftImage typeId={d.aircraftTypeId ?? undefined} category={d.aircraftCategory ?? undefined} />

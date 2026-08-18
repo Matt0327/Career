@@ -44,7 +44,15 @@ public sealed class SettlementService
                     ?? throw new InvalidOperationException($"Pilot {a.PilotId} not found for assignment {a.Id}.");
 
         var now = _clock.UtcNow;
-        long baseCents = a.RewardQuoteCents; // frozen quote, never the live job
+        long grossBase = a.RewardQuoteCents; // frozen quote, never the live job
+
+        // Mission completion (Phase 7d): judge the DELIVERY against this mission type's own rules — a firm
+        // arrival damages fragile freight, a rough flight loses a VIP client. This scales (or, on a Failed
+        // grade, zeroes) the base reward before anything else. Ordinary jobs grade Full and are unchanged.
+        var outcome = MissionProfiles.Evaluate(a.Type, flight);
+        long baseCents = outcome.Grade == MissionGrade.Failed
+            ? 0
+            : (long)Math.Round((decimal)grossBase * outcome.QualityMilli / 100_000m, MidpointRounding.AwayFromZero);
 
         // The landing lever (Phase 7c): a tracker-flown leg is graded on its whole-flight score — landing
         // ∧ approach ∧ enroute — and a cheated flight forfeits any bonus. A manual/legacy record (no
@@ -62,7 +70,7 @@ public sealed class SettlementService
             perfPct = _cfg.LandingModifierPct(flight.TouchdownFpm);
             landingQualifier = $"{flight.TouchdownFpm:F0} fpm";
         }
-        // Landing delta in DECIMAL with away-from-zero rounding — the one money convention (ToCents).
+        // Performance scales the EARNED base — a damaged (partial) delivery earns a smaller bonus too.
         long landingDelta = (long)Math.Round((decimal)baseCents * perfPct, MidpointRounding.AwayFromZero);
 
         var type = await MatchAircraftAsync(flight.AircraftTitle, ct);
@@ -75,12 +83,14 @@ public sealed class SettlementService
             xp = (int)Math.Round(xp * _cfg.ScoreXpMultiplier(flight.OverallScore));
 
         var jobRef = a.JobId.ToString();
-        var postings = new List<LedgerPosting>
+        var postings = new List<LedgerPosting>();
+        var lines = new List<PayoutLine>();
+        if (baseCents > 0)
         {
-            new(LedgerCategory.JobPayout, baseCents / 100m, $"{a.Type} payout to {a.DestIcao}",
-                LedgerRefType.Job, jobRef, DedupeKey: $"settle:{a.Id}:base"),
-        };
-        var lines = new List<PayoutLine> { new("Base reward", baseCents) };
+            postings.Add(new(LedgerCategory.JobPayout, baseCents / 100m, $"{a.Type} payout to {a.DestIcao}",
+                LedgerRefType.Job, jobRef, DedupeKey: $"settle:{a.Id}:base"));
+            lines.Add(new(outcome.Grade == MissionGrade.Full ? "Base reward" : $"Base reward ({outcome.Reason})", baseCents));
+        }
 
         if (landingDelta > 0)
         {
@@ -141,6 +151,9 @@ public sealed class SettlementService
             StabilizedApproach = flight.Scored ? flight.StabilizedApproach : null,
             ViolationPoints = flight.Scored ? flight.ViolationPoints : null,
             ScoreValid = flight.Scored ? flight.ScoreValid : null,
+            // Phase 7d — the delivery grade, stored only when the type had a real completion rule (else null).
+            OutcomeGrade = outcome.Grade == MissionGrade.Full ? (int?)null : (int)outcome.Grade,
+            OutcomeReason = outcome.Reason,
         };
         _db.Flights.Add(flightEntity);
 
@@ -168,7 +181,9 @@ public sealed class SettlementService
 
         // Reputation (Phase 3f): a delivery nudges reputation by the mission's reward (Illicit is
         // negative), clamped to [0, 100.0] and logged so the drift stays legible.
-        int repDelta = (MissionCatalog.TryDef(a.Type)?.ReputationMilliReward ?? 0)
+        int repDelta = (outcome.Grade == MissionGrade.Failed
+                          ? _cfg.FailedDeliveryReputationMilli                        // a failed delivery hurts
+                          : MissionCatalog.TryDef(a.Type)?.ReputationMilliReward ?? 0) // else the mission's reward
                      + (flight.Scored ? _cfg.ScoreReputationMilli(flight.OverallScore, flight.ScoreValid) : 0);
         if (repDelta != 0)
         {

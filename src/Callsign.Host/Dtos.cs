@@ -165,7 +165,8 @@ public record FlightDetailDto(
     IReadOnlyList<PayoutLineDto> Lines,
     IReadOnlyList<FlightEventDto> Events,
     int? OverallScore, int? LandingScore, int? ApproachScore,
-    double? TouchdownG, bool? StabilizedApproach, int? ViolationPoints, bool? ScoreValid);
+    double? TouchdownG, bool? StabilizedApproach, int? ViolationPoints, bool? ScoreValid,
+    int? OutcomeGrade, string? OutcomeReason);
 
 public record FlightTotalsDto(
     int Flights, double TotalHours, double TotalDistanceNm, double TotalFuelLbs,

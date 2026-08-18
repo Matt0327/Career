@@ -36,6 +36,10 @@ public sealed class Flight
     public int? ViolationPoints { get; set; }
     public bool? ScoreValid { get; set; }   // Phase 7c — false when flight-integrity monitoring voided the score
 
+    // Phase 7d — how the delivery itself graded (null = an ordinary job with no special completion rule).
+    public int? OutcomeGrade { get; set; }      // MissionGrade: 2 = Partial, 3 = Failed
+    public string? OutcomeReason { get; set; }
+
     [NotMapped]
     public decimal Payout => PayoutCents / 100m;
 }
