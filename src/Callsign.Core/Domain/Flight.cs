@@ -34,6 +34,7 @@ public sealed class Flight
     public int? OverallScore { get; set; }
     public bool? StabilizedApproach { get; set; }
     public int? ViolationPoints { get; set; }
+    public bool? ScoreValid { get; set; }   // Phase 7c — false when flight-integrity monitoring voided the score
 
     [NotMapped]
     public decimal Payout => PayoutCents / 100m;

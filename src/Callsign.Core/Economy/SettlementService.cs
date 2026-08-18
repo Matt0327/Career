@@ -46,9 +46,24 @@ public sealed class SettlementService
         var now = _clock.UtcNow;
         long baseCents = a.RewardQuoteCents; // frozen quote, never the live job
 
+        // The landing lever (Phase 7c): a tracker-flown leg is graded on its whole-flight score — landing
+        // ∧ approach ∧ enroute — and a cheated flight forfeits any bonus. A manual/legacy record (no
+        // telemetry assessment) falls back to the raw touchdown rate, so those paths settle unchanged.
+        decimal perfPct;
+        string landingQualifier;
+        if (flight.Scored)
+        {
+            perfPct = _cfg.PerformancePct(flight.OverallScore);
+            if (!flight.ScoreValid) perfPct = Math.Min(perfPct, 0m); // anti-cheat: no bonus, penalties stand
+            landingQualifier = flight.ScoreValid ? $"score {flight.OverallScore}" : $"score {flight.OverallScore}, voided";
+        }
+        else
+        {
+            perfPct = _cfg.LandingModifierPct(flight.TouchdownFpm);
+            landingQualifier = $"{flight.TouchdownFpm:F0} fpm";
+        }
         // Landing delta in DECIMAL with away-from-zero rounding — the one money convention (ToCents).
-        long landingDelta = (long)Math.Round(
-            (decimal)baseCents * _cfg.LandingModifierPct(flight.TouchdownFpm), MidpointRounding.AwayFromZero);
+        long landingDelta = (long)Math.Round((decimal)baseCents * perfPct, MidpointRounding.AwayFromZero);
 
         var type = await MatchAircraftAsync(flight.AircraftTitle, ct);
         // "Right aircraft" bonus: passenger charters need SEATS for everyone; cargo needs useful LOAD.
@@ -56,6 +71,8 @@ public sealed class SettlementService
             ? type?.Seats is int seats && seats >= a.Pax
             : type?.UsefulLoadLbs is int usefulLoad && usefulLoad >= a.WeightLbs;
         int xp = a.XpQuote + (payloadMatched ? (int)Math.Round(a.XpQuote * _cfg.PayloadMatchXpBonusPct) : 0);
+        if (flight.Scored) // a great flight grows the pilot faster; a poor one slower
+            xp = (int)Math.Round(xp * _cfg.ScoreXpMultiplier(flight.OverallScore));
 
         var jobRef = a.JobId.ToString();
         var postings = new List<LedgerPosting>
@@ -69,13 +86,13 @@ public sealed class SettlementService
         {
             postings.Add(new(LedgerCategory.JobBonus, landingDelta / 100m, "Smooth landing bonus",
                 LedgerRefType.Job, jobRef, DedupeKey: $"settle:{a.Id}:landing"));
-            lines.Add(new($"Landing bonus ({flight.TouchdownFpm:F0} fpm)", landingDelta));
+            lines.Add(new($"Landing bonus ({landingQualifier})", landingDelta));
         }
         else if (landingDelta < 0)
         {
             postings.Add(new(LedgerCategory.Penalty, landingDelta / 100m, "Hard-landing penalty",
                 LedgerRefType.Job, jobRef, DedupeKey: $"settle:{a.Id}:landing"));
-            lines.Add(new($"Landing penalty ({flight.TouchdownFpm:F0} fpm)", landingDelta));
+            lines.Add(new($"Landing penalty ({landingQualifier})", landingDelta));
         }
 
         // Landing/handling fee at the destination — a running cost, itemised like everything else.
@@ -114,14 +131,16 @@ public sealed class SettlementService
             Xp = xp,
             PayoutBreakdownJson = JsonSerializer.Serialize(breakdown),
             SettledAt = now,
-            // Phase 7b — record the scored assessment the tracker produced (not yet spent; that is 7c).
-            TouchdownFpmWorst3 = flight.TouchdownFpmWorst3,
-            TouchdownG = flight.TouchdownG,
-            LandingScore = flight.LandingScore,
-            ApproachScore = flight.ApproachScore,
-            OverallScore = flight.OverallScore,
-            StabilizedApproach = flight.StabilizedApproach,
-            ViolationPoints = flight.ViolationPoints,
+            // Phase 7b/7c — record the scored assessment, but only for a leg the tracker actually graded;
+            // a manual/legacy record stays "not scored" (null) rather than showing a misleading default.
+            TouchdownFpmWorst3 = flight.Scored ? flight.TouchdownFpmWorst3 : null,
+            TouchdownG = flight.Scored ? flight.TouchdownG : null,
+            LandingScore = flight.Scored ? flight.LandingScore : null,
+            ApproachScore = flight.Scored ? flight.ApproachScore : null,
+            OverallScore = flight.Scored ? flight.OverallScore : null,
+            StabilizedApproach = flight.Scored ? flight.StabilizedApproach : null,
+            ViolationPoints = flight.Scored ? flight.ViolationPoints : null,
+            ScoreValid = flight.Scored ? flight.ScoreValid : null,
         };
         _db.Flights.Add(flightEntity);
 
@@ -149,7 +168,8 @@ public sealed class SettlementService
 
         // Reputation (Phase 3f): a delivery nudges reputation by the mission's reward (Illicit is
         // negative), clamped to [0, 100.0] and logged so the drift stays legible.
-        int repDelta = MissionCatalog.TryDef(a.Type)?.ReputationMilliReward ?? 0;
+        int repDelta = (MissionCatalog.TryDef(a.Type)?.ReputationMilliReward ?? 0)
+                     + (flight.Scored ? _cfg.ScoreReputationMilli(flight.OverallScore, flight.ScoreValid) : 0);
         if (repDelta != 0)
         {
             int before = pilot.ReputationMilli;
@@ -180,9 +200,14 @@ public sealed class SettlementService
                 instance.Availability = AircraftAvailability.Available;
                 instance.AirframeHours += hours;
 
-                // Wear: hull + engine drop with hours; a hard touchdown adds extra hull wear.
+                // Wear: hull + engine drop with hours; the touchdown adds hull wear. A tracker-flown leg
+                // wears continuously with the worst-of-three sink rate and peak g (Phase 7c); a manual
+                // record keeps the old binary hard-landing step.
                 int hourWear = (int)Math.Round(hours * _cfg.ConditionWearMilliPerHour);
-                int hullWear = hourWear + (_cfg.LandingModifierPct(flight.TouchdownFpm) < 0 ? _cfg.HardLandingWearMilli : 0);
+                int landingWear = flight.Scored
+                    ? _cfg.LandingWearMilli(flight.TouchdownFpmWorst3, flight.TouchdownG)
+                    : (_cfg.LandingModifierPct(flight.TouchdownFpm) < 0 ? _cfg.HardLandingWearMilli : 0);
+                int hullWear = hourWear + landingWear;
                 instance.HullConditionMilli = Math.Max(0, instance.HullConditionMilli - hullWear);
                 instance.EngineConditionMilli = Math.Max(0, instance.EngineConditionMilli - hourWear);
                 instance.UpdatedAt = now;

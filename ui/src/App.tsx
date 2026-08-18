@@ -3211,8 +3211,8 @@ function FlightDetail({ id }: { id: string }) {
       {d.overallScore != null && (
         <div className="flt-scores">
           <div className="fs-overall">
-            <span className="metalabel">Flight score</span>
-            <span className={`fs-big num ${scoreTone(d.overallScore)}`}>{d.overallScore}</span>
+            <span className="metalabel">Flight score{d.scoreValid === false ? ' · voided' : ''}</span>
+            <span className={`fs-big num ${d.scoreValid === false ? 'neg' : scoreTone(d.overallScore)}`}>{d.overallScore}</span>
           </div>
           <div className="fs-subs">
             <div><span className="metalabel">Landing</span><span className={`num ${scoreTone(d.landingScore)}`}>{d.landingScore ?? '—'}</span></div>

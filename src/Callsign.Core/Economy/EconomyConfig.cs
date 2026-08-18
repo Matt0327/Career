@@ -99,6 +99,34 @@ public sealed record EconomyConfig
         return -0.30m;                // slammed
     }
 
+    // --- Phase 7c: the composite flight score is the lever for a tracker-flown leg (replacing raw fpm) ---
+
+    /// <summary>Reward multiplier delta from the whole-flight score (landing ∧ approach ∧ enroute): an
+    /// excellent, clean flight earns a bonus; a sloppy or dangerous one a penalty. Decimal for the
+    /// away-from-zero cents rounding. An invalidated (cheated) flight is capped to ≤ 0 at settlement.</summary>
+    public decimal PerformancePct(int overallScore) =>
+        overallScore >= 95 ? 0.15m : overallScore >= 85 ? 0.10m : overallScore >= 70 ? 0.05m
+      : overallScore >= 50 ? 0.00m : overallScore >= 35 ? -0.05m : overallScore >= 20 ? -0.15m : -0.30m;
+
+    /// <summary>XP multiplier from the flight score — a great flight grows the pilot faster, a poor one
+    /// slower. Ranges 0.5×…1.25× (1.0× at ~score 67).</summary>
+    public double ScoreXpMultiplier(int overallScore) => Math.Clamp(0.5 + 0.0075 * overallScore, 0.5, 1.25);
+
+    /// <summary>A small reputation nudge from how the leg was flown, on top of the mission's own reward.
+    /// A cheated (invalid) flight costs the most.</summary>
+    public int ScoreReputationMilli(int overallScore, bool valid) =>
+        !valid ? -800 : overallScore >= 90 ? 300 : overallScore < 35 ? -600 : 0;
+
+    /// <summary>Continuous hull wear from the touchdown — scales with the worst-of-three sink rate over a
+    /// 200 fpm floor and with peak g over 1.4, so a firm arrival wears the airframe proportionally
+    /// (replacing the old binary hard-landing step for a tracker-flown leg).</summary>
+    public int LandingWearFpmK { get; init; } = 500;   // hull wear milli per 100 fpm over the 200 fpm floor
+    public int LandingWearGK { get; init; } = 1_000;   // hull wear milli per g over 1.4
+
+    public int LandingWearMilli(double touchdownFpmWorst3, double touchdownG) =>
+        (int)Math.Round(LandingWearFpmK * Math.Max(0, Math.Abs(touchdownFpmWorst3) - 200) / 100.0)
+      + (int)Math.Round(LandingWearGK * Math.Max(0, touchdownG - 1.4));
+
     // --- Aircraft pricing (buy) — category base + itemised spec premiums (§6.2) ---
     public long AircraftPricePerUsefulLbCents { get; init; } = 2_000;   // $20 per useful-load lb
     public long AircraftPricePerSeatCents { get; init; } = 150_000;     // $1,500 per seat

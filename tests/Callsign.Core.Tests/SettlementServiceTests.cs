@@ -486,7 +486,7 @@ public class SettlementServiceTests
         // The tracker's Phase 7b assessment rides on the FlightRecord and must be stored on the Flight row.
         var record = Flown(-80) with
         {
-            OverallScore = 82, LandingScore = 90, ApproachScore = 75,
+            Scored = true, OverallScore = 82, LandingScore = 90, ApproachScore = 75,
             TouchdownG = 1.35, StabilizedApproach = true, ViolationPoints = 0,
         };
         using (var db = tdb.NewContext())
@@ -501,6 +501,62 @@ public class SettlementServiceTests
             Assert.Equal(75, flight.ApproachScore);
             Assert.Equal(1.35, flight.TouchdownG);
             Assert.True(flight.StabilizedApproach);
+        }
+    }
+
+    [Fact]
+    public async Task Settle_ScoredLeg_LeversOnTheScore_NotRawFpm()
+    {
+        // Two identical greaser touchdowns (-40 fpm), but one was a clean flight (96) and one was flown
+        // dangerously (30). Under Phase 7c the payout tracks the WHOLE-flight score, not the touchdown.
+        static async Task<long> SettleWithScore(int score)
+        {
+            using var tdb = new TestDb();
+            var clock = new FakeClock();
+            Guid assignmentId;
+            using (var db = tdb.NewContext())
+            {
+                var s = await SeedAsync(db);
+                assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, s.PilotId)).Id;
+            }
+            var record = Flown(-40) with { Scored = true, OverallScore = score, ScoreValid = true };
+            using var db2 = tdb.NewContext();
+            var r = await new SettlementService(db2, new LedgerService(db2, clock), clock, EconomyConfig.Default)
+                .SettleAsync(assignmentId, record);
+            return r.PayoutCents;
+        }
+
+        Assert.Equal(230_000, await SettleWithScore(96)); // +15% for a 96 despite the identical fpm
+        Assert.Equal(170_000, await SettleWithScore(30)); // -15% for a 30, same touchdown
+    }
+
+    [Fact]
+    public async Task Settle_InvalidatedLeg_ForfeitsTheBonus_ButStillPays()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Guid assignmentId, companyId;
+        using (var db = tdb.NewContext())
+        {
+            var s = await SeedAsync(db);
+            companyId = s.CompanyId;
+            assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, s.PilotId)).Id;
+        }
+
+        // A perfect score, but flight-integrity monitoring caught a cheat — the bonus is voided.
+        var record = Flown(-40) with { Scored = true, OverallScore = 96, ScoreValid = false };
+        using (var db = tdb.NewContext())
+        {
+            var r = await new SettlementService(db, new LedgerService(db, clock), clock, EconomyConfig.Default)
+                .SettleAsync(assignmentId, record);
+            Assert.Equal(200_000, r.PayoutCents); // base only — no performance bonus
+        }
+        using (var db = tdb.NewContext())
+        {
+            var ledger = await db.LedgerEntries.Where(e => e.AccountId == companyId).ToListAsync();
+            Assert.DoesNotContain(ledger, e => e.Category == LedgerCategory.JobBonus); // bonus forfeited
+            var flight = await db.Flights.SingleAsync();
+            Assert.False(flight.ScoreValid);
         }
     }
 

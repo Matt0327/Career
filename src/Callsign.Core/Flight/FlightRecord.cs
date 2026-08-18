@@ -64,4 +64,13 @@ public sealed record FlightRecord(
 
     /// <summary>Total exceedance points logged during the flight (overspeed, over-bank, over-g, stall…).</summary>
     public int ViolationPoints { get; init; }
+
+    /// <summary>True only when the tracker actually assessed this flight from telemetry. Settlement uses
+    /// the score-based lever (Phase 7c) only for a scored leg; a manual/legacy record keeps the raw-fpm
+    /// lever. This is what lets 7c change how pay works without rewriting unscored settlement paths.</summary>
+    public bool Scored { get; init; }
+
+    /// <summary>False when flight-integrity monitoring caught a cheat (slew, or time-acceleration near the
+    /// ground). An invalid flight forfeits any performance bonus (Phase 7c anti-cheat).</summary>
+    public bool ScoreValid { get; init; } = true;
 }

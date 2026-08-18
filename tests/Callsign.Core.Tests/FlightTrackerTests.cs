@@ -11,7 +11,8 @@ public class FlightTrackerTests
     private static TelemetrySnapshot Snap(
         int sec, double alt, double gs, double vs, bool onGround,
         double lat = 52.0, double lon = 4.0, double fuel = 500, string title = "Cessna 172",
-        double bank = 0, double g = 1.0, bool stall = false, bool overspeed = false, double? agl = null)
+        double bank = 0, double g = 1.0, bool stall = false, bool overspeed = false, double? agl = null,
+        double simRate = 1.0, bool slew = false)
         => new()
         {
             Sequence = sec,
@@ -30,6 +31,8 @@ public class FlightTrackerTests
             GForce = g,
             StallWarning = stall,
             OverspeedWarning = overspeed,
+            SimRate = simRate,
+            SlewActive = slew,
         };
 
     private static FlightTracker FlyStandardLeg()
@@ -158,6 +161,58 @@ public class FlightTrackerTests
     }
 
     private const int StableApproachThreshold = 70;
+
+    [Fact]
+    public void ScoredLeg_IsMarkedScored_AndValidByDefault()
+    {
+        var r = FlyStandardLeg().Result!;
+        Assert.True(r.Scored);       // the tracker graded it
+        Assert.True(r.ScoreValid);   // nothing dodgy happened
+    }
+
+    [Fact]
+    public void Slew_Airborne_VoidsTheScore_AndLogsIt()
+    {
+        var t = new FlightTracker();
+        t.Observe(Snap(0, 0, 0, 0, onGround: true));
+        t.Observe(Snap(10, 3000, 120, 500, onGround: false));                 // enroute
+        t.Observe(Snap(20, 3000, 120, 0, onGround: false, slew: true));       // teleport/slew — a cheat
+        t.Observe(Snap(60, 30, 60, -120, onGround: false));                   // final
+        t.Observe(Snap(61, 0, 55, 0, onGround: true));                        // touchdown
+        t.Observe(Snap(120, 0, 0, 0, onGround: true));                        // stop
+
+        var r = t.Result!;
+        Assert.False(r.ScoreValid);
+        Assert.Contains(r.Events, e => e.Message.Contains("Slew") && e.Severity == FlightEventSeverity.Warning);
+    }
+
+    [Fact]
+    public void TimeAcceleration_NearTheGround_VoidsTheScore()
+    {
+        var t = new FlightTracker();
+        t.Observe(Snap(0, 0, 0, 0, onGround: true));
+        t.Observe(Snap(10, 3000, 120, 500, onGround: false));                 // enroute
+        t.Observe(Snap(50, 400, 90, -600, onGround: false, simRate: 4));      // 4× compression below the gate
+        t.Observe(Snap(60, 30, 60, -120, onGround: false));                   // final
+        t.Observe(Snap(61, 0, 55, 0, onGround: true));                        // touchdown
+        t.Observe(Snap(120, 0, 0, 0, onGround: true));                        // stop
+
+        Assert.False(t.Result!.ScoreValid);
+    }
+
+    [Fact]
+    public void EnrouteTimeCompression_IsAllowed_NotACheat()
+    {
+        var t = new FlightTracker();
+        t.Observe(Snap(0, 0, 0, 0, onGround: true));
+        t.Observe(Snap(10, 5000, 140, 500, onGround: false));                 // climb
+        t.Observe(Snap(300, 9000, 150, 0, onGround: false, simRate: 8));      // 8× on a high-altitude cruise — legit
+        t.Observe(Snap(600, 30, 60, -120, onGround: false));                  // final, real time
+        t.Observe(Snap(601, 0, 55, 0, onGround: true));                       // touchdown
+        t.Observe(Snap(660, 0, 0, 0, onGround: true));                        // stop
+
+        Assert.True(t.Result!.ScoreValid); // time-compressing the boring cruise is fine
+    }
 
     [Fact]
     public void GoAround_KeepsTheFinalTouchdown_NotTheBounce()

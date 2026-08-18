@@ -145,6 +145,7 @@ export interface FlightDetail {
   touchdownG: number | null
   stabilizedApproach: boolean | null
   violationPoints: number | null
+  scoreValid: boolean | null
 }
 
 export interface FlightTotals {

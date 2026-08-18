@@ -55,6 +55,7 @@ public sealed class FlightTracker
     private int _approachPass, _approachTotal;
     private int _violationPoints;
     private bool _overspeedWarned, _stallWarned, _bankWarned, _gWarned;
+    private bool _scoreValid = true; // flight-integrity monitoring (Phase 7c anti-cheat)
 
     public FlightPhase Phase { get; private set; } = FlightPhase.Parked;
     public IReadOnlyList<FlightEvent> Events => _events;
@@ -112,6 +113,7 @@ public sealed class FlightTracker
         PushRecentVs(t.VerticalSpeedFpm);
         AssessApproach(t);
         CheckViolations(t);
+        CheckIntegrity(t);
     }
 
     private void ObserveOnGround(TelemetrySnapshot t)
@@ -212,6 +214,24 @@ public sealed class FlightTracker
         }
     }
 
+    // Flight-integrity monitoring: slew anywhere airborne, or time-acceleration near the ground, voids the
+    // score (the approach and touchdown are what we grade, so those are the windows we protect). Enroute
+    // time-compression on a long ferry is a legitimate workflow and is deliberately left alone.
+    private void CheckIntegrity(TelemetrySnapshot t)
+    {
+        if (!_scoreValid)
+            return;
+        double agl = t.AltitudeAglFt > 0 ? t.AltitudeAglFt : t.AltitudeFt;
+        string? reason = t.SlewActive ? "Slew detected — score void"
+                       : t.SimRate > 1.0 && agl < GateAglFt ? "Time acceleration near the ground — score void"
+                       : null;
+        if (reason is not null)
+        {
+            _scoreValid = false;
+            _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Warning, reason));
+        }
+    }
+
     private int ApproachScore()
         => _approachTotal > 0 ? (int)Math.Round(100.0 * _approachPass / _approachTotal) : 100;
 
@@ -239,6 +259,8 @@ public sealed class FlightTracker
             OverallScore = overall,
             StabilizedApproach = approach >= StableApproachMinScore,
             ViolationPoints = _violationPoints,
+            Scored = true,
+            ScoreValid = _scoreValid,
         };
         _inFlight = false;
         _landed = false;

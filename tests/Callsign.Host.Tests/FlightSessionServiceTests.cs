@@ -115,8 +115,11 @@ public class FlightSessionServiceTests
         Assert.Equal(AssignmentStatus.Settled, (await db.JobAssignments.FindAsync(assignmentId))!.Status);
         var flight = await db.Flights.SingleAsync();
         Assert.Equal(-120, flight.TouchdownFpm);
-        Assert.Equal(210_000, flight.PayoutCents); // 200000 + 5% landing bonus
-        Assert.Equal(210_000, (await db.Companies.FindAsync(companyId))!.CashCents);
+        // Phase 7c: the tracker graded this clean leg at 94 (landing 90 ∧ approach 100 ∧ enroute 100),
+        // so it settles on the score lever — +10% — not the raw touchdown rate.
+        Assert.Equal(94, flight.OverallScore);
+        Assert.Equal(220_000, flight.PayoutCents); // 200000 + 10% performance bonus
+        Assert.Equal(220_000, (await db.Companies.FindAsync(companyId))!.CashCents);
     }
 
     [Fact]
@@ -204,8 +207,8 @@ public class FlightSessionServiceTests
         using var scope = sp.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CallsignDbContext>();
         Assert.Equal(AssignmentStatus.Settled, (await db.JobAssignments.FindAsync(assignmentId))!.Status);
-        // 200000 base + 5% landing bonus (10000) - $250 landing fee at EHRD (a large airport) = 185000
-        Assert.Equal(185_000, (await db.Companies.FindAsync(companyId))!.CashCents);
+        // 200000 base + 10% performance bonus (score 94 = 20000) - $250 landing fee at EHRD = 195000
+        Assert.Equal(195_000, (await db.Companies.FindAsync(companyId))!.CashCents);
         Assert.Contains(await db.LedgerEntries.ToListAsync(), e => e.Category == LedgerCategory.AirportFee);
     }
 }
