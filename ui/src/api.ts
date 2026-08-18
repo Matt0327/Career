@@ -138,6 +138,13 @@ export interface FlightDetail {
   commodity: string | null
   lines: PayoutLine[]
   events: FlightEvent[]
+  // Phase 7b scored assessment (null on flights recorded before 7b).
+  overallScore: number | null
+  landingScore: number | null
+  approachScore: number | null
+  touchdownG: number | null
+  stabilizedApproach: boolean | null
+  violationPoints: number | null
 }
 
 export interface FlightTotals {

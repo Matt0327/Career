@@ -10,7 +10,8 @@ public class FlightTrackerTests
 
     private static TelemetrySnapshot Snap(
         int sec, double alt, double gs, double vs, bool onGround,
-        double lat = 52.0, double lon = 4.0, double fuel = 500, string title = "Cessna 172")
+        double lat = 52.0, double lon = 4.0, double fuel = 500, string title = "Cessna 172",
+        double bank = 0, double g = 1.0, bool stall = false, bool overspeed = false, double? agl = null)
         => new()
         {
             Sequence = sec,
@@ -24,6 +25,11 @@ public class FlightTrackerTests
             FuelQuantityLbs = fuel,
             OnGround = onGround,
             AircraftTitle = title,
+            AltitudeAglFt = agl ?? alt, // no terrain in the scripts — AGL tracks indicated altitude
+            BankDeg = bank,
+            GForce = g,
+            StallWarning = stall,
+            OverspeedWarning = overspeed,
         };
 
     private static FlightTracker FlyStandardLeg()
@@ -95,6 +101,63 @@ public class FlightTrackerTests
 
         Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Warning && e.Message.Contains("Taxi speed"));
     }
+
+    [Fact]
+    public void LandingGrade_UsesWorstOfLastThree_NotACherryPickedSoftFrame()
+    {
+        var t = new FlightTracker();
+        t.Observe(Snap(0, 0, 0, 0, onGround: true));
+        t.Observe(Snap(10, 200, 70, 500, onGround: false));   // climb out
+        // A dense flare: a hard sink, then a soft frame right before contact (the classic greaser cheat).
+        t.Observe(Snap(60, 120, 70, -200, onGround: false));
+        t.Observe(Snap(61, 40, 65, -720, onGround: false));   // hard sink
+        t.Observe(Snap(62, 8, 60, -60, onGround: false));     // soft frame just before contact
+        t.Observe(Snap(63, 0, 55, 0, onGround: true));        // touchdown
+        t.Observe(Snap(120, 0, 0, 0, onGround: true));        // stop → complete
+
+        var r = t.Result!;
+        Assert.Equal(-60, r.TouchdownFpm);          // raw last-frame rate, unchanged behaviour
+        Assert.Equal(-720, r.TouchdownFpmWorst3);   // worst of the last three (-200,-720,-60) — un-gameable
+        Assert.True(r.LandingScore <= 10);          // graded on the -720, not the soft -60
+    }
+
+    [Fact]
+    public void UnstableApproach_IsFlagged_AndLogged()
+    {
+        var t = new FlightTracker();
+        t.Observe(Snap(0, 0, 0, 0, onGround: true));
+        t.Observe(Snap(10, 300, 90, 800, onGround: false));    // climb out (not counted as approach)
+        // Below the 1000 ft gate, diving well past -1000 fpm = an unstable approach.
+        t.Observe(Snap(40, 800, 120, -1600, onGround: false));
+        t.Observe(Snap(45, 400, 110, -1500, onGround: false));
+        t.Observe(Snap(50, 60, 80, -900, onGround: false));
+        t.Observe(Snap(51, 0, 60, 0, onGround: true));         // touchdown
+        t.Observe(Snap(110, 0, 0, 0, onGround: true));         // stop
+
+        var r = t.Result!;
+        Assert.False(r.StabilizedApproach);
+        Assert.True(r.ApproachScore < StableApproachThreshold);
+        Assert.Contains(r.Events, e => e.Message == "Unstable approach" && e.Severity == FlightEventSeverity.Warning);
+    }
+
+    [Fact]
+    public void Airborne_StallWarning_EmitsAScoredEvent_AndDocksEnroute()
+    {
+        var t = new FlightTracker();
+        t.Observe(Snap(0, 0, 0, 0, onGround: true));
+        t.Observe(Snap(10, 500, 70, 500, onGround: false));                  // takeoff
+        t.Observe(Snap(20, 700, 55, 100, onGround: false, stall: true));     // stall warning airborne
+        t.Observe(Snap(60, 30, 60, -120, onGround: false));                  // stable final
+        t.Observe(Snap(61, 0, 55, 0, onGround: true));                       // touchdown
+        t.Observe(Snap(120, 0, 0, 0, onGround: true));                       // stop
+
+        var r = t.Result!;
+        Assert.Contains(r.Events, e => e.Message == "Stall warning" && e.Severity == FlightEventSeverity.Warning);
+        Assert.True(r.ViolationPoints >= 20);
+        Assert.True(r.EnrouteScore <= 80);
+    }
+
+    private const int StableApproachThreshold = 70;
 
     [Fact]
     public void GoAround_KeepsTheFinalTouchdown_NotTheBounce()

@@ -25,6 +25,16 @@ public sealed class Flight
     public string PayoutBreakdownJson { get; set; } = null!;
     public DateTimeOffset SettledAt { get; set; }
 
+    // Phase 7b — the scored assessment of how the leg was flown. Nullable: flights recorded before 7b
+    // have no scores and read as "not scored". Phase 7c is what turns these into pay / XP / rep / wear.
+    public double? TouchdownFpmWorst3 { get; set; }
+    public double? TouchdownG { get; set; }
+    public int? LandingScore { get; set; }
+    public int? ApproachScore { get; set; }
+    public int? OverallScore { get; set; }
+    public bool? StabilizedApproach { get; set; }
+    public int? ViolationPoints { get; set; }
+
     [NotMapped]
     public decimal Payout => PayoutCents / 100m;
 }

@@ -114,6 +114,14 @@ public sealed class SettlementService
             Xp = xp,
             PayoutBreakdownJson = JsonSerializer.Serialize(breakdown),
             SettledAt = now,
+            // Phase 7b — record the scored assessment the tracker produced (not yet spent; that is 7c).
+            TouchdownFpmWorst3 = flight.TouchdownFpmWorst3,
+            TouchdownG = flight.TouchdownG,
+            LandingScore = flight.LandingScore,
+            ApproachScore = flight.ApproachScore,
+            OverallScore = flight.OverallScore,
+            StabilizedApproach = flight.StabilizedApproach,
+            ViolationPoints = flight.ViolationPoints,
         };
         _db.Flights.Add(flightEntity);
 

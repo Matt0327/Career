@@ -471,6 +471,39 @@ public class SettlementServiceTests
         }
     }
 
+    [Fact]
+    public async Task Settle_PersistsTheFlightScore_ForTheLogbook()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Guid assignmentId;
+        using (var db = tdb.NewContext())
+        {
+            var s = await SeedAsync(db);
+            assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, s.PilotId)).Id;
+        }
+
+        // The tracker's Phase 7b assessment rides on the FlightRecord and must be stored on the Flight row.
+        var record = Flown(-80) with
+        {
+            OverallScore = 82, LandingScore = 90, ApproachScore = 75,
+            TouchdownG = 1.35, StabilizedApproach = true, ViolationPoints = 0,
+        };
+        using (var db = tdb.NewContext())
+            await new SettlementService(db, new LedgerService(db, clock), clock, EconomyConfig.Default)
+                .SettleAsync(assignmentId, record);
+
+        using (var db = tdb.NewContext())
+        {
+            var flight = await db.Flights.SingleAsync();
+            Assert.Equal(82, flight.OverallScore);
+            Assert.Equal(90, flight.LandingScore);
+            Assert.Equal(75, flight.ApproachScore);
+            Assert.Equal(1.35, flight.TouchdownG);
+            Assert.True(flight.StabilizedApproach);
+        }
+    }
+
     [Theory]
     [InlineData(-50, 0.10)]
     [InlineData(-150, 0.05)]

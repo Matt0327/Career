@@ -1340,6 +1340,12 @@ type LogSev = 'info' | 'ok' | 'warn' | 'bad'
 function evSev(severity: string): LogSev {
   return severity === 'Success' ? 'ok' : severity === 'Warning' ? 'warn' : 'info'
 }
+
+// A 0..100 flight score to a colour tone (Phase 7b).
+function scoreTone(s: number | null): string {
+  if (s == null) return 'muted'
+  return s >= 75 ? 'pos' : s >= 45 ? '' : 'neg'
+}
 interface LogEntry { id: number; at: string; sev: LogSev; text: string }
 const clock = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
@@ -3202,6 +3208,20 @@ function FlightDetail({ id }: { id: string }) {
             ? <div><span className="metalabel">Payload</span><span className="num">{d.weightLbs.toLocaleString()} lb</span></div>
             : null}
       </div>
+      {d.overallScore != null && (
+        <div className="flt-scores">
+          <div className="fs-overall">
+            <span className="metalabel">Flight score</span>
+            <span className={`fs-big num ${scoreTone(d.overallScore)}`}>{d.overallScore}</span>
+          </div>
+          <div className="fs-subs">
+            <div><span className="metalabel">Landing</span><span className={`num ${scoreTone(d.landingScore)}`}>{d.landingScore ?? '—'}</span></div>
+            <div><span className="metalabel">Approach</span><span className={`num ${d.stabilizedApproach === false ? 'neg' : scoreTone(d.approachScore)}`}>{d.approachScore ?? '—'}{d.stabilizedApproach === false ? ' · unstable' : ''}</span></div>
+            {d.touchdownG != null && <div><span className="metalabel">Touchdown g</span><span className="num">{d.touchdownG.toFixed(2)}</span></div>}
+            {d.violationPoints != null && d.violationPoints > 0 && <div><span className="metalabel">Exceedances</span><span className="num neg">−{d.violationPoints}</span></div>}
+          </div>
+        </div>
+      )}
       <div className="jd-pay flt-pay">
         <div className="metalabel flt-pay-head">Payout breakdown</div>
         {d.lines.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>No itemised breakdown recorded.</div>

@@ -163,7 +163,9 @@ public record FlightDetailDto(
     double OriginLat, double OriginLon, double DestLat, double DestLon,
     int? Pax, int? WeightLbs, string? Commodity,
     IReadOnlyList<PayoutLineDto> Lines,
-    IReadOnlyList<FlightEventDto> Events);
+    IReadOnlyList<FlightEventDto> Events,
+    int? OverallScore, int? LandingScore, int? ApproachScore,
+    double? TouchdownG, bool? StabilizedApproach, int? ViolationPoints);
 
 public record FlightTotalsDto(
     int Flights, double TotalHours, double TotalDistanceNm, double TotalFuelLbs,

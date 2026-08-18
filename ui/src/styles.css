@@ -627,6 +627,12 @@ input { font: inherit; }
 .flt-route-names{font-size:12.5px;margin-top:-4px}
 .flt-grid{grid-template-columns:repeat(3,1fr)}
 .flt-pay-head{margin-bottom:2px}
+.flt-scores{display:flex;align-items:center;gap:18px;border-top:1px solid var(--line);padding-top:12px}
+.fs-overall{display:flex;flex-direction:column;gap:1px;flex:none}
+.fs-big{font-size:30px;font-weight:720;line-height:1}
+.fs-subs{display:grid;grid-template-columns:repeat(auto-fit,minmax(78px,1fr));gap:8px 14px;flex:1 1 auto}
+.fs-subs > div{display:flex;flex-direction:column;gap:1px}
+.fs-subs .num{font-size:15px;font-weight:600}
 .flt-events{display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--line);padding-top:10px}
 .flt-events-body{display:flex;flex-direction:column;gap:1px;max-height:200px;overflow-y:auto}
 .flt-when{font-size:12px;border-top:1px solid var(--line);padding-top:8px}

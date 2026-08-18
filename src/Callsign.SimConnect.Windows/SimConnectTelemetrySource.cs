@@ -35,6 +35,18 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
         public double LongitudeDeg;
         public double FuelQuantityLbs;
         public int OnGround;
+        // Phase 7b substrate — order here MUST match the AddToDataDefinition call order below.
+        public double GForce;
+        public double PitchDeg;
+        public double BankDeg;
+        public double HeadingDegTrue;
+        public double AltitudeAglFt;
+        public double FlapsPercent;
+        public double GearPercent;
+        public int StallWarning;
+        public int OverspeedWarning;
+        public double SimRate;
+        public int SlewActive;
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
         public string Title;
     }
@@ -183,6 +195,29 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
             SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
         sc.AddToDataDefinition(Definitions.AircraftData, "SIM ON GROUND", "bool",
             SIMCONNECT_DATATYPE.INT32, 0f, unused);
+        // Phase 7b substrate — order here MUST match the struct field order above.
+        sc.AddToDataDefinition(Definitions.AircraftData, "G FORCE", "GForce",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "PLANE PITCH DEGREES", "degrees",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "PLANE BANK DEGREES", "degrees",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "PLANE HEADING DEGREES TRUE", "degrees",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "PLANE ALT ABOVE GROUND", "feet",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "FLAPS HANDLE PERCENT", "percent",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "GEAR TOTAL PCT EXTENDED", "percent",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "STALL WARNING", "bool",
+            SIMCONNECT_DATATYPE.INT32, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "OVERSPEED WARNING", "bool",
+            SIMCONNECT_DATATYPE.INT32, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "SIMULATION RATE", "number",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "IS SLEW ACTIVE", "bool",
+            SIMCONNECT_DATATYPE.INT32, 0f, unused);
         sc.AddToDataDefinition(Definitions.AircraftData, "TITLE", null,
             SIMCONNECT_DATATYPE.STRING256, 0f, unused);
         sc.RegisterDataDefineStruct<AircraftData>(Definitions.AircraftData);
@@ -209,6 +244,19 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
             FuelQuantityLbs = d.FuelQuantityLbs,
             OnGround = d.OnGround != 0,
             AircraftTitle = d.Title ?? string.Empty,
+            GForce = d.GForce,
+            PitchDeg = d.PitchDeg,
+            BankDeg = d.BankDeg,
+            HeadingDegTrue = d.HeadingDegTrue,
+            AltitudeAglFt = d.AltitudeAglFt,
+            FlapsPercent = d.FlapsPercent,
+            // GEAR TOTAL PCT EXTENDED reports either 0..1 or 0..100 depending on unit resolution;
+            // normalise to 0..100 so downstream never mistakes a down-and-locked gear for retracted.
+            GearPercent = d.GearPercent <= 1.5 ? d.GearPercent * 100 : d.GearPercent,
+            StallWarning = d.StallWarning != 0,
+            OverspeedWarning = d.OverspeedWarning != 0,
+            SimRate = d.SimRate,
+            SlewActive = d.SlewActive != 0,
         });
     }
 

@@ -73,6 +73,7 @@ public sealed class FakeTelemetrySource : ISimTelemetrySource
                     FuelQuantityLbs = 500 - frac * 120,
                     OnGround = onGround,
                     AircraftTitle = _title,
+                    AltitudeAglFt = altitude, // no synthetic terrain — AGL tracks indicated altitude
                 });
 
                 await Task.Delay(_interval, ct).ConfigureAwait(false);
