@@ -790,6 +790,34 @@ public static class CallsignWebApp
             });
         });
 
+        // Deep finances: per-aircraft/staff/base P&L (the ledger attribution columns rolled up) + a
+        // reconstructed cash-flow curve. Read-only.
+        app.MapGet("/api/finances/detail", async (int? days, CallsignDbContext db, FinanceService finance) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            int d = days ?? 30;
+            var attr = await finance.AttributionProfitLossAsync(pilot.CompanyId, d);
+            var series = await finance.CashFlowSeriesAsync(pilot.CompanyId, d);
+            static AttributionLineDto Map(AttributionLine l) =>
+                new(l.Kind, l.Id, l.Label, l.Sub, l.IncomeCents, l.ExpenseCents, l.NetCents, l.Entries);
+            return Results.Ok(new FinanceDetailDto(d,
+                attr.Aircraft.Select(Map).ToList(),
+                attr.Staff.Select(Map).ToList(),
+                attr.Bases.Select(Map).ToList(),
+                series.Points.Select(p => new CashPointDto(p.At, p.IncomeCents, p.ExpenseCents, p.NetCents, p.CashCents)).ToList()));
+        });
+
+        // The itemised statement for the window (attribution resolved) — powers the statement table + CSV export.
+        app.MapGet("/api/finances/statement", async (int? days, CallsignDbContext db, FinanceService finance) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var rows = await finance.StatementAsync(pilot.CompanyId, days ?? 30);
+            return Results.Ok(rows.Select(r =>
+                new StatementRowDto(r.At, r.Category, r.AmountCents, r.Description, r.Aircraft, r.Staff, r.Base)));
+        });
+
         // --- Insurance (Phase 4c) ---
         app.MapGet("/api/insurance", async (CallsignDbContext db, InsuranceService ins, AircraftDealerService dealer, EconomyConfig cfg) =>
         {

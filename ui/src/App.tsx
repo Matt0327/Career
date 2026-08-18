@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 import {
   api, money,
   type Achievement, type AircraftHistory, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type CheckFlightDone, type CloudSaveMeta, type CloudStatus, type Diverted,
-  type FinancesData, type FlightLog, type FlightDetail, type FlightTotals, type Insurance, type Inventory, type Job, type LeaderboardRow, type LedgerEntry, type Loan, type LoanOffer, type Loans,
+  type FinancesData, type FinanceDetail, type AttributionLine, type CashPoint, type StatementRow, type FlightLog, type FlightDetail, type FlightTotals, type Insurance, type Inventory, type Job, type LeaderboardRow, type LedgerEntry, type Loan, type LoanOffer, type Loans,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
   type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type VersionInfo, type WsEvent,
 } from './api'
@@ -2454,32 +2454,154 @@ function BarRow({ label, value, max, tone }: { label: string; value: number; max
   )
 }
 
+// ─── Finances period selector ─────────────────────────────────────────────────
+const FIN_PERIODS: { key: number; label: string }[] = [
+  { key: 7, label: '7d' }, { key: 30, label: '30d' }, { key: 90, label: '90d' },
+  { key: 365, label: '1y' }, { key: 3650, label: 'All' },
+]
+
+// A diverging per-bucket cash-flow strip: income rises from the mid-line, expense falls below it.
+// Hand-built (the kit's Trendline is single-series); coheres via the same tokens as BarRow.
+function FlowColumns({ points }: { points: CashPoint[] }) {
+  if (points.length === 0) return <div className="chart-empty">No movement in this window.</div>
+  const mag = Math.max(1, ...points.map(p => Math.max(p.incomeCents, -p.expenseCents)))
+  return (
+    <div className="flowcols" role="img" aria-label="Cash flow by period">
+      {points.map((p, i) => {
+        const up = Math.max(0, (p.incomeCents / mag) * 100)
+        const dn = Math.max(0, (-p.expenseCents / mag) * 100)
+        const tip = `${when(p.at)} · in ${money(p.incomeCents)} · out ${money(p.expenseCents)}`
+        return (
+          <div className="flowcol" key={i} title={tip}>
+            <div className="flow-up"><div className="flow-bar pos" style={{ height: `${up}%` }} /></div>
+            <div className="flow-mid" />
+            <div className="flow-dn"><div className="flow-bar neg" style={{ height: `${dn}%` }} /></div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// The drill-down panel for a selected aircraft / pilot / base — the reusable selected-row → detail
+// pattern (mirrors JobDetail). Shows the subject's split of the period P&L.
+function AttributionDetail({ line, groupNet }: { line: AttributionLine; groupNet: number }) {
+  const share = groupNet !== 0 ? Math.round((line.netCents / groupNet) * 100) : 0
+  const mag = Math.max(1, line.incomeCents, -line.expenseCents)
+  return (
+    <div className="card jdetail fd-detail">
+      <div className="fd-head">
+        <div className="fd-kind metalabel">{line.kind}</div>
+        <div className="fd-title">{line.label}</div>
+        <div className="fd-sub muted">{line.sub} · {line.entries} {line.entries === 1 ? 'entry' : 'entries'}</div>
+      </div>
+      <div className="fd-net">
+        <span className="metalabel">Net this period</span>
+        <span className={`num ${line.netCents >= 0 ? 'pos' : 'neg'}`}>{money(line.netCents)}</span>
+      </div>
+      <div className="bars fd-bars">
+        <BarRow label="Income" value={line.incomeCents} max={mag} tone="pos" />
+        <BarRow label="Expense" value={line.expenseCents} max={mag} tone="neg" />
+      </div>
+      <div className="jd-pay">
+        <div className="jd-payrow"><span className="muted">Share of group net</span><span className="num">{share}%</span></div>
+        <div className="jd-payrow"><span className="muted">Avg / entry</span>
+          <span className={`num ${line.netCents >= 0 ? 'pos' : 'neg'}`}>
+            {money(Math.round(line.netCents / Math.max(1, line.entries)))}</span></div>
+      </div>
+    </div>
+  )
+}
+
+// Per-subject P&L with a selectable list on the left and a detail panel on the right.
+function AttributionPanel({ detail }: { detail: FinanceDetail }) {
+  const groups: { key: string; label: string; lines: AttributionLine[] }[] = [
+    { key: 'aircraft', label: 'By aircraft', lines: detail.aircraft },
+    { key: 'staff', label: 'By pilot', lines: detail.staff },
+    { key: 'bases', label: 'By base', lines: detail.bases },
+  ].filter(g => g.lines.length > 0)
+  const [tab, setTab] = useState(groups[0]?.key ?? 'aircraft')
+  const [sel, setSel] = useState<string | null>(null)
+  const active = groups.find(g => g.key === tab) ?? groups[0]
+
+  if (groups.length === 0) return null
+  const lines = active.lines
+  const groupNet = lines.reduce((s, l) => s + l.netCents, 0)
+  const mag = Math.max(1, ...lines.map(l => Math.abs(l.netCents)))
+  const selected = lines.find(l => l.id === sel) ?? lines[0]
+
+  return (
+    <section className="card">
+      <div className="row-head">
+        <h2>Profitability</h2>
+        <div className="seg">
+          {groups.map(g => (
+            <button key={g.key} className={`seg-btn ${g.key === active.key ? 'on' : ''}`}
+              onClick={() => { setTab(g.key); setSel(null) }}>{g.label}</button>
+          ))}
+        </div>
+      </div>
+      <div className="attr-layout">
+        <div className="attr-list">
+          {lines.map(l => {
+            const on = l.id === selected.id
+            const pct = Math.max(3, (Math.abs(l.netCents) / mag) * 100)
+            return (
+              <button key={l.id} className={`attr-row ${on ? 'on' : ''}`} onClick={() => setSel(l.id)}>
+                <span className="attr-name">{l.label}<span className="attr-sub muted"> · {l.sub}</span></span>
+                <span className="attr-track">
+                  <span className={`attr-fill ${l.netCents >= 0 ? 'pos' : 'neg'}`} style={{ width: `${pct}%` }} />
+                </span>
+                <span className={`num attr-val ${l.netCents >= 0 ? 'pos' : 'neg'}`}>{money(l.netCents)}</span>
+              </button>
+            )
+          })}
+        </div>
+        <AttributionDetail line={selected} groupNet={groupNet} />
+      </div>
+    </section>
+  )
+}
+
 function Finances({ state, onChanged }: { state: State; onChanged: () => void }) {
   const [data, setData] = useState<Loans | null>(null)
   const [fin, setFin] = useState<FinancesData | null>(null)
+  const [detail, setDetail] = useState<FinanceDetail | null>(null)
+  const [stmt, setStmt] = useState<StatementRow[]>([])
   const [ins, setIns] = useState<Insurance | null>(null)
+  const [days, setDays] = useState(30)
   const [amount, setAmount] = useState(50000) // dollars
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    try { setData(await api.loans()); setFin(await api.finances()); setIns(await api.insurance()) } catch (e) { setMsg(cleanErr(e)) }
+  // Loans + insurance don't depend on the period; balance sheet + P&L + statement do.
+  const loadStatic = useCallback(async () => {
+    try { setData(await api.loans()); setIns(await api.insurance()) } catch (e) { setMsg(cleanErr(e)) }
   }, [])
-  useEffect(() => { void load() }, [load])
+  const loadPeriod = useCallback(async (d: number) => {
+    try {
+      setFin(await api.finances(d))
+      setDetail(await api.financesDetail(d))
+      setStmt(await api.statement(d))
+    } catch (e) { setMsg(cleanErr(e)) }
+  }, [])
+  useEffect(() => { void loadStatic() }, [loadStatic])
+  useEffect(() => { void loadPeriod(days) }, [days, loadPeriod])
+  const reloadAll = useCallback(async () => { await loadStatic(); await loadPeriod(days) }, [loadStatic, loadPeriod, days])
 
   const insure = async (aircraftInstanceId: string) => {
     setBusy(true); setMsg(null)
-    try { await api.insure(aircraftInstanceId); await load(); onChanged() }
+    try { await api.insure(aircraftInstanceId); await reloadAll(); onChanged() }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
   const cancelIns = async (id: string) => {
     setBusy(true); setMsg(null)
-    try { await api.cancelInsurance(id); await load(); onChanged() }
+    try { await api.cancelInsurance(id); await reloadAll(); onChanged() }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
   const claim = async (id: string) => {
     setBusy(true); setMsg(null)
-    try { const r = await api.claimInsurance(id); await load(); onChanged(); setMsg(`Claim paid — ${money(r.paidCents)}. Airframe written off.`) }
+    try { const r = await api.claimInsurance(id); await reloadAll(); onChanged(); setMsg(`Claim paid — ${money(r.paidCents)}. Airframe written off.`) }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
 
@@ -2488,20 +2610,83 @@ function Finances({ state, onChanged }: { state: State; onChanged: () => void })
 
   const take = async () => {
     setBusy(true); setMsg(null)
-    try { await api.takeLoan(cents); await load(); onChanged(); setMsg(`Borrowed ${money(cents)} — it's in your cash.`) }
+    try { await api.takeLoan(cents); await reloadAll(); onChanged(); setMsg(`Borrowed ${money(cents)} — it's in your cash.`) }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
   const payoff = async (l: Loan) => {
     setBusy(true); setMsg(null)
-    try { const r = await api.payoffLoan(l.id); await load(); onChanged(); setMsg(`Loan cleared — paid ${money(r.paidCents)}.`) }
+    try { const r = await api.payoffLoan(l.id); await reloadAll(); onChanged(); setMsg(`Loan cleared — paid ${money(r.paidCents)}.`) }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
 
+  const exportCsv = () => {
+    if (stmt.length === 0) return
+    const head = ['Date', 'Category', 'Amount', 'Description', 'Aircraft', 'Pilot', 'Base']
+    const esc = (v: string) => `"${v.replace(/"/g, '""')}"`
+    const rows = stmt.map(r => [
+      new Date(r.at).toISOString(), spaced(r.category), (r.amountCents / 100).toFixed(2),
+      r.description ?? '', r.aircraft ?? '', r.staff ?? '', r.base ?? '',
+    ].map(v => esc(String(v))).join(','))
+    const csv = [head.map(esc).join(','), ...rows].join('\r\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `callsign-statement-${days}d-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
+  const periodLabel = FIN_PERIODS.find(p => p.key === days)?.label ?? `${days}d`
+  const cashSeries = detail ? detail.series.map(p => Math.round(p.cashCents / 100)) : []
+
   return (
     <div className="grid">
+      {/* Headline: net worth + income/expense/net for the selected window, with the period selector. */}
       {fin && (
         <section className="card">
-          <div className="row-head"><h2>Net worth</h2><span className={`num rep-score ${fin.netWorth.netWorthCents >= 0 ? 'pos' : 'neg'}`}>{money(fin.netWorth.netWorthCents)}</span></div>
+          <div className="row-head">
+            <h2>Finances</h2>
+            <div className="seg">
+              {FIN_PERIODS.map(p => (
+                <button key={p.key} className={`seg-btn ${p.key === days ? 'on' : ''}`}
+                  onClick={() => setDays(p.key)}>{p.label}</button>
+              ))}
+            </div>
+          </div>
+          <div className="hero-stats fin-headline">
+            <HeroStat label="Net worth" value={money(fin.netWorth.netWorthCents)} accent />
+            <HeroStat label={`Income · ${periodLabel}`} value={money(fin.pnl.incomeCents)} />
+            <HeroStat label={`Expenses · ${periodLabel}`} value={money(fin.pnl.expenseCents)} />
+            <HeroStat label={`Net · ${periodLabel}`} value={money(fin.pnl.netCents)} />
+          </div>
+        </section>
+      )}
+
+      {/* Wealth over time + cash-flow rhythm. */}
+      {detail && detail.series.length > 1 && (
+        <section className="card">
+          <h2>Cash over time</h2>
+          <div className="trends">
+            <div className="trend-cell">
+              <div className="trend-head"><span className="metalabel">Cash balance</span><span className="num">{money(state.cashCents)}</span></div>
+              <Trendline values={cashSeries} tone={cashSeries[cashSeries.length - 1] >= cashSeries[0] ? 'pos' : 'neg'} />
+            </div>
+            <div className="trend-cell">
+              <div className="trend-head"><span className="metalabel">In vs out</span><span className={`num ${fin && fin.pnl.netCents >= 0 ? 'pos' : 'neg'}`}>{fin ? money(fin.pnl.netCents) : '—'}</span></div>
+              <FlowColumns points={detail.series} />
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Per-aircraft / per-pilot / per-base profitability, with drill-down. */}
+      {detail && <AttributionPanel detail={detail} />}
+
+      {/* Net-worth composition. */}
+      {fin && (
+        <section className="card">
+          <div className="row-head"><h2>Balance sheet</h2><span className={`num rep-score ${fin.netWorth.netWorthCents >= 0 ? 'pos' : 'neg'}`}>{money(fin.netWorth.netWorthCents)}</span></div>
           {(() => {
             const nw = fin.netWorth
             const rows: { label: string; value: number; tone: 'accent' | 'neg' }[] = [
@@ -2516,9 +2701,10 @@ function Finances({ state, onChanged }: { state: State; onChanged: () => void })
         </section>
       )}
 
+      {/* P&L by category. */}
       {fin && fin.pnl.lines.length > 0 && (
         <section className="card">
-          <div className="row-head"><h2>Cash flow · {fin.pnl.days}d</h2><span className={`num rep-score ${fin.pnl.netCents >= 0 ? 'pos' : 'neg'}`}>{money(fin.pnl.netCents)}</span></div>
+          <div className="row-head"><h2>Cash flow · by category</h2><span className={`num rep-score ${fin.pnl.netCents >= 0 ? 'pos' : 'neg'}`}>{money(fin.pnl.netCents)}</span></div>
           {(() => {
             const max = Math.max(1, ...fin.pnl.lines.map(l => Math.abs(l.netCents)))
             return <div className="bars">{fin.pnl.lines.map(l => <BarRow key={l.category} label={spaced(l.category)} value={l.netCents} max={max} tone={l.netCents >= 0 ? 'pos' : 'neg'} />)}</div>
@@ -2537,24 +2723,44 @@ function Finances({ state, onChanged }: { state: State; onChanged: () => void })
         </section>
       )}
 
+      {/* Loans — now with term / taken / due / repayment progress. */}
       <section className="card">
         <h2>Your loans</h2>
         {msg && <div className="banner">{msg}</div>}
         {!data ? <div className="empty">Loading…</div>
           : data.loans.length === 0 ? <div className="empty">No loans outstanding. Borrow below to grow faster.</div>
             : (
-              <div className="tbl-wrap"><table className="tbl">
-                <thead><tr><th>Tier</th><th className="r">Borrowed</th><th className="r">Outstanding</th><th className="r">APR</th><th></th></tr></thead>
-                <tbody>{data.loans.map(l => (
-                  <tr key={l.id}>
-                    <td>{data.offers.find(o => o.tier === l.tier)?.name ?? `Tier ${l.tier}`}</td>
-                    <td className="r num muted">{money(l.principalCents)}</td>
-                    <td className="r num">{money(l.outstandingCents)}</td>
-                    <td className="r num muted">{(l.aprBps / 100).toFixed(1)}%</td>
-                    <td className="r"><button disabled={busy || state.cashCents < l.outstandingCents} title={state.cashCents < l.outstandingCents ? 'Not enough cash to clear it' : ''} onClick={() => payoff(l)}>Pay off</button></td>
-                  </tr>
-                ))}</tbody>
-              </table></div>
+              <div className="loan-list">
+                {data.loans.map(l => {
+                  const name = data.offers.find(o => o.tier === l.tier)?.name ?? `Tier ${l.tier}`
+                  const repaid = l.principalCents > 0 ? Math.max(0, Math.min(1, 1 - l.outstandingCents / l.principalCents)) : 0
+                  const due = new Date(new Date(l.takenAt).getTime() + l.termDays * 86400000)
+                  const daysLeft = Math.ceil((due.getTime() - Date.now()) / 86400000)
+                  return (
+                    <div className="loan-row" key={l.id}>
+                      <div className="loan-top">
+                        <div>
+                          <div className="loan-name">{name}</div>
+                          <div className="loan-meta muted">
+                            {money(l.principalCents)} borrowed · {(l.aprBps / 100).toFixed(1)}% APR · {l.termDays}-day term · taken {when(l.takenAt)}
+                          </div>
+                        </div>
+                        <div className="loan-right">
+                          <div className="loan-out num">{money(l.outstandingCents)}</div>
+                          <div className="metalabel">outstanding</div>
+                        </div>
+                      </div>
+                      <div className="loan-prog"><div className="loan-fill" style={{ width: `${repaid * 100}%` }} /></div>
+                      <div className="loan-foot">
+                        <span className="muted">{Math.round(repaid * 100)}% repaid · {daysLeft > 0 ? `${daysLeft} days left` : 'past term'}</span>
+                        <button disabled={busy || state.cashCents < l.outstandingCents}
+                          title={state.cashCents < l.outstandingCents ? 'Not enough cash to clear it' : ''}
+                          onClick={() => payoff(l)}>Pay off {money(l.outstandingCents)}</button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
             )}
       </section>
 
@@ -2626,6 +2832,28 @@ function Finances({ state, onChanged }: { state: State; onChanged: () => void })
             )}
         </section>
       )}
+
+      {/* Itemised statement + CSV export. */}
+      <section className="card">
+        <div className="row-head">
+          <h2>Statement · {periodLabel}</h2>
+          <button disabled={stmt.length === 0} onClick={exportCsv}>Export CSV</button>
+        </div>
+        {stmt.length === 0 ? <div className="empty">No entries in this window.</div> : (
+          <div className="tbl-wrap stmt-wrap"><table className="tbl">
+            <thead><tr><th>When</th><th>Category</th><th>Description</th><th>Attribution</th><th className="r">Amount</th></tr></thead>
+            <tbody>{stmt.map((r, i) => (
+              <tr key={i}>
+                <td className="muted">{when(r.at)}</td>
+                <td>{spaced(r.category)}</td>
+                <td className="muted">{r.description}</td>
+                <td className="muted">{[r.aircraft, r.staff, r.base].filter(Boolean).join(' · ') || '—'}</td>
+                <td className={`r num ${r.amountCents < 0 ? 'neg' : 'pos'}`}>{money(r.amountCents)}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        )}
+      </section>
     </div>
   )
 }

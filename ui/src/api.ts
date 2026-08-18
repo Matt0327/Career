@@ -457,6 +457,43 @@ export interface FinancesData {
   pnl: Pnl
 }
 
+export interface AttributionLine {
+  kind: string
+  id: string
+  label: string
+  sub: string
+  incomeCents: number
+  expenseCents: number
+  netCents: number
+  entries: number
+}
+
+export interface CashPoint {
+  at: string
+  incomeCents: number
+  expenseCents: number
+  netCents: number
+  cashCents: number
+}
+
+export interface FinanceDetail {
+  days: number
+  aircraft: AttributionLine[]
+  staff: AttributionLine[]
+  bases: AttributionLine[]
+  series: CashPoint[]
+}
+
+export interface StatementRow {
+  at: string
+  category: string
+  amountCents: number
+  description: string
+  aircraft: string | null
+  staff: string | null
+  base: string | null
+}
+
 export interface BaseView {
   id: string
   icao: string
@@ -668,7 +705,10 @@ export const api = {
   ranks: () => fetch('/api/ranks').then(ok<RankTier[]>),
   reputation: () => fetch('/api/reputation').then(ok<Reputation>),
   loans: () => fetch('/api/loans').then(ok<Loans>),
-  finances: () => fetch('/api/finances').then(ok<FinancesData>),
+  finances: (days?: number) =>
+    fetch(days ? `/api/finances?days=${days}` : '/api/finances').then(ok<FinancesData>),
+  financesDetail: (days: number) => fetch(`/api/finances/detail?days=${days}`).then(ok<FinanceDetail>),
+  statement: (days: number) => fetch(`/api/finances/statement?days=${days}`).then(ok<StatementRow[]>),
   insurance: () => fetch('/api/insurance').then(ok<Insurance>),
   routes: () => fetch('/api/routes').then(ok<RouteData>),
   createRoute: (body: { name?: string; originIcao: string; destIcao: string; aircraftInstanceId: string; staffId: string; mission: string }) =>

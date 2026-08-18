@@ -118,6 +118,18 @@ public record NetWorthDto(long CashCents, long AircraftCents, long InventoryCent
 public record PnlLineDto(string Category, long IncomeCents, long ExpenseCents, long NetCents);
 public record PnlDto(int Days, long IncomeCents, long ExpenseCents, long NetCents, IReadOnlyList<PnlLineDto> Lines);
 
+// --- Finances depth (Phase 6): per-subject P&L, cash-flow series, itemised statement ---
+public record AttributionLineDto(string Kind, string Id, string Label, string Sub,
+    long IncomeCents, long ExpenseCents, long NetCents, int Entries);
+public record CashPointDto(DateTimeOffset At, long IncomeCents, long ExpenseCents, long NetCents, long CashCents);
+public record FinanceDetailDto(int Days,
+    IReadOnlyList<AttributionLineDto> Aircraft,
+    IReadOnlyList<AttributionLineDto> Staff,
+    IReadOnlyList<AttributionLineDto> Bases,
+    IReadOnlyList<CashPointDto> Series);
+public record StatementRowDto(DateTimeOffset At, string Category, long AmountCents, string Description,
+    string? Aircraft, string? Staff, string? Base);
+
 // --- Phase 2e: bases ---
 public record BaseViewDto(Guid Id, string Icao, string Name, bool IsHome, long RentPerDayCents, double Latitude, double Longitude);
 public record BaseOfferDto(string Icao, string Name, string Kind, double DistanceNm, long OpenCents, long RentPerDayCents, double Latitude, double Longitude);

@@ -771,3 +771,49 @@ input { font: inherit; }
 .ghost.small{padding:5px 10px;font-size:12px}
 .assign .leg{display:flex;align-items:center;gap:8px}
 .assign .jrow-type{display:inline-block;width:9px;height:9px;border-radius:50%;flex:none}
+
+/* ─── Finances (Phase 6) ─────────────────────────────────────────────────── */
+.fin-headline{margin-top:2px}
+.flowcols{display:flex;align-items:stretch;gap:3px;height:120px;padding:4px 0}
+.flowcol{flex:1 1 0;display:flex;flex-direction:column;min-width:0}
+.flow-up,.flow-dn{flex:1 1 0;display:flex}
+.flow-up{align-items:flex-end}
+.flow-dn{align-items:flex-start}
+.flow-mid{height:1px;background:var(--line)}
+.flow-bar{width:100%;border-radius:2px;min-height:1px}
+.flow-bar.pos{background:var(--pos)}
+.flow-bar.neg{background:var(--neg);opacity:.8}
+.flowcol:hover .flow-bar{filter:brightness(1.15)}
+.attr-layout{display:grid;grid-template-columns:1.5fr 1fr;gap:18px;align-items:start}
+.attr-list{display:flex;flex-direction:column;gap:2px;min-width:0}
+.attr-row{display:grid;grid-template-columns:minmax(90px,1.2fr) 1fr auto;align-items:center;gap:12px;padding:9px 10px;background:transparent;border:1px solid transparent;border-radius:9px;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.attr-row:hover{background:var(--panel-2)}
+.attr-row.on{background:var(--accent-dim);border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
+.attr-name{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.attr-sub{font-weight:400;font-size:12px}
+.attr-track{height:6px;border-radius:3px;background:color-mix(in srgb,var(--ink) 8%,var(--panel));overflow:hidden}
+.attr-fill{display:block;height:100%;border-radius:3px}
+.attr-fill.pos{background:var(--pos)}.attr-fill.neg{background:var(--neg)}
+.attr-val{font-size:13px;font-weight:600;text-align:right;min-width:74px}
+.fd-detail{gap:12px}
+.fd-detail .fd-head{display:block}
+.fd-head .fd-title{font-size:18px;font-weight:700;letter-spacing:-.01em;margin-top:2px}
+.fd-head .fd-sub{font-size:13px;margin-top:2px}
+.fd-net{display:flex;align-items:baseline;justify-content:space-between;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:10px 0}
+.fd-net .num{font-size:22px;font-weight:700}
+.fd-bars{margin:2px 0}
+.loan-list{display:flex;flex-direction:column;gap:14px}
+.loan-row{border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;background:var(--panel-2)}
+.loan-top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+.loan-name{font-size:15px;font-weight:700}
+.loan-meta{font-size:12px;margin-top:3px}
+.loan-right{text-align:right;flex:none}
+.loan-out{font-size:18px;font-weight:700}
+.loan-prog{height:8px;border-radius:4px;background:color-mix(in srgb,var(--ink) 8%,var(--panel));overflow:hidden;margin:12px 0 8px}
+.loan-fill{height:100%;border-radius:4px;background:var(--accent)}
+.loan-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px}
+.loan-foot button{padding:6px 14px;border:1px solid var(--line);border-radius:7px;background:transparent;color:inherit;font:inherit;cursor:pointer}
+.loan-foot button:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+.loan-foot button:disabled{opacity:.45;cursor:default}
+.stmt-wrap{max-height:520px;overflow-y:auto}
+@media (max-width:720px){.attr-layout{grid-template-columns:1fr}}
