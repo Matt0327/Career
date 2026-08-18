@@ -65,6 +65,101 @@ public class AircraftDealerServiceTests
         }
     }
 
+    // --- Airworthiness & inspections (Phase 7e) ---
+
+    private static AircraftInstance Airframe(FakeClock clock, double hours = 0, int hull = 100_000, int engine = 100_000,
+        double last100h = 0, DateTimeOffset? lastAnnual = null, DateTimeOffset? acquired = null)
+        => new()
+        {
+            Id = Guid.NewGuid(), TypeId = Guid.NewGuid(), CompanyId = Guid.NewGuid(), Tail = "CS-1",
+            LocationIcao = "EHAM", AirframeHours = hours, HullConditionMilli = hull, EngineConditionMilli = engine,
+            Last100hHoursWatermark = last100h, LastAnnualAt = lastAnnual, AcquiredAt = acquired ?? clock.UtcNow,
+        };
+
+    private static AircraftDealerService Dealer(TestDb tdb, FakeClock clock)
+    {
+        var db = tdb.NewContext();
+        return new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg);
+    }
+
+    [Fact]
+    public void Airworthiness_FreshAirframe_IsAirworthy()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Assert.True(Dealer(tdb, clock).Airworthiness(Airframe(clock)).Airworthy);
+    }
+
+    [Fact]
+    public void Airworthiness_Over100Hours_IsGrounded()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var aw = Dealer(tdb, clock).Airworthiness(Airframe(clock, hours: 100, last100h: 0));
+        Assert.False(aw.Airworthy);
+        Assert.Contains("100-hour", aw.Reason);
+    }
+
+    [Fact]
+    public void Airworthiness_AnnualOverdue_IsGrounded()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var aw = Dealer(tdb, clock).Airworthiness(Airframe(clock, acquired: clock.UtcNow.AddDays(-400)));
+        Assert.False(aw.Airworthy);
+        Assert.Contains("annual", aw.Reason);
+    }
+
+    [Fact]
+    public void Airworthiness_BelowConditionFloor_IsGrounded()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var aw = Dealer(tdb, clock).Airworthiness(Airframe(clock, hull: 15_000));
+        Assert.False(aw.Airworthy);
+        Assert.Contains("condition", aw.Reason);
+    }
+
+    [Fact]
+    public async Task Inspect_Clears100Hour_ReturnsToService_AndBills()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var type = C172();
+        var companyId = await SeedCompanyWithCashAsync(tdb, clock, 5_000_000, type);
+        Guid instId;
+        using (var db = tdb.NewContext())
+        {
+            var inst = new AircraftInstance
+            {
+                Id = Guid.NewGuid(), TypeId = type.Id, CompanyId = companyId, Tail = "CS-1",
+                Ownership = OwnershipKind.Owned, Availability = AircraftAvailability.Available, LocationIcao = "EHAM",
+                AirframeHours = 100, AcquiredAt = clock.UtcNow, // 100h due, annual fresh
+            };
+            db.AircraftInstances.Add(inst);
+            await db.SaveChangesAsync();
+            instId = inst.Id;
+        }
+
+        long cost;
+        using (var db = tdb.NewContext())
+        {
+            var dealer = new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg);
+            Assert.False(dealer.Airworthiness((await db.AircraftInstances.FindAsync(instId))!).Airworthy); // grounded before
+            cost = await dealer.InspectAsync(companyId, instId);
+        }
+        Assert.Equal(Cfg.HundredHourInspectionCents, cost);
+
+        using (var db = tdb.NewContext())
+        {
+            var inst = await db.AircraftInstances.FindAsync(instId);
+            Assert.Equal(100, inst!.Last100hHoursWatermark); // watermark advanced
+            Assert.True(new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg).Airworthiness(inst).Airworthy); // back in service
+            Assert.Contains(await db.LedgerEntries.ToListAsync(),
+                e => e.Category == LedgerCategory.Repair && e.AmountCents == -Cfg.HundredHourInspectionCents);
+        }
+    }
+
     [Fact]
     public async Task Buy_WithoutEnoughCash_Throws_AndBuysNothing()
     {

@@ -505,6 +505,7 @@ public static class CallsignWebApp
                 upkeepAgg.TryGetValue(inst.Id, out var upkeep);
                 byInst.TryGetValue(inst.Id, out var pol);
                 double hoursToService = Math.Max(0, cfg.MaintenanceIntervalHours - (inst.AirframeHours - inst.MaintenanceHoursWatermark));
+                var aw = dealer.Airworthiness(inst);
 
                 return new OwnedAircraftDto(
                     inst.Id, t.Id, inst.Tail, t.CanonicalName, t.Category.ToString(),
@@ -519,7 +520,8 @@ public static class CallsignWebApp
                     port?.Latitude ?? 0, port?.Longitude ?? 0, port?.Name ?? inst.LocationIcao,
                     inst.MaintenanceHoursWatermark, cfg.MaintenanceIntervalHours, hoursToService, cfg.ConditionWearMilliPerHour,
                     pol != null, pol?.CoverageMilli, pol?.CoveredValueCents,
-                    fa.Flights, fa.Dist, fa.Fuel, fa.Earn, upkeep);
+                    fa.Flights, fa.Dist, fa.Fuel, fa.Earn, upkeep,
+                    aw.Airworthy, aw.Reason, aw.HoursTo100h, aw.DaysToAnnual, aw.InspectionQuoteCents);
             }));
         });
 
@@ -579,6 +581,25 @@ public static class CallsignWebApp
             {
                 var cost = await dealer.MaintainAsync(pilot.CompanyId, id, idem);
                 return Results.Ok(new { maintainedCents = cost });
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return Results.Conflict(new { error = "Cash changed at the same time — try again." });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
+        app.MapPost("/api/aircraft/{id:guid}/inspect", async (Guid id, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, AircraftDealerService dealer) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                var cost = await dealer.InspectAsync(pilot.CompanyId, id, idem);
+                return Results.Ok(new { inspectedCents = cost });
             }
             catch (DbUpdateConcurrencyException)
             {
@@ -1097,7 +1118,7 @@ public static class CallsignWebApp
         });
 
         // --- Live flight: begin tracking an accepted assignment; the next landing auto-settles it ---
-        app.MapPost("/api/flight/begin", async (BeginFlightRequest req, CallsignDbContext db, QualificationService quals, FlightSessionService session) =>
+        app.MapPost("/api/flight/begin", async (BeginFlightRequest req, CallsignDbContext db, QualificationService quals, AircraftDealerService dealer, FlightSessionService session) =>
         {
             // Rating gate (Phase 3c): dispatching an OWNED airframe needs the licence class for its category.
             if (req.AircraftInstanceId is { } aid)
@@ -1111,6 +1132,9 @@ public static class CallsignWebApp
                     if (!await quals.IsRatedAsync(pilot.Id, required))
                         return Results.BadRequest(new { error = $"You're not rated for the {type.CanonicalName} — it needs {QualificationClasses.Def(required).DisplayName}." });
                 }
+                // Airworthiness gate (Phase 7e): a grounded tail — worn out or overdue an inspection — can't fly.
+                if (inst is not null && dealer.Airworthiness(inst) is { Airworthy: false } aw)
+                    return Results.BadRequest(new { error = $"{inst.Tail} is grounded: {aw.Reason}." });
             }
             session.BeginFlight(req.AssignmentId, req.AircraftInstanceId);
             return Results.Ok(new { begun = req.AssignmentId, aircraft = req.AircraftInstanceId });

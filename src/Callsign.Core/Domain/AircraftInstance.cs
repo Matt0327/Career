@@ -25,6 +25,8 @@ public sealed class AircraftInstance : ISyncable
     public int EngineConditionMilli { get; set; } = 100_000;
     public double AirframeHours { get; set; }
     public double MaintenanceHoursWatermark { get; set; }    // airframe hours at the last maintenance (§6.6)
+    public double Last100hHoursWatermark { get; set; }       // airframe hours at the last 100-hour inspection (Phase 7e)
+    public DateTimeOffset? LastAnnualAt { get; set; }        // last annual inspection; null ⇒ treat as AcquiredAt (Phase 7e)
     public long? PurchasePriceCents { get; set; }
     public DateTimeOffset? AcquiredAt { get; set; }
 

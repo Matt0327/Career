@@ -57,7 +57,8 @@ public record OwnedAircraftDto(
     double MaintenanceHoursWatermark, double MaintenanceIntervalHours, double HoursToService, int WearMilliPerHour,
     bool Insured, int? CoverageMilli, long? InsuredValueCents,
     int LifetimeFlights, double LifetimeDistanceNm, double LifetimeFuelLbs,
-    long LifetimeEarningsCents, long LifetimeUpkeepCents);
+    long LifetimeEarningsCents, long LifetimeUpkeepCents,
+    bool Airworthy, string? UnairworthyReason, double HoursTo100h, int DaysToAnnual, long InspectionQuoteCents);
 
 // --- Hangar depth (Phase 6): per-airframe drill-down ---
 public record AircraftFlightDto(

@@ -225,6 +225,12 @@ export interface OwnedAircraft {
   lifetimeFuelLbs: number
   lifetimeEarningsCents: number
   lifetimeUpkeepCents: number
+  // Phase 7e — airworthiness & inspections
+  airworthy: boolean
+  unairworthyReason: string | null
+  hoursTo100h: number
+  daysToAnnual: number
+  inspectionQuoteCents: number
 }
 
 export interface AircraftFlight {
@@ -764,6 +770,7 @@ export const api = {
   beginCheckFlight: (cls: string) => POST('/api/checkflights/begin', { class: cls }).then(ok),
   buyAircraft: (typeId: string) => POST_IDEM('/api/aircraft/buy', { typeId }).then(ok),
   maintain: (id: string) => POST_IDEM(`/api/aircraft/${id}/maintain`).then(ok),
+  inspect: (id: string) => POST_IDEM(`/api/aircraft/${id}/inspect`).then(ok),
   aircraftHistory: (id: string) => fetch(`/api/aircraft/${id}/history`).then(ok<AircraftHistory>),
   sellAircraft: (id: string) => POST_IDEM(`/api/aircraft/${id}/sell`).then(ok<{ proceedsCents: number }>),
   relocateAircraft: (id: string, destIcao: string) =>

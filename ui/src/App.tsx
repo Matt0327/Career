@@ -1716,9 +1716,9 @@ function MaintMeter({ a }: { a: OwnedAircraft }) {
 
 // The reusable drill-down: hero image, full spec sheet, condition + maintenance, per-airframe economics,
 // flight history, and every action for one tail. This is the detail-panel pattern the Hangar establishes.
-function AircraftDetail({ a, history, bases, busy, onService, onInsure, onRelocate, onSell }: {
+function AircraftDetail({ a, history, bases, busy, onService, onInspect, onInsure, onRelocate, onSell }: {
   a: OwnedAircraft; history: AircraftHistory | null; bases: BaseView[]; busy: boolean
-  onService: (a: OwnedAircraft) => void; onInsure: (a: OwnedAircraft) => void
+  onService: (a: OwnedAircraft) => void; onInspect: (a: OwnedAircraft) => void; onInsure: (a: OwnedAircraft) => void
   onRelocate: (a: OwnedAircraft, dest: string) => void; onSell: (a: OwnedAircraft) => void
 }) {
   const [dest, setDest] = useState('')
@@ -1778,8 +1778,11 @@ function AircraftDetail({ a, history, bases, busy, onService, onInsure, onReloca
           <div className="acd-cond-row"><span className="metalabel">Airframe hours</span><span className="num">{a.airframeHours.toFixed(1)} h</span></div>
           <MaintMeter a={a} />
           <div className="acd-cond-row"><span className="metalabel">Next service</span><span className="num">{money(a.maintenanceQuoteCents)}</span></div>
+          <div className="acd-cond-row"><span className="metalabel">100-hour</span><span className={`num ${a.hoursTo100h <= 0 ? 'neg' : ''}`}>{a.hoursTo100h <= 0 ? 'overdue' : `in ${Math.round(a.hoursTo100h)} h`}</span></div>
+          <div className="acd-cond-row"><span className="metalabel">Annual</span><span className={`num ${a.daysToAnnual <= 0 ? 'neg' : ''}`}>{a.daysToAnnual <= 0 ? 'overdue' : `in ${a.daysToAnnual} d`}</span></div>
         </div>
       </div>
+      {!a.airworthy && <div className="banner error acd-grounded">Grounded — {a.unairworthyReason}. It can't be dispatched until cleared.</div>}
 
       <h3 className="sub-h">Spec sheet</h3>
       <div className="spec-sheet">
@@ -1838,6 +1841,11 @@ function AircraftDetail({ a, history, bases, busy, onService, onInsure, onReloca
           onClick={() => onService(a)} title={a.maintenanceDue ? 'Service due' : 'Restore to full condition'}>
           Service · {money(a.maintenanceQuoteCents)}
         </button>
+        {a.inspectionQuoteCents > 0 && (
+          <button className="primary" disabled={busy} onClick={() => onInspect(a)} title="Clear the due 100-hour / annual inspections">
+            Inspect · {money(a.inspectionQuoteCents)}
+          </button>
+        )}
         {!a.insured && <button disabled={busy} onClick={() => onInsure(a)}>Insure</button>}
         {ferryTargets.length > 0 && (
           <div className="relocate-form">
@@ -1904,6 +1912,11 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
   const maintain = async (a: OwnedAircraft) => {
     setBusy(true); setMsg(null)
     try { await api.maintain(a.id); await load(); onChanged(); setMsg(`Serviced ${a.tail} — good as new.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+  const inspect = async (a: OwnedAircraft) => {
+    setBusy(true); setMsg(null)
+    try { await api.inspect(a.id); await load(); onChanged(); setMsg(`${a.tail} inspected and returned to service.`) }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
   const insure = async (a: OwnedAircraft) => {
@@ -1988,7 +2001,7 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
       {sel && (
         <section className="card acd-wrap">
           <AircraftDetail a={sel} history={history} bases={bases} busy={busy}
-            onService={maintain} onInsure={insure} onRelocate={relocate} onSell={sell} />
+            onService={maintain} onInspect={inspect} onInsure={insure} onRelocate={relocate} onSell={sell} />
         </section>
       )}
 

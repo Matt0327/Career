@@ -175,6 +175,84 @@ public sealed class AircraftDealerService
         return cost;
     }
 
+    /// <summary>
+    /// Whether an owned airframe may legally be dispatched, and why not (Phase 7e). A tail is grounded when
+    /// its condition falls below the airworthy floor, or a 100-hour or annual inspection is overdue.
+    /// <see cref="InspectionQuoteCents"/> is the cost to clear the DUE inspections (condition is cleared by
+    /// maintenance instead). Also reports how much margin is left before each is due, for the hangar.
+    /// </summary>
+    public sealed record AirworthinessStatus(
+        bool Airworthy, string? Reason, double HoursTo100h, int DaysToAnnual, long InspectionQuoteCents);
+
+    public AirworthinessStatus Airworthiness(AircraftInstance inst)
+    {
+        var now = _clock.UtcNow;
+        double hoursSince100h = inst.AirframeHours - inst.Last100hHoursWatermark;
+        double hoursTo100h = Math.Max(0, _cfg.HundredHourIntervalHours - hoursSince100h);
+        var annualBase = inst.LastAnnualAt ?? inst.AcquiredAt ?? now;
+        double daysSinceAnnual = (now - annualBase).TotalDays;
+        int daysToAnnual = (int)Math.Ceiling(_cfg.AnnualIntervalDays - daysSinceAnnual);
+
+        bool due100h = hoursSince100h >= _cfg.HundredHourIntervalHours;
+        bool dueAnnual = daysSinceAnnual >= _cfg.AnnualIntervalDays;
+        int worstCond = Math.Min(inst.HullConditionMilli, inst.EngineConditionMilli);
+        long quote = (due100h ? _cfg.HundredHourInspectionCents : 0) + (dueAnnual ? _cfg.AnnualInspectionCents : 0);
+
+        string? reason =
+            worstCond < _cfg.AirworthyFloorMilli
+                ? $"condition {worstCond / 1000}% is below the {_cfg.AirworthyFloorMilli / 1000}% airworthy floor — service it"
+            : due100h && dueAnnual ? "100-hour and annual inspections overdue"
+            : due100h ? "100-hour inspection overdue"
+            : dueAnnual ? "annual inspection overdue"
+            : null;
+
+        return new AirworthinessStatus(reason is null, reason, hoursTo100h, Math.Max(0, daysToAnnual), quote);
+    }
+
+    /// <summary>
+    /// Return an airframe to service by clearing whatever inspections are due (100-hour and/or annual),
+    /// billed through the ledger. Idempotent via <paramref name="idempotencyKey"/>. This does NOT restore
+    /// condition — that is <see cref="MaintainAsync"/>.
+    /// </summary>
+    public async Task<long> InspectAsync(
+        Guid companyId, Guid instanceId, string? idempotencyKey = null, CancellationToken ct = default)
+    {
+        string? dedupe = idempotencyKey is null ? null : $"inspect:{idempotencyKey}";
+        if (dedupe is not null && await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct) is { } prior)
+            return -prior.AmountCents;
+
+        var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId, ct)
+                      ?? throw new InvalidOperationException($"Company {companyId} not found.");
+        var inst = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == instanceId && a.CompanyId == companyId, ct)
+                   ?? throw new InvalidOperationException("Aircraft not found in your fleet.");
+
+        var now = _clock.UtcNow;
+        bool due100h = inst.AirframeHours - inst.Last100hHoursWatermark >= _cfg.HundredHourIntervalHours;
+        bool dueAnnual = (now - (inst.LastAnnualAt ?? inst.AcquiredAt ?? now)).TotalDays >= _cfg.AnnualIntervalDays;
+        long cost = (due100h ? _cfg.HundredHourInspectionCents : 0) + (dueAnnual ? _cfg.AnnualInspectionCents : 0);
+        if (cost == 0)
+            throw new InvalidOperationException("No inspection is due on this aircraft.");
+        if (company.CashCents < cost)
+            throw new InvalidOperationException($"Not enough cash: the inspection costs {cost / 100m:C0}, you have {company.Cash:C0}.");
+
+        await _ledger.StageBatchAsync(companyId, new[]
+        {
+            new LedgerPosting(LedgerCategory.Repair, -(cost / 100m), $"Inspection on {inst.Tail}",
+                AircraftInstanceId: inst.Id, DedupeKey: dedupe ?? $"inspect:{inst.Id}:{inst.AirframeHours:F1}"),
+        }, ct);
+        if (due100h) inst.Last100hHoursWatermark = inst.AirframeHours;
+        if (dueAnnual) inst.LastAnnualAt = now;
+        inst.UpdatedAt = now;
+        try { await _db.SaveChangesAsync(ct); }
+        catch (DbUpdateException) when (dedupe is not null)
+        {
+            _db.ChangeTracker.Clear();
+            if (await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct) is { } raced) return -raced.AmountCents;
+            throw;
+        }
+        return cost;
+    }
+
     /// <summary>Market sticker for a type (same formula the buy market and net-worth use).</summary>
     public long MarketValueCents(AircraftType type) => AircraftPricing.Quote(_cfg, type).TotalCents;
 

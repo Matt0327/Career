@@ -185,6 +185,13 @@ public sealed record EconomyConfig
     public int HardLandingWearMilli { get; init; } = 1_500;        // extra hull wear on a hard touchdown
     public long FuelPriceCentsPerLb { get; init; } = 90;           // ~$0.90/lb of consumable fuel burned (Phase 7e)
 
+    // --- Airworthiness & inspections (Phase 7e): a worn or overdue tail is grounded until serviced ---
+    public int AirworthyFloorMilli { get; init; } = 20_000;        // below 20% hull/engine condition = grounded
+    public double HundredHourIntervalHours { get; init; } = 100;   // a 100-hour inspection comes due every 100 airframe hours
+    public double AnnualIntervalDays { get; init; } = 365;         // an annual inspection every 12 months
+    public long HundredHourInspectionCents { get; init; } = 80_000;   // $800 for a 100-hour
+    public long AnnualInspectionCents { get; init; } = 250_000;       // $2,500 for an annual
+
     // --- Bases: one-off setup + recurring rent, by airport size (§4.8) ---
     public long BaseOpenCents(AirportKind kind) => kind switch
     {
