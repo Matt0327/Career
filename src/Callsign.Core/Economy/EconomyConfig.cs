@@ -198,6 +198,8 @@ public sealed record EconomyConfig
     public double IncidentPayDockPct { get; init; } = 0.50;       // an incident (a diversion) delivers half
     public int IncidentExtraWearMilli { get; init; } = 800;       // and knocks the airframe about a bit
     public double MaxDutyHoursPerDay { get; init; } = 8;          // FTL: one crew flies ~8 of 24 h — own crew depth to run a tail harder
+    public int CrewProficiencyGainMilliPerTrip { get; init; } = 40;  // a hired pilot sharpens ~0.04%/trip flown — hire green cheap, they improve
+    public int CrewSkillCeilingMilli { get; init; } = 95_000;        // experience tops out at 95% (nobody is perfect)
 
     // --- Bases: one-off setup + recurring rent, by airport size (§4.8) ---
     public long BaseOpenCents(AirportKind kind) => kind switch

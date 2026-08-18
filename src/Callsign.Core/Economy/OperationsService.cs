@@ -213,6 +213,7 @@ public sealed class OperationsService
             totalFees += fees;
             totalIncidents += soRoll.Incidents;
             if (dutyCapped) dutyMaxed.Add(soAircraft?.Tail ?? $"{o.OriginIcao}↔{o.DestIcao}");
+            SharpenCrew(soCrew, trips, now);
         }
 
         foreach (var s in await _db.Staff.Where(s => s.CompanyId == companyId && s.IsActive && !s.IsDeleted).ToListAsync(ct))
@@ -319,6 +320,7 @@ public sealed class OperationsService
             grossIncome += income;
             totalIncidents += rtRoll.Incidents;
             if (dutyCapped) dutyMaxed.Add(rtAircraft?.Tail ?? route.Name);
+            SharpenCrew(rtCrew, trips, now);
         }
 
         // Insurance premiums (Phase 4c): the running cost of coverage, prorated by whole days.
@@ -372,6 +374,16 @@ public sealed class OperationsService
             }
         }
         return (income, incidents, wear);
+    }
+
+    // Experience sharpens a hired pilot: their skill drifts up with every trip flown, toward a ceiling
+    // below perfect (Phase 7f). So a cheap green hire is an appreciating asset — and fewer incidents follow.
+    private void SharpenCrew(Staff? crew, int trips, DateTimeOffset now)
+    {
+        if (crew is null || trips <= 0 || crew.SkillMilli >= _cfg.CrewSkillCeilingMilli)
+            return;
+        crew.SkillMilli = Math.Min(_cfg.CrewSkillCeilingMilli, crew.SkillMilli + _cfg.CrewProficiencyGainMilliPerTrip * trips);
+        crew.UpdatedAt = now;
     }
 
     // A STABLE seed (unlike string/HashCode.Combine, which are per-process randomised) so reconcile is

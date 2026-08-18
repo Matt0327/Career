@@ -222,4 +222,40 @@ public class OperationsServiceTests
                 ops.CreateStandingOrderAsync(companyId, staffId, tailB, "EHRD"));   // same pilot, second tail: refused
         }
     }
+
+    [Fact]
+    public async Task Reconcile_HiredCrew_SharpensWithExperience()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Guid companyId, staffId, aircraftId;
+        using (var db = tdb.NewContext())
+        {
+            var company = new Company { Id = Guid.NewGuid(), Name = "Co" };
+            db.Companies.Add(company);
+            db.Airports.AddRange(A("EHAM", 52.3086, 4.7639), A("EHRD", 51.9569, 4.4372));
+            var type = new AircraftType { Id = Guid.NewGuid(), Key = "C172", CanonicalName = "C172", Category = AircraftCategory.LightSingle, CruiseKtas = 150, UsefulLoadLbs = 900 };
+            db.AircraftTypes.Add(type);
+            var inst = new AircraftInstance { Id = Guid.NewGuid(), TypeId = type.Id, CompanyId = company.Id, Tail = "CS-1", LocationIcao = "EHAM" };
+            db.AircraftInstances.Add(inst);
+            var staff = new Staff { Id = Guid.NewGuid(), CompanyId = company.Id, Name = "Rookie", SkillMilli = 30_000, WagePerDayCents = 10_000, IsActive = true, HiredAt = clock.UtcNow, LastPaidAt = clock.UtcNow };
+            db.Staff.Add(staff);
+            await db.SaveChangesAsync();
+            await new LedgerService(db, clock).PostAsync(company.Id, LedgerCategory.StartingBalance, 100_000m, "start");
+            companyId = company.Id; staffId = staff.Id; aircraftId = inst.Id;
+        }
+        using (var db = tdb.NewContext())
+            await new OperationsService(db, new LedgerService(db, clock), clock, Cfg).CreateStandingOrderAsync(companyId, staffId, aircraftId, "EHRD");
+
+        clock.UtcNow = clock.UtcNow.AddDays(3);
+        using (var db = tdb.NewContext())
+            await new OperationsService(db, new LedgerService(db, clock), clock, Cfg).ReconcileAsync(companyId);
+
+        using (var db = tdb.NewContext())
+        {
+            var staff = await db.Staff.FindAsync(staffId);
+            Assert.True(staff!.SkillMilli > 30_000);                     // the rookie improved with time in the seat
+            Assert.True(staff.SkillMilli <= Cfg.CrewSkillCeilingMilli);  // but experience tops out below perfect
+        }
+    }
 }
