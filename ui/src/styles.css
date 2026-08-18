@@ -627,6 +627,8 @@ input { font: inherit; }
 .flt-route-names{font-size:12.5px;margin-top:-4px}
 .flt-grid{grid-template-columns:repeat(3,1fr)}
 .flt-pay-head{margin-bottom:2px}
+.flt-events{display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--line);padding-top:10px}
+.flt-events-body{display:flex;flex-direction:column;gap:1px;max-height:200px;overflow-y:auto}
 .flt-when{font-size:12px;border-top:1px solid var(--line);padding-top:8px}
 .ledger-filter{font-family:var(--sans);font-size:13px;padding:5px 9px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
 .ledger-cat{display:inline-flex;align-items:center;gap:9px}

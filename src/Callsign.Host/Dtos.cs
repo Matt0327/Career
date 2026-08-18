@@ -26,6 +26,8 @@ public record AssignmentDto(
 
 public record PayoutLineDto(string Label, long AmountCents);
 
+public record FlightEventDto(DateTimeOffset At, string Severity, string Message);
+
 public record SettlementDto(Guid FlightId, long PayoutCents, int XpAwarded, bool PayloadMatched, string? PromotedTo, IReadOnlyList<PayoutLineDto> Lines);
 
 // --- Phase 3a: rank ladder (self-documenting reference content) ---
@@ -160,7 +162,8 @@ public record FlightDetailDto(
     DateTimeOffset DepartedAt, DateTimeOffset ArrivedAt, DateTimeOffset SettledAt,
     double OriginLat, double OriginLon, double DestLat, double DestLon,
     int? Pax, int? WeightLbs, string? Commodity,
-    IReadOnlyList<PayoutLineDto> Lines);
+    IReadOnlyList<PayoutLineDto> Lines,
+    IReadOnlyList<FlightEventDto> Events);
 
 public record FlightTotalsDto(
     int Flights, double TotalHours, double TotalDistanceNm, double TotalFuelLbs,

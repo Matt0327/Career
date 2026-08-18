@@ -105,6 +105,9 @@ export interface FlightLog {
 
 export interface PayoutLine { label: string; amountCents: number }
 
+/** A real scored moment from a flight (Phase 7a) — takeoff, the touchdown + its quality, a taxi overspeed. */
+export interface FlightEvent { at: string; severity: string; message: string }
+
 export interface FlightDetail {
   id: string
   aircraftTitle: string
@@ -134,6 +137,7 @@ export interface FlightDetail {
   weightLbs: number | null
   commodity: string | null
   lines: PayoutLine[]
+  events: FlightEvent[]
 }
 
 export interface FlightTotals {
@@ -324,7 +328,17 @@ export interface CheckFlightDone {
   touchdownFpm: number
 }
 
-export type WsEvent = Telemetry | Settled | LinkState | Diverted | CheckFlightDone
+/** A real scored moment streamed live as the flight happens (Phase 7a) — same event that gets
+ *  persisted at settlement, so the live log and the logbook tell the identical, true story. */
+export interface LiveEvent {
+  type: 'event'
+  severity: string // FlightEventSeverity: Info | Success | Warning
+  message: string
+  at: string
+  phase: string
+}
+
+export type WsEvent = Telemetry | Settled | LinkState | Diverted | CheckFlightDone | LiveEvent
 
 export interface StaffCandidate {
   seed: number

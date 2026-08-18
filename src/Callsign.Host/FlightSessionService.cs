@@ -35,6 +35,7 @@ public sealed class FlightSessionService : IDisposable
     private Guid? _aircraftInstanceId; // the owned airframe flown this leg, if any
     private QualClass? _checkClass;    // a check-flight in progress for this class (Phase 3d), if any
     private bool _settling; // guards the async settle so one landing is resolved at a time
+    private int _sentEventCount; // how many of the tracker's events have already been streamed live (Phase 7a)
 
     public TelemetrySnapshot? Latest { get; private set; }
     public FlightPhase Phase { get; private set; } = FlightPhase.Parked;
@@ -74,7 +75,7 @@ public sealed class FlightSessionService : IDisposable
     {
         lock (_gate)
         {
-            _tracker = new FlightTracker();
+            _tracker = new FlightTracker(); _sentEventCount = 0;
             _assignmentId = assignmentId;
             _aircraftInstanceId = aircraftInstanceId;
             _checkClass = null; // a job flight and a check-flight are mutually exclusive
@@ -86,7 +87,7 @@ public sealed class FlightSessionService : IDisposable
     {
         lock (_gate)
         {
-            _tracker = new FlightTracker();
+            _tracker = new FlightTracker(); _sentEventCount = 0;
             _assignmentId = null;
             _aircraftInstanceId = null;
             _checkClass = cls;
@@ -100,12 +101,19 @@ public sealed class FlightSessionService : IDisposable
         Guid assignmentToSettle = default;
         Guid? aircraftToSettle = null;
         QualClass? checkToGrade = null;
+        List<FlightEvent> newEvents = [];
 
         lock (_gate)
         {
             Latest = t;
             _tracker.Observe(t);
             Phase = _tracker.Phase;
+            // Capture any scored events the tracker just produced so we can stream the REAL story of the
+            // flight live (Phase 7a) — takeoff, the touchdown and its quality, a taxi overspeed. Before
+            // this the events were computed and thrown away and the client narrated a fabricated log.
+            for (int i = _sentEventCount; i < _tracker.Events.Count; i++)
+                newEvents.Add(_tracker.Events[i]);
+            _sentEventCount = _tracker.Events.Count;
             if (_tracker.Result is { } record && !_settling)
             {
                 if (_assignmentId is { } aid)
@@ -140,6 +148,18 @@ public sealed class FlightSessionService : IDisposable
             title = t.AircraftTitle,
         });
 
+        // Stream the real scored moments as they happen (Phase 7a). Same events that get persisted at
+        // settlement — the live log and the logbook now tell the identical, true story.
+        foreach (var ev in newEvents)
+            await BroadcastAsync(new
+            {
+                type = "event",
+                severity = ev.Severity.ToString(),
+                message = ev.Message,
+                at = ev.At,
+                phase = Phase.ToString(),
+            });
+
         if (completed is not null)
         {
             if (checkToGrade is { } cls)
@@ -171,7 +191,7 @@ public sealed class FlightSessionService : IDisposable
 
         lock (_gate)
         {
-            _tracker = new FlightTracker();
+            _tracker = new FlightTracker(); _sentEventCount = 0;
             if (result is not null) _checkClass = null; // graded → done; on error keep for retry
             _settling = false;
         }
@@ -214,7 +234,7 @@ public sealed class FlightSessionService : IDisposable
         var result = await SettleAsync(assignmentId, aircraftInstanceId, completed);
         lock (_gate)
         {
-            _tracker = new FlightTracker();
+            _tracker = new FlightTracker(); _sentEventCount = 0;
             if (result is not null) { _assignmentId = null; _aircraftInstanceId = null; } // settled → done; on error keep for retry
             _settling = false;
         }

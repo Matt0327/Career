@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 import {
   api, money,
   type Achievement, type AircraftHistory, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type CheckFlightDone, type CloudSaveMeta, type CloudStatus, type Diverted,
-  type FinancesData, type FinanceDetail, type AttributionLine, type CashPoint, type StatementRow, type FlightLog, type FlightDetail, type FlightTotals, type Insurance, type Inventory, type Job, type LeaderboardRow, type LedgerEntry, type Loan, type LoanOffer, type Loans,
+  type FinancesData, type FinanceDetail, type AttributionLine, type CashPoint, type StatementRow, type FlightLog, type FlightDetail, type FlightTotals, type Insurance, type Inventory, type Job, type LeaderboardRow, type LedgerEntry, type LiveEvent, type Loan, type LoanOffer, type Loans,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
   type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type VersionInfo, type WsEvent,
 } from './api'
@@ -1185,7 +1185,7 @@ function Meta({ label, value }: { label: string; value: string }) {
 
 // ─── Flight (live HUD + settlement) ──────────────────────────────────────────
 
-function useTelemetry(onSettled: (s: Settled) => void, onDiverted: (d: Diverted) => void, onCheckFlight: (c: CheckFlightDone) => void) {
+function useTelemetry(onSettled: (s: Settled) => void, onDiverted: (d: Diverted) => void, onCheckFlight: (c: CheckFlightDone) => void, onEvent?: (e: LiveEvent) => void) {
   const [tele, setTele] = useState<Telemetry | null>(null)
   const [wsOpen, setWsOpen] = useState(false)
   const [link, setLink] = useState('Disconnected') // SimConnectionState from the server
@@ -1195,6 +1195,8 @@ function useTelemetry(onSettled: (s: Settled) => void, onDiverted: (d: Diverted)
   dcb.current = onDiverted
   const ccb = useRef(onCheckFlight)
   ccb.current = onCheckFlight
+  const ecb = useRef(onEvent)
+  ecb.current = onEvent
 
   useEffect(() => {
     let ws: WebSocket | null = null
@@ -1215,6 +1217,7 @@ function useTelemetry(onSettled: (s: Settled) => void, onDiverted: (d: Diverted)
         else if (m.type === 'settled') cb.current(m)
         else if (m.type === 'diverted') dcb.current(m)
         else if (m.type === 'checkflight') ccb.current(m)
+        else if (m.type === 'event') ecb.current?.(m)
       }
       ws.onclose = () => { setWsOpen(false); if (!closed) retry = setTimeout(connect, 1500) }
       ws.onerror = () => ws?.close()
@@ -1332,6 +1335,11 @@ function FlightMap({ tele, leg }: { tele: Telemetry | null; leg?: Assignment | n
 }
 
 type LogSev = 'info' | 'ok' | 'warn' | 'bad'
+
+// Map a server FlightEventSeverity (Info/Success/Warning) to a log tone (Phase 7a).
+function evSev(severity: string): LogSev {
+  return severity === 'Success' ? 'ok' : severity === 'Warning' ? 'warn' : 'info'
+}
 interface LogEntry { id: number; at: string; sev: LogSev; text: string }
 const clock = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
@@ -1404,6 +1412,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
       loadFleet()      // newly-rated aircraft become flyable
       addLog(c.passed ? 'ok' : 'bad', `Check-flight ${c.className}: ${c.passed ? 'passed' : 'failed'} at ${signed(Math.round(c.touchdownFpm))} fpm.`)
     },
+    e => addLog(evSev(e.severity), e.message), // the real scored moments the tracker emits (Phase 7a)
   )
   const badge = linkBadge(wsOpen, link)
 
@@ -3204,6 +3213,20 @@ function FlightDetail({ id }: { id: string }) {
           ))}
         <div className="jd-payrow jd-net"><span>Net payout</span><span className="num">{money(d.payoutCents)}</span></div>
       </div>
+      {d.events.length > 0 && (
+        <div className="flt-events">
+          <div className="metalabel flt-pay-head">Flight log</div>
+          <div className="flt-events-body">
+            {d.events.map((e, i) => (
+              <div className={`flog-row ${evSev(e.severity)}`} key={i}>
+                <span className="flog-time num">{new Date(e.at).toLocaleTimeString([], { hour12: false })}</span>
+                <span className="flog-mark" />
+                <span className="flog-text">{e.message}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="flt-when muted">Departed {when(d.departedAt)} · settled {when(d.settledAt)}</div>
     </div>
   )

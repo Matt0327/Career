@@ -433,6 +433,44 @@ public class SettlementServiceTests
             Assert.Equal(5_000 + rep, (await db.Pilots.FindAsync(pilotId))!.ReputationMilli); // reputation dropped
     }
 
+    [Fact]
+    public async Task Settle_PersistsTheTrackerEvents_InOrder_ForLogbookReplay()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Guid assignmentId;
+        using (var db = tdb.NewContext())
+        {
+            var s = await SeedAsync(db);
+            assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, s.PilotId)).Id;
+        }
+
+        // The real scored moments the tracker produces during the leg (Phase 7a) — they must survive
+        // settlement so the logbook can replay the flight instead of the client fabricating one.
+        var events = new List<Callsign.Core.Flight.FlightEvent>
+        {
+            new(T0.AddMinutes(5), Callsign.Core.Flight.FlightEventSeverity.Info, "Takeoff"),
+            new(T0.AddMinutes(54), Callsign.Core.Flight.FlightEventSeverity.Warning, "Taxi speed 42 kt exceeds 30 kt"),
+            new(T0.AddMinutes(55), Callsign.Core.Flight.FlightEventSeverity.Success, "Landed at -80 fpm"),
+        };
+        var record = new FlightRecord("Cessna 172 Skyhawk", T0.AddMinutes(5), T0.AddMinutes(55),
+            -80, 9000, 52.3, 4.76, 51.95, 4.44, 120, 60, events);
+
+        using (var db = tdb.NewContext())
+            await new SettlementService(db, new LedgerService(db, clock), clock, EconomyConfig.Default)
+                .SettleAsync(assignmentId, record);
+
+        using (var db = tdb.NewContext())
+        {
+            var flightId = (await db.Flights.SingleAsync()).Id;
+            var persisted = await db.FlightEvents.Where(e => e.FlightId == flightId).OrderBy(e => e.Seq).ToListAsync();
+            Assert.Equal(3, persisted.Count);
+            Assert.Equal(new[] { "Takeoff", "Taxi speed 42 kt exceeds 30 kt", "Landed at -80 fpm" }, persisted.Select(e => e.Message));
+            Assert.Equal(new[] { "Info", "Warning", "Success" }, persisted.Select(e => e.Severity)); // enum name preserved
+            Assert.Equal(new[] { 0, 1, 2 }, persisted.Select(e => e.Seq));                            // stable chronological order
+        }
+    }
+
     [Theory]
     [InlineData(-50, 0.10)]
     [InlineData(-150, 0.05)]

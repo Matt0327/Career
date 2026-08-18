@@ -116,6 +116,23 @@ public sealed class SettlementService
             SettledAt = now,
         };
         _db.Flights.Add(flightEntity);
+
+        // Persist the real scored events the tracker produced, in THIS same transaction (Phase 7a).
+        // These are the very moments streamed live during the leg; keeping them lets the logbook replay
+        // the running story of a flight instead of the client fabricating one after the fact.
+        int evSeq = 0;
+        foreach (var ev in flight.Events)
+        {
+            _db.FlightEvents.Add(new FlightEventRecord
+            {
+                FlightId = flightEntity.Id,
+                Seq = evSeq++,
+                At = ev.At,
+                Severity = ev.Severity.ToString(),
+                Message = ev.Message,
+            });
+        }
+
         pilot.Xp += xp;
         // Promotion (Phase 3a): XP is cumulative, so recompute the rank and note a crossing to celebrate.
         var earnedRank = RankTiers.ForXp(pilot.Xp);

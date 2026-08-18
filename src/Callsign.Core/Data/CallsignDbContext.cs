@@ -20,6 +20,7 @@ public sealed class CallsignDbContext : DbContext
     public DbSet<Job> Jobs => Set<Job>();
     public DbSet<JobAssignment> JobAssignments => Set<JobAssignment>();
     public DbSet<Callsign.Core.Domain.Flight> Flights => Set<Callsign.Core.Domain.Flight>();
+    public DbSet<FlightEventRecord> FlightEvents => Set<FlightEventRecord>();
     public DbSet<AircraftInstance> AircraftInstances => Set<AircraftInstance>();
     public DbSet<Staff> Staff => Set<Staff>();
     public DbSet<StandingOrder> StandingOrders => Set<StandingOrder>();
@@ -155,6 +156,13 @@ public sealed class CallsignDbContext : DbContext
         flight.HasIndex(f => f.FlownByPilotId);
         flight.HasIndex(f => f.AircraftInstanceId);
         flight.HasIndex(f => f.JobAssignmentId).IsUnique(); // one settled flight per assignment (store-level double-settle guard)
+
+        // --- Scored flight events (Phase 7a): the real tracker events, persisted for logbook replay ---
+        var fev = model.Entity<FlightEventRecord>();
+        fev.HasKey(e => e.Id);
+        fev.Property(e => e.Severity).IsRequired().HasMaxLength(16);
+        fev.Property(e => e.Message).IsRequired().HasMaxLength(200);
+        fev.HasIndex(e => new { e.FlightId, e.Seq }); // fetch one flight's events in order
 
         // --- Owned airframes (Phase 2a) ---
         var instance = model.Entity<AircraftInstance>();

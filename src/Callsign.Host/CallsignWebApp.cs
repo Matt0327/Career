@@ -1080,6 +1080,9 @@ public static class CallsignWebApp
             }
             catch { /* tolerate a legacy/empty breakdown — the row still renders without lines */ }
 
+            var events = await db.FlightEvents.Where(e => e.FlightId == f.Id).OrderBy(e => e.Seq)
+                .Select(e => new FlightEventDto(e.At, e.Severity, e.Message)).ToListAsync();
+
             double dur = Math.Max(0, (f.ArrivedAt - f.DepartedAt).TotalHours);
             return Results.Ok(new FlightDetailDto(
                 f.Id, f.AircraftTitle, f.AircraftTypeId, tail, acName, acCat,
@@ -1088,7 +1091,7 @@ public static class CallsignWebApp
                 f.DistanceNm, f.FuelUsedLbs, dur, f.TouchdownFpm, f.PayoutCents, f.Xp,
                 f.DepartedAt, f.ArrivedAt, f.SettledAt,
                 o?.Latitude ?? 0, o?.Longitude ?? 0, d?.Latitude ?? 0, d?.Longitude ?? 0,
-                a?.Pax, a?.WeightLbs, a?.Commodity, lines));
+                a?.Pax, a?.WeightLbs, a?.Commodity, lines, events));
         });
 
         // --- Live flight: begin tracking an accepted assignment; the next landing auto-settles it ---
