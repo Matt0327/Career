@@ -13,11 +13,16 @@ public record ReputationDto(int ReputationMilli, IReadOnlyList<ReputationEventDt
 public record JobDto(
     Guid Id, string Type, string Origin, string Dest, string DestName, string Commodity,
     int WeightLbs, int Pax, double DistanceNm, long RewardCents, int Xp,
-    string RequiredRank, bool Locked, string? LockReason, DateTimeOffset ExpiresAt);
+    string RequiredRank, bool Locked, string? LockReason, DateTimeOffset ExpiresAt,
+    // Geography + arrival detail — the map, bearing, and "can I land there / what will it cost" readouts.
+    double OriginLat, double OriginLon, double DestLat, double DestLon,
+    string DestKind, int? DestLongestRunwayFt, long ExpectedLandingFeeCents);
 
 public record AssignmentDto(
     Guid Id, string Type, string Origin, string Dest, string DestName, string Commodity, int WeightLbs, int Pax,
-    double DistanceNm, long RewardQuoteCents, int XpQuote, string Status);
+    double DistanceNm, long RewardQuoteCents, int XpQuote, string Status,
+    double OriginLat, double OriginLon, double DestLat, double DestLon,
+    string DestKind, int? DestLongestRunwayFt, long ExpectedLandingFeeCents);
 
 public record PayoutLineDto(string Label, long AmountCents);
 

@@ -41,6 +41,13 @@ export interface Job {
   locked: boolean
   lockReason?: string | null
   expiresAt: string
+  originLat: number
+  originLon: number
+  destLat: number
+  destLon: number
+  destKind: string
+  destLongestRunwayFt: number | null
+  expectedLandingFeeCents: number
 }
 
 export interface Assignment {
@@ -56,6 +63,13 @@ export interface Assignment {
   rewardQuoteCents: number
   xpQuote: number
   status: string
+  originLat: number
+  originLon: number
+  destLat: number
+  destLon: number
+  destKind: string
+  destLongestRunwayFt: number | null
+  expectedLandingFeeCents: number
 }
 
 export interface LedgerEntry {

@@ -242,6 +242,15 @@ public static class CallsignWebApp
         return await db.Airports.Where(a => set.Contains(a.Ident)).ToDictionaryAsync(a => a.Ident, a => a.Name);
     }
 
+    // Full airport rows by ident — lat/lon, class, and longest runway for the map + arrival detail.
+    private static async Task<Dictionary<string, Callsign.Core.Domain.Airport>> AirportsByIdentAsync(CallsignDbContext db, IEnumerable<string> idents)
+    {
+        var set = idents.Distinct().ToList();
+        if (set.Count == 0)
+            return new Dictionary<string, Callsign.Core.Domain.Airport>();
+        return await db.Airports.Where(a => set.Contains(a.Ident)).ToDictionaryAsync(a => a.Ident, a => a);
+    }
+
     private static void MapEndpoints(WebApplication app, string uiPath)
     {
         app.MapGet("/api/health", () => Results.Ok(new { ok = true }));
@@ -373,13 +382,13 @@ public static class CallsignWebApp
             return Results.Ok(new { origin = icao, generated = n });
         });
 
-        app.MapGet("/api/jobs", async (string? origin, CallsignDbContext db, JobBoardService board) =>
+        app.MapGet("/api/jobs", async (string? origin, CallsignDbContext db, JobBoardService board, EconomyConfig cfg) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             var icao = string.IsNullOrWhiteSpace(origin) ? pilot.CurrentIcao : origin!;
             var jobs = await board.GetAvailableAsync(icao);
-            var names = await AirportNamesAsync(db, jobs.Select(j => j.DestIcao));
+            var ports = await AirportsByIdentAsync(db, jobs.SelectMany(j => new[] { j.OriginIcao, j.DestIcao }));
             return Results.Ok(jobs.Select(j =>
             {
                 // Shown on the board, but locked with the reason (rank — 3b, or reputation — 3e/3f).
@@ -390,9 +399,14 @@ public static class CallsignWebApp
                 string? reason = rankLocked ? $"Requires {reqName}"
                     : repLocked ? $"Requires reputation {def.MinReputationMilli / 1000.0:0.0}"
                     : null;
+                ports.TryGetValue(j.OriginIcao, out var o);
+                ports.TryGetValue(j.DestIcao, out var d);
+                var kind = d?.Kind ?? AirportKind.Unknown;
                 return new JobDto(j.Id, j.Type.ToString(), j.OriginIcao, j.DestIcao,
-                    names.GetValueOrDefault(j.DestIcao, j.DestIcao), j.Commodity, j.WeightLbs, j.Pax, j.DistanceNm,
-                    j.RewardCents, j.Xp, reqName, rankLocked || repLocked, reason, j.ExpiresAt);
+                    d?.Name ?? j.DestIcao, j.Commodity, j.WeightLbs, j.Pax, j.DistanceNm,
+                    j.RewardCents, j.Xp, reqName, rankLocked || repLocked, reason, j.ExpiresAt,
+                    o?.Latitude ?? 0, o?.Longitude ?? 0, d?.Latitude ?? 0, d?.Longitude ?? 0,
+                    kind.ToString(), d?.LongestRunwayFt, cfg.LandingFeeCents(kind));
             }));
         });
 
@@ -408,12 +422,20 @@ public static class CallsignWebApp
             catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
-        app.MapGet("/api/assignments", async (CallsignDbContext db) =>
+        app.MapGet("/api/assignments", async (CallsignDbContext db, EconomyConfig cfg) =>
         {
             var list = await db.JobAssignments.Where(a => a.Status == AssignmentStatus.Accepted).ToListAsync();
-            var names = await AirportNamesAsync(db, list.Select(a => a.DestIcao));
-            return Results.Ok(list.Select(a => new AssignmentDto(a.Id, a.Type.ToString(), a.OriginIcao, a.DestIcao,
-                names.GetValueOrDefault(a.DestIcao, a.DestIcao), a.Commodity, a.WeightLbs, a.Pax, a.DistanceNm, a.RewardQuoteCents, a.XpQuote, a.Status.ToString())));
+            var ports = await AirportsByIdentAsync(db, list.SelectMany(a => new[] { a.OriginIcao, a.DestIcao }));
+            return Results.Ok(list.Select(a =>
+            {
+                ports.TryGetValue(a.OriginIcao, out var o);
+                ports.TryGetValue(a.DestIcao, out var d);
+                var kind = d?.Kind ?? AirportKind.Unknown;
+                return new AssignmentDto(a.Id, a.Type.ToString(), a.OriginIcao, a.DestIcao,
+                    d?.Name ?? a.DestIcao, a.Commodity, a.WeightLbs, a.Pax, a.DistanceNm, a.RewardQuoteCents, a.XpQuote, a.Status.ToString(),
+                    o?.Latitude ?? 0, o?.Longitude ?? 0, d?.Latitude ?? 0, d?.Longitude ?? 0,
+                    kind.ToString(), d?.LongestRunwayFt, cfg.LandingFeeCents(kind));
+            }));
         });
 
         app.MapPost("/api/assignments/{id:guid}/settle", async (Guid id, FlightResultDto dto, SettlementService svc) =>
