@@ -809,6 +809,57 @@ function AircraftSilhouette({ category }: { category?: string }) {
   )
 }
 
+// A circular condition gauge (hull / engine) — the signature of the re-crafted hangar. conditionMilli
+// is percent × 1000, so milli/1000 is the percentage (matches the rest of the app).
+function ConditionRing({ label, milli }: { label: string; milli: number }) {
+  const pct = Math.max(0, Math.min(100, milli / 1000))
+  const r = 22
+  const circ = 2 * Math.PI * r
+  const tone = pct < 40 ? 'neg' : pct < 70 ? 'warn' : 'pos'
+  return (
+    <div className="cring">
+      <svg viewBox="0 0 56 56" className={`cring-svg ${tone}`}>
+        <circle className="cring-track" cx="28" cy="28" r={r} />
+        <circle className="cring-arc" cx="28" cy="28" r={r}
+          strokeDasharray={circ} strokeDashoffset={circ * (1 - pct / 100)} transform="rotate(-90 28 28)" />
+        <text x="28" y="28" className="cring-pct num">{Math.round(pct)}</text>
+      </svg>
+      <div className="cring-label">{label}</div>
+    </div>
+  )
+}
+
+// One owned aircraft as a premium card: full imagery, hull + engine condition rings, and its papers.
+function FleetCard({ a, busy, onMaintain }: { a: OwnedAircraft; busy: boolean; onMaintain: (a: OwnedAircraft) => void }) {
+  const avail = a.availability === 'Available'
+  return (
+    <div className="card fleet-card">
+      <AircraftImage typeId={a.typeId} category={a.category} />
+      <div className="fleet-head">
+        <div className="fleet-idy">
+          <div className="fleet-tail loc">{a.tail}</div>
+          <div className="fleet-name">{a.name}<span className="muted"> · {spaced(a.category)}</span></div>
+        </div>
+        <span className={`avail-pill ${avail ? 'ok' : ''}`}>{avail ? 'Available' : a.availability}</span>
+      </div>
+      <div className="fleet-mid">
+        <ConditionRing label="Hull" milli={a.hullConditionMilli} />
+        <ConditionRing label="Engine" milli={a.engineConditionMilli} />
+        <div className="fleet-facts">
+          <div><span className="metalabel">Based</span><span className="loc">{a.locationIcao}</span></div>
+          <div><span className="metalabel">Airframe</span><span className="num">{a.airframeHours.toFixed(1)} h</span></div>
+          <div><span className="metalabel">Rating</span>{a.rated ? <span className="pos">Rated</span> : <span className="muted" title={`Needs ${a.requiredClass}`}>🔒 {a.requiredClass}</span>}</div>
+        </div>
+      </div>
+      <div className="fleet-foot">
+        {a.maintenanceDue
+          ? <><span className="warn-text">● Maintenance due</span><button className="primary small" disabled={busy} onClick={() => onMaintain(a)}>Service · {money(a.maintenanceQuoteCents)}</button></>
+          : <><span className="muted">Next service</span><span className="muted num">{money(a.maintenanceQuoteCents)}</span></>}
+      </div>
+    </div>
+  )
+}
+
 // ─── Hangar (own aircraft) ───────────────────────────────────────────────────
 
 function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
@@ -840,31 +891,7 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
         <h2>Your hangar</h2>
         {owned === null ? <div className="empty">Loading…</div>
           : owned.length === 0 ? <div className="empty">No aircraft yet — buy one below.</div>
-            : (
-              <table className="tbl">
-                <thead><tr><th>Tail</th><th>Aircraft</th><th>At</th><th className="r">Hours</th><th className="r">Condition</th><th>Rating</th><th className="r">Maintenance</th></tr></thead>
-                <tbody>
-                  {owned.map(a => {
-                    const cond = Math.round(Math.min(a.hullConditionMilli, a.engineConditionMilli) / 1000)
-                    return (
-                      <tr key={a.id}>
-                        <td className="num">{a.tail}</td>
-                        <td><div className="ac-cell"><AircraftImage typeId={a.typeId} category={a.category} mini /><span>{a.name} <span className="muted">· {spaced(a.category)}</span></span></div></td>
-                        <td className="loc">{a.locationIcao}</td>
-                        <td className="r num">{a.airframeHours.toFixed(1)}</td>
-                        <td className={`r num ${cond < 40 ? 'neg' : cond < 70 ? '' : 'pos'}`}>{cond}%</td>
-                        <td>{a.rated ? <span className="pos">rated</span> : <span className="lock" title={`Needs ${a.requiredClass}`}>🔒 not rated</span>}</td>
-                        <td className="r">
-                          {a.maintenanceDue
-                            ? <button className="primary small" disabled={busy} onClick={() => maintain(a)}>Service · {money(a.maintenanceQuoteCents)}</button>
-                            : <span className="muted num">{money(a.maintenanceQuoteCents)}</span>}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            )}
+            : <div className="fleet">{owned.map(a => <FleetCard key={a.id} a={a} busy={busy} onMaintain={maintain} />)}</div>}
       </section>
 
       <section className="card">

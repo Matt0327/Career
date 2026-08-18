@@ -464,3 +464,27 @@ input { font: inherit; }
   .hero-standing{align-items:flex-start;min-width:0}
   .hero-name{font-size:22px}
 }
+
+/* ── Hangar — fleet cards + condition rings (Phase 6) ───────────────────────── */
+.fleet{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.fleet-card{padding:14px;display:flex;flex-direction:column;gap:11px}
+.fleet-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.fleet-tail{font-size:17px;font-weight:700}
+.fleet-name{font-size:13px;margin-top:1px}
+.avail-pill{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap;background:color-mix(in srgb,var(--muted) 20%,transparent);color:var(--muted)}
+.avail-pill.ok{background:color-mix(in srgb,var(--pos) 16%,transparent);color:var(--pos)}
+.fleet-mid{display:flex;align-items:center;gap:14px}
+.cring{display:flex;flex-direction:column;align-items:center;gap:3px;flex:none}
+.cring-svg{width:54px;height:54px}
+.cring-track{fill:none;stroke:color-mix(in srgb,var(--ink) 12%,var(--panel));stroke-width:5}
+.cring-arc{fill:none;stroke-width:5;stroke-linecap:round;transition:stroke-dashoffset .6s ease}
+.cring-svg.pos .cring-arc{stroke:var(--pos)}
+.cring-svg.warn .cring-arc{stroke:#d99a1c}
+.cring-svg.neg .cring-arc{stroke:var(--neg)}
+.cring-pct{fill:var(--ink);font-size:15px;font-weight:700;text-anchor:middle;dominant-baseline:central}
+.cring-label{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.fleet-facts{flex:1 1 auto;display:flex;flex-direction:column;gap:5px}
+.fleet-facts>div{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px}
+.fleet-facts .metalabel{font-size:10px}
+.fleet-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:10px;border-top:1px solid var(--line);margin-top:auto}
+.warn-text{font-size:12px;font-weight:600;color:#d99a1c}
