@@ -462,10 +462,25 @@ function missionIcon(type: string) {
   }
 }
 
+type JobSort = 'dist' | 'reward' | 'xp' | 'weight'
+function sortMark(cur: string, key: string, asc: boolean): string { return cur === key ? (asc ? ' ↑' : ' ↓') : '' }
+function deadline(iso: string): string {
+  const ms = new Date(iso).getTime() - Date.now()
+  if (ms <= 0) return 'expired'
+  const h = Math.floor(ms / 3.6e6), min = Math.floor((ms % 3.6e6) / 6e4)
+  return h > 0 ? `${h}h ${min}m` : `${min}m`
+}
+
 function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
   const [jobs, setJobs] = useState<Job[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const [selected, setSelected] = useState<string | null>(null)
+  const [types, setTypes] = useState<Set<string>>(new Set()) // empty = all types shown
+  const [maxDist, setMaxDist] = useState<number>(Infinity)
+  const [maxWeight, setMaxWeight] = useState<number>(Infinity)
+  const [sort, setSort] = useState<JobSort>('dist')
+  const [asc, setAsc] = useState(true)
 
   const load = useCallback(async () => {
     try { setJobs(await api.jobs()) } catch (e) { setMsg(String(e)) }
@@ -474,59 +489,175 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
 
   const refresh = async () => {
     setBusy(true); setMsg(null)
-    try { await api.refreshJobs(8); await load() } catch (e) { setMsg(String(e)) } finally { setBusy(false) }
+    try { await api.refreshJobs(8); await load(); setSelected(null) } catch (e) { setMsg(String(e)) } finally { setBusy(false) }
   }
-
   const accept = async (id: string) => {
     setBusy(true); setMsg(null)
-    try { await api.accept(id); await load(); onChanged(); setMsg('Accepted — head to the Flight tab to fly it.') }
+    try { await api.accept(id); await load(); onChanged(); setMsg('Accepted — head to the Flight tab to fly it.'); setSelected(null) }
     catch (e) { setMsg(String(e)) } finally { setBusy(false) }
   }
 
+  const all = jobs ?? []
+  const distMax = Math.max(100, ...all.map(j => Math.ceil(j.distanceNm)))
+  const wtMax = Math.max(100, ...all.map(j => j.weightLbs))
+  const kinds = Array.from(new Set(all.map(j => j.type)))
+  const key = (j: Job) => sort === 'reward' ? j.rewardCents : sort === 'xp' ? j.xp : sort === 'weight' ? j.weightLbs : j.distanceNm
+  const shown = all
+    .filter(j => types.size === 0 || types.has(j.type))
+    .filter(j => maxDist === Infinity || j.distanceNm <= maxDist)
+    .filter(j => maxWeight === Infinity || j.weightLbs <= maxWeight)
+    .sort((a, b) => (key(a) - key(b)) * (asc ? 1 : -1))
+  const sel = shown.find(j => j.id === selected) ?? null
+
+  const toggleType = (t: string) => setTypes(s => { const n = new Set(s); n.has(t) ? n.delete(t) : n.add(t); return n })
+  const setSortKey = (k: JobSort) => { if (sort === k) setAsc(a => !a); else { setSort(k); setAsc(k === 'dist') } }
+
   return (
-    <div>
+    <div className="jobs-screen">
       <div className="row-head">
-        <h2>Jobs from <span className="loc">{state.currentIcao}</span></h2>
+        <h2>Jobs from <span className="loc">{state.currentIcao}</span> <span className="muted">· {shown.length} of {all.length}</span></h2>
         <button className="primary" disabled={busy} onClick={refresh}>{busy ? '…' : 'Refresh board'}</button>
       </div>
       {msg && <div className="banner">{msg}</div>}
       {jobs === null ? <div className="empty">Loading…</div>
-        : jobs.length === 0 ? <div className="empty"><p>No jobs on the board.</p><button className="primary" onClick={refresh}>Generate jobs</button></div>
+        : all.length === 0 ? <div className="empty"><p>No jobs on the board.</p><button className="primary" onClick={refresh}>Generate jobs</button></div>
           : (
-            <div className="jobs">
-              {jobs.map(j => {
-                const m = missionMeta(j.type)
-                return (
-                  <div className={`card job mission ${j.locked ? 'locked' : ''}`} key={j.id}>
-                    <div className="mission-head">
-                      <span className="mission-badge" style={{ background: `color-mix(in srgb, ${m.color} 16%, transparent)`, color: m.color }}>
-                        <svg viewBox="0 0 24 24">{missionIcon(j.type)}</svg>
-                      </span>
-                      <div className="mission-title">
-                        <div className="mission-type">{m.label}</div>
-                        <div className="mission-route"><b>{j.origin}</b> <span className="arrow">→</span> <b>{j.dest}</b></div>
-                      </div>
-                      <span className="mission-dist num">{Math.round(j.distanceNm)}<i>nm</i></span>
-                    </div>
-                    <div className="dest-name">{j.destName}</div>
-                    <div className="commodity">{j.commodity}</div>
-                    <div className="job-meta">
-                      <Meta label={isPaxType(j.type) ? 'Passengers' : 'Payload'} value={loadText(j.type, j.weightLbs, j.pax)} />
-                      <Meta label="XP" value={`+${j.xp}`} />
-                    </div>
-                    <div className="job-foot">
-                      <div className="reward num">{money(j.rewardCents)}</div>
-                      {j.locked
-                        ? <span className="lock" title={j.lockReason ?? ''}>🔒 {j.lockReason}</span>
-                        : <button className="primary" disabled={busy} onClick={() => accept(j.id)}>Accept</button>}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
+            <>
+              <div className="job-filters">
+                <div className="jf-types">
+                  {kinds.map(t => {
+                    const m = missionMeta(t); const on = types.size === 0 || types.has(t)
+                    return (
+                      <button key={t} type="button" className={`jf-type ${on ? 'on' : ''}`} style={on ? { borderColor: m.color, color: m.color } : undefined} onClick={() => toggleType(t)}>
+                        <svg viewBox="0 0 24 24">{missionIcon(t)}</svg>{m.label}
+                      </button>
+                    )
+                  })}
+                </div>
+                <div className="jf-sliders">
+                  <label>Max distance <b className="num">{maxDist === Infinity ? `any` : `${Math.round(maxDist)} nm`}</b>
+                    <input type="range" min={50} max={distMax} value={maxDist === Infinity ? distMax : maxDist} onChange={e => { const v = Number(e.target.value); setMaxDist(v >= distMax ? Infinity : v) }} />
+                  </label>
+                  <label>Max payload <b className="num">{maxWeight === Infinity ? `any` : `${Math.round(maxWeight).toLocaleString()} lb`}</b>
+                    <input type="range" min={0} max={wtMax} step={100} value={maxWeight === Infinity ? wtMax : maxWeight} onChange={e => { const v = Number(e.target.value); setMaxWeight(v >= wtMax ? Infinity : v) }} />
+                  </label>
+                </div>
+              </div>
+
+              <div className="jobs-work">
+                <div className="jobs-tablewrap">
+                  <table className="tbl jobs-table">
+                    <thead><tr>
+                      <th>Destination</th>
+                      <th className="r sortable" onClick={() => setSortKey('dist')}>Dist{sortMark(sort, 'dist', asc)}</th>
+                      <th className="r sortable" onClick={() => setSortKey('weight')}>Load{sortMark(sort, 'weight', asc)}</th>
+                      <th className="r sortable" onClick={() => setSortKey('reward')}>Reward{sortMark(sort, 'reward', asc)}</th>
+                      <th className="r sortable" onClick={() => setSortKey('xp')}>XP{sortMark(sort, 'xp', asc)}</th>
+                    </tr></thead>
+                    <tbody>
+                      {shown.map(j => {
+                        const m = missionMeta(j.type)
+                        return (
+                          <tr key={j.id} className={`jrow ${selected === j.id ? 'on' : ''} ${j.locked ? 'locked' : ''}`} onClick={() => setSelected(j.id)}>
+                            <td><span className="jrow-type" style={{ background: m.color }} title={m.label} /><span className="loc">{j.dest}</span> <span className="muted">{j.destName}</span></td>
+                            <td className="r num">{Math.round(j.distanceNm)}</td>
+                            <td className="r num">{isPaxType(j.type) ? `${j.pax}p` : `${(j.weightLbs / 1000).toFixed(1)}k`}</td>
+                            <td className="r num pos">{money(j.rewardCents)}</td>
+                            <td className="r num">+{j.xp}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="jobs-side">
+                  {sel ? <JobDetail job={sel} busy={busy} onAccept={accept} /> : <div className="card jobs-pick"><div className="empty">Select a job for the full briefing.</div></div>}
+                  <JobsMap jobs={shown} selectedId={selected} onSelect={setSelected} />
+                </div>
+              </div>
+            </>
           )}
     </div>
   )
+}
+
+// The full briefing for one job — objective, geography, arrival detail, and the net after the landing fee.
+function JobDetail({ job, busy, onAccept }: { job: Job; busy: boolean; onAccept: (id: string) => void }) {
+  const m = missionMeta(job.type)
+  const geo = (job.originLat || job.originLon) && (job.destLat || job.destLon)
+  const hdg = geo ? Math.round(bearing([job.originLat, job.originLon], [job.destLat, job.destLon])) : null
+  const net = job.rewardCents - job.expectedLandingFeeCents
+  return (
+    <div className="card jdetail">
+      <div className="mission-head">
+        <span className="mission-badge" style={{ background: `color-mix(in srgb, ${m.color} 16%, transparent)`, color: m.color }}><svg viewBox="0 0 24 24">{missionIcon(job.type)}</svg></span>
+        <div className="mission-title">
+          <div className="mission-type">{m.label}</div>
+          <div className="mission-route"><b>{job.origin}</b> <span className="arrow">→</span> <b>{job.dest}</b></div>
+        </div>
+      </div>
+      <div className="jd-dest">{job.destName} <span className="muted">· {spaced(job.destKind).replace(' Airport', '')}</span></div>
+      <p className="jd-obj">{isPaxType(job.type) ? `Carry ${job.pax} ${job.pax === 1 ? 'passenger' : 'passengers'}` : `Haul ${job.weightLbs.toLocaleString()} lb of ${job.commodity.toLowerCase()}`} to {job.dest}.</p>
+      <div className="jd-grid">
+        <div><span className="metalabel">Distance</span><span className="num">{Math.round(job.distanceNm)} nm</span></div>
+        <div><span className="metalabel">{isPaxType(job.type) ? 'Passengers' : 'Payload'}</span><span className="num">{loadText(job.type, job.weightLbs, job.pax)}</span></div>
+        {hdg !== null && <div><span className="metalabel">Bearing</span><span className="num">{String(hdg).padStart(3, '0')}°</span></div>}
+        <div><span className="metalabel">Longest rwy</span><span className="num">{job.destLongestRunwayFt ? `${job.destLongestRunwayFt.toLocaleString()} ft` : '—'}</span></div>
+        <div><span className="metalabel">XP</span><span className="num">+{job.xp}</span></div>
+        <div><span className="metalabel">Load by</span><span className="num">{deadline(job.expiresAt)}</span></div>
+      </div>
+      <div className="jd-pay">
+        <div className="jd-payrow"><span>Reward</span><span className="num pos">{money(job.rewardCents)}</span></div>
+        <div className="jd-payrow"><span className="muted">Est. landing fee</span><span className="num neg">-{money(job.expectedLandingFeeCents)}</span></div>
+        <div className="jd-payrow jd-net"><span>Net</span><span className="num">{money(net)}</span></div>
+      </div>
+      {job.locked
+        ? <div className="banner warn">🔒 {job.lockReason}</div>
+        : <button className="primary jd-accept" disabled={busy} onClick={() => onAccept(job.id)}>Accept this job</button>}
+    </div>
+  )
+}
+
+// Every shown job plotted at its destination, coloured by mission type, clickable to select.
+function JobsMap({ jobs, selectedId, onSelect }: { jobs: Job[]; selectedId: string | null; onSelect: (id: string) => void }) {
+  const host = useRef<HTMLDivElement>(null)
+  const markers = useRef<Record<string, { mk: L.CircleMarker; color: string }>>({})
+  const online = typeof navigator === 'undefined' ? true : navigator.onLine
+  const plotted = jobs.filter(j => j.destLat !== 0 || j.destLon !== 0)
+  const sig = plotted.map(j => j.id).join('|')
+  const onSelRef = useRef(onSelect); onSelRef.current = onSelect
+
+  useEffect(() => {
+    if (!host.current || !online || plotted.length === 0) return
+    const map = L.map(host.current, { attributionControl: true, zoomControl: true, worldCopyJump: true })
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics', maxZoom: 18 }).addTo(map)
+    markers.current = {}
+    const mks = plotted.map(j => {
+      const m = missionMeta(j.type)
+      const mk = L.circleMarker([j.destLat, j.destLon], { radius: 5, weight: 1.5, color: m.color, fillColor: m.color, fillOpacity: .85 }).addTo(map)
+      mk.bindTooltip(`${j.dest} · ${money(j.rewardCents)}`, { direction: 'top', className: 'sat-tip' })
+      mk.on('click', () => onSelRef.current(j.id))
+      markers.current[j.id] = { mk, color: m.color }
+      return mk
+    })
+    map.fitBounds(L.featureGroup(mks).getBounds().pad(0.3), { maxZoom: 8 })
+    const t = setTimeout(() => map.invalidateSize(), 60)
+    return () => { clearTimeout(t); map.remove(); markers.current = {} }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sig, online])
+
+  useEffect(() => {
+    for (const [id, { mk, color }] of Object.entries(markers.current)) {
+      const on = id === selectedId
+      mk.setRadius(on ? 8 : 5)
+      mk.setStyle({ weight: on ? 3 : 1.5, color: on ? '#ffffff' : color })
+      if (on) mk.bringToFront()
+    }
+  }, [selectedId, sig])
+
+  if (!online) return <div className="card"><div className="empty" style={{ padding: 16 }}>Map needs a connection.</div></div>
+  if (plotted.length === 0) return <div className="card"><div className="empty" style={{ padding: 16 }}>No mapped destinations.</div></div>
+  return <div className="satmap jobsmap" ref={host} role="img" aria-label="Jobs map" />
 }
 
 function RankCard({ state, ranks }: { state: State; ranks: RankTier[] }) {
@@ -642,11 +773,12 @@ function planeIcon(hdg: number): L.DivIcon {
 
 // The live moving-map on the Flight screen. Built ONCE; each telemetry frame just moves the aircraft
 // marker and extends the trail (never rebuilds the map, so tracking stays smooth). Esri satellite tiles.
-function FlightMap({ tele }: { tele: Telemetry | null }) {
+function FlightMap({ tele, leg }: { tele: Telemetry | null; leg?: Assignment | null }) {
   const host = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
   const marker = useRef<L.Marker | null>(null)
   const trail = useRef<L.Polyline | null>(null)
+  const legLayer = useRef<L.LayerGroup | null>(null)
   const path = useRef<[number, number][]>([])
   const centred = useRef(false)
   const online = typeof navigator === 'undefined' ? true : navigator.onLine
@@ -658,11 +790,34 @@ function FlightMap({ tele }: { tele: Telemetry | null }) {
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
       attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics', maxZoom: 18,
     }).addTo(map)
+    legLayer.current = L.layerGroup().addTo(map)
     trail.current = L.polyline([], { color: '#6d84ff', weight: 3, opacity: .85 }).addTo(map)
     mapRef.current = map
     const t = setTimeout(() => map.invalidateSize(), 60) // WebView2 flex layout can settle a beat late
-    return () => { clearTimeout(t); map.remove(); mapRef.current = null; marker.current = null; trail.current = null; path.current = []; centred.current = false }
+    return () => { clearTimeout(t); map.remove(); mapRef.current = null; marker.current = null; trail.current = null; legLayer.current = null; path.current = []; centred.current = false }
   }, [online])
+
+  // The planned leg — departure + destination pins, a dashed planned track, and the 5 nm arrival ring.
+  useEffect(() => {
+    const map = mapRef.current, layer = legLayer.current
+    if (!map || !layer) return
+    layer.clearLayers()
+    const hasDest = leg && (leg.destLat !== 0 || leg.destLon !== 0)
+    if (!leg || !hasDest) return
+    const d: [number, number] = [leg.destLat, leg.destLon]
+    const hasOrigin = leg.originLat !== 0 || leg.originLon !== 0
+    if (hasOrigin) {
+      const o: [number, number] = [leg.originLat, leg.originLon]
+      L.polyline([o, d], { color: '#6d84ff', weight: 2, opacity: .7, dashArray: '6 8' }).addTo(layer)
+      L.circleMarker(o, { radius: 5, color: '#fff', weight: 2, fillColor: '#8a97a7', fillOpacity: .9 }).addTo(layer).bindTooltip(leg.origin, { direction: 'top', className: 'sat-tip' })
+    }
+    L.circle(d, { radius: 5 * 1852, color: '#6d84ff', weight: 1, opacity: .45, fill: false, dashArray: '3 6' }).addTo(layer) // 5 nm settle radius
+    L.circleMarker(d, { radius: 6, color: '#6d84ff', weight: 2, fillColor: '#6d84ff', fillOpacity: .9 }).addTo(layer).bindTooltip(leg.dest, { permanent: true, direction: 'top', className: 'sat-tip' })
+    if (!centred.current) {
+      if (hasOrigin) map.fitBounds(L.latLngBounds([leg.originLat, leg.originLon], d).pad(0.4), { maxZoom: 9 })
+      else map.setView(d, 8)
+    }
+  }, [leg])
 
   useEffect(() => {
     const map = mapRef.current
@@ -809,7 +964,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
         </div>
         <div className="hud-live">
           <div className="flightmap-wrap">
-            <FlightMap tele={tele} />
+            <FlightMap tele={tele} leg={begun} />
             <div className="fm-overlay">
               <span className="fm-phase num">{tele?.phase ?? 'STANDING BY'}</span>
               <span className="fm-reads">

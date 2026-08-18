@@ -574,3 +574,39 @@ input { font: inherit; }
 .flog-row.warn .flog-text{color:color-mix(in srgb,#d99a1c 85%,var(--ink))}
 .flog-row.bad .flog-text{color:color-mix(in srgb,var(--neg) 80%,var(--ink))}
 @media (prefers-reduced-motion:reduce){.flog-dotlive{animation:none}}
+
+/* ── Jobs — filters, sortable table, briefing, map (Phase 6+) ───────────────── */
+.jobs-screen{display:flex;flex-direction:column;gap:14px}
+.job-filters{display:flex;flex-direction:column;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow)}
+.jf-types{display:flex;flex-wrap:wrap;gap:7px}
+.jf-type{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:640;padding:5px 10px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--muted);cursor:pointer}
+.jf-type svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.jf-type.on{background:var(--panel-2)}
+.jf-sliders{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:640px){.jf-sliders{grid-template-columns:1fr}}
+.jf-sliders label{display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.jf-sliders label b{color:var(--ink);font-size:14px;text-transform:none;letter-spacing:0}
+.jf-sliders input[type=range]{width:100%;accent-color:var(--accent)}
+.jobs-work{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+@media (max-width:960px){.jobs-work{grid-template-columns:1fr}}
+.jobs-tablewrap{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);overflow:auto;max-height:640px}
+.jobs-table{width:100%}
+.jobs-table th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
+.jobs-table th.sortable:hover{color:var(--ink)}
+.jrow{cursor:pointer}
+.jrow:hover{background:var(--panel-2)}
+.jrow.on{background:var(--accent-dim)}
+.jrow.locked{opacity:.5}
+.jrow-type{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:8px;vertical-align:middle}
+.jobs-side{display:flex;flex-direction:column;gap:14px}
+.jdetail{display:flex;flex-direction:column;gap:12px}
+.jd-dest{font-size:14px;font-weight:600;margin-top:-2px}
+.jd-obj{font-size:14px;color:var(--muted);margin:0;line-height:1.5}
+.jd-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.jd-grid>div{display:flex;flex-direction:column;gap:2px}
+.jd-pay{border-top:1px solid var(--line);padding-top:10px;display:flex;flex-direction:column;gap:5px}
+.jd-payrow{display:flex;justify-content:space-between;font-size:14px}
+.jd-net{border-top:1px solid var(--line);padding-top:6px;font-weight:700}
+.jd-accept{align-self:stretch;margin-top:2px}
+.satmap.jobsmap{height:340px}
+.jobs-pick{min-height:130px;display:grid;place-items:center}
