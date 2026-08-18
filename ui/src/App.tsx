@@ -427,6 +427,41 @@ function HeroStat({ label, value, unit, accent, mono }: { label: string; value: 
 
 // ─── Jobs ────────────────────────────────────────────────────────────────────
 
+// Per-mission identity: an accent colour + label for the illustrated card header, keyed by the enum name
+// the API sends (Cargo, Vip, SearchAndRescue, …). Unknown types fall back to the app accent.
+const MISSION_META: Record<string, { color: string; label: string }> = {
+  Cargo: { color: '#6d84ff', label: 'Cargo' },
+  Passenger: { color: '#3ecf8e', label: 'Passenger' },
+  Express: { color: '#e0912f', label: 'Express' },
+  Sensitive: { color: '#8b7be8', label: 'Sensitive' },
+  Hazardous: { color: '#d9a11c', label: 'Hazardous' },
+  Emergency: { color: '#f26a5c', label: 'Emergency' },
+  SearchAndRescue: { color: '#f0824c', label: 'Search & Rescue' },
+  Tourist: { color: '#39b56a', label: 'Tourist' },
+  Parachute: { color: '#2bb6c4', label: 'Parachute' },
+  Vip: { color: '#d9b84a', label: 'VIP' },
+  Illicit: { color: '#a06bd6', label: 'Illicit' },
+}
+function missionMeta(type: string) { return MISSION_META[type] ?? { color: 'var(--accent)', label: spaced(type) } }
+
+// Original stroke icons per mission type — the "illustration" on each mission card.
+function missionIcon(type: string) {
+  switch (type) {
+    case 'Cargo': return <><path d="M3 8l9-4 9 4v8l-9 4-9-4z" /><path d="M3 8l9 4 9-4M12 12v8" /></>
+    case 'Passenger': return <><circle cx="9" cy="8" r="3" /><path d="M3.5 20c0-3 2.5-5 5.5-5s5.5 2 5.5 5" /><path d="M16 6a3 3 0 0 1 0 6" /></>
+    case 'Express': return <path d="M13 2L4 14h6l-1 8 9-12h-6z" />
+    case 'Sensitive': return <><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z" /><path d="M12 10.5v3.5" /></>
+    case 'Hazardous': return <><path d="M12 4l9 16H3z" /><path d="M12 10v4M12 17.2h0" /></>
+    case 'Emergency': return <path d="M10 3h4v5h5v4h-5v5h-4v-5H5V8h5z" />
+    case 'SearchAndRescue': return <><circle cx="12" cy="12" r="8.5" /><circle cx="12" cy="12" r="3.2" /><path d="M12 3.5v5M12 15.5v5M3.5 12h5M15.5 12h5" /></>
+    case 'Tourist': return <><rect x="3" y="7" width="18" height="12" rx="2" /><circle cx="12" cy="13" r="3" /><path d="M8.5 7l1.2-2h4.6l1.2 2" /></>
+    case 'Parachute': return <><path d="M3 11a9 9 0 0 1 18 0z" /><path d="M3 11l9 6 9-6M9.5 11l2.5 6 2.5-6" /></>
+    case 'Vip': return <path d="M12 3l2.5 6 6.5.5-5 4.3 1.6 6.2-5.6-3.4-5.6 3.4 1.6-6.2-5-4.3 6.5-.5z" />
+    case 'Illicit': return <><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" /><circle cx="12" cy="12" r="2.6" /></>
+    default: return <path d="M4 13l16-6-6 16-2-7-8-3z" />
+  }
+}
+
 function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
   const [jobs, setJobs] = useState<Job[] | null>(null)
   const [busy, setBusy] = useState(false)
@@ -459,27 +494,35 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
         : jobs.length === 0 ? <div className="empty"><p>No jobs on the board.</p><button className="primary" onClick={refresh}>Generate jobs</button></div>
           : (
             <div className="jobs">
-              {jobs.map(j => (
-                <div className={`card job ${j.locked ? 'locked' : ''}`} key={j.id}>
-                  <div className="job-top">
-                    <div className="leg"><b>{j.origin}</b> → <b>{j.dest}</b></div>
-                    <div className="tag">{j.type}</div>
+              {jobs.map(j => {
+                const m = missionMeta(j.type)
+                return (
+                  <div className={`card job mission ${j.locked ? 'locked' : ''}`} key={j.id}>
+                    <div className="mission-head">
+                      <span className="mission-badge" style={{ background: `color-mix(in srgb, ${m.color} 16%, transparent)`, color: m.color }}>
+                        <svg viewBox="0 0 24 24">{missionIcon(j.type)}</svg>
+                      </span>
+                      <div className="mission-title">
+                        <div className="mission-type">{m.label}</div>
+                        <div className="mission-route"><b>{j.origin}</b> <span className="arrow">→</span> <b>{j.dest}</b></div>
+                      </div>
+                      <span className="mission-dist num">{Math.round(j.distanceNm)}<i>nm</i></span>
+                    </div>
+                    <div className="dest-name">{j.destName}</div>
+                    <div className="commodity">{j.commodity}</div>
+                    <div className="job-meta">
+                      <Meta label={isPaxType(j.type) ? 'Passengers' : 'Payload'} value={loadText(j.type, j.weightLbs, j.pax)} />
+                      <Meta label="XP" value={`+${j.xp}`} />
+                    </div>
+                    <div className="job-foot">
+                      <div className="reward num">{money(j.rewardCents)}</div>
+                      {j.locked
+                        ? <span className="lock" title={j.lockReason ?? ''}>🔒 {j.lockReason}</span>
+                        : <button className="primary" disabled={busy} onClick={() => accept(j.id)}>Accept</button>}
+                    </div>
                   </div>
-                  <div className="dest-name">{j.destName}</div>
-                  <div className="commodity">{j.commodity}</div>
-                  <div className="job-meta">
-                    <Meta label="Distance" value={`${Math.round(j.distanceNm)} nm`} />
-                    <Meta label={isPaxType(j.type) ? 'Passengers' : 'Payload'} value={loadText(j.type, j.weightLbs, j.pax)} />
-                    <Meta label="XP" value={`+${j.xp}`} />
-                  </div>
-                  <div className="job-foot">
-                    <div className="reward num">{money(j.rewardCents)}</div>
-                    {j.locked
-                      ? <span className="lock" title={j.lockReason ?? ''}>🔒 {j.lockReason}</span>
-                      : <button className="primary" disabled={busy} onClick={() => accept(j.id)}>Accept</button>}
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
     </div>

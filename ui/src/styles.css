@@ -504,3 +504,14 @@ input { font: inherit; }
 .fm-read.down b{color:#f26a5c}
 .flightmap-veil{position:absolute;inset:0;z-index:500;display:grid;place-items:center;text-align:center;padding:20px;color:var(--muted);background:color-mix(in srgb,var(--panel) 55%,transparent);font-size:14px;pointer-events:none;border-radius:10px}
 .flightmap-empty{height:420px;display:grid;place-items:center;text-align:center;padding:20px;color:var(--muted);border:1px solid var(--line);border-radius:10px;background:var(--panel-2)}
+
+/* ── Jobs — illustrated mission cards (Phase 6) ─────────────────────────────── */
+.mission-head{display:flex;align-items:center;gap:11px}
+.mission-badge{width:40px;height:40px;border-radius:11px;flex:none;display:grid;place-items:center}
+.mission-badge svg{width:21px;height:21px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.mission-title{flex:1 1 auto;min-width:0}
+.mission-type{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:700}
+.mission-route{font-size:16px;font-weight:700;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mission-route .arrow{color:var(--faint);font-weight:400;margin:0 3px}
+.mission-dist{flex:none;font-size:16px;font-weight:700;color:var(--ink);align-self:flex-start}
+.mission-dist i{font-size:11px;color:var(--muted);font-style:normal;margin-left:2px;font-weight:600}
