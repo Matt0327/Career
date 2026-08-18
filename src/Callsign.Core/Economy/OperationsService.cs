@@ -10,7 +10,7 @@ namespace Callsign.Core.Economy;
 public sealed record StaffCandidate(int Seed, string Name, long WagePerDayCents, int SkillMilli);
 
 /// <summary>What a reconcile produced (for the reopen digest).</summary>
-public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents);
+public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, IReadOnlyList<string> Grounded);
 
 /// <summary>
 /// Staff + standing orders (Phase 2d): hire pilots, set repeating autonomous routes, and reconcile the
@@ -132,6 +132,7 @@ public sealed class OperationsService
         var now = _clock.UtcNow;
         int totalTrips = 0;
         long grossIncome = 0, totalFees = 0, totalWages = 0, totalRent = 0, totalLoan = 0, totalInsurance = 0;
+        var grounded = new List<string>(); // tails that couldn't fly their autonomous work — surfaced in the digest
 
         // Airports where we own a base — landings there are fee-free.
         var baseIcaos = (await _db.Bases.Where(b => b.CompanyId == companyId && b.IsActive && !b.IsDeleted)
@@ -143,6 +144,15 @@ public sealed class OperationsService
             int trips = o.RoundTripHours > 0 ? (int)Math.Floor(elapsedH / o.RoundTripHours) : 0;
             if (trips <= 0)
                 continue;
+
+            // A grounded tail can't fly: hold the order (its clock doesn't advance, so the trips resume once
+            // serviced) and warn the player in the digest — they never reopen to a silently idle order (Law 4).
+            var soAircraft = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == o.AircraftInstanceId, ct);
+            if (soAircraft is not null && AircraftDealerService.AirworthinessOf(soAircraft, _cfg, now) is { Airworthy: false } soAw)
+            {
+                grounded.Add($"{soAircraft.Tail} — {soAw.Reason}");
+                continue;
+            }
 
             var oAir = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == o.OriginIcao, ct);
             var dAir = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == o.DestIcao, ct);
@@ -245,6 +255,14 @@ public sealed class OperationsService
             int trips = route.RoundTripHours > 0 ? (int)Math.Floor(elapsedH / route.RoundTripHours) : 0;
             if (trips <= 0)
                 continue;
+
+            var rtAircraft = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == route.AircraftInstanceId, ct);
+            if (rtAircraft is not null && AircraftDealerService.AirworthinessOf(rtAircraft, _cfg, now) is { Airworthy: false } rtAw)
+            {
+                grounded.Add($"{rtAircraft.Tail} — {rtAw.Reason}");
+                continue; // held until serviced (Law 4)
+            }
+
             long income = trips * route.RewardPerTripCents;
             await _ledger.StageBatchAsync(companyId, new[]
             {
@@ -288,6 +306,6 @@ public sealed class OperationsService
 
         await _db.SaveChangesAsync(ct);
         return new ReconcileDigest(totalTrips, grossIncome, totalFees, totalWages, totalRent, totalLoan, totalInsurance,
-            grossIncome - totalFees - totalWages - totalRent - totalLoan - totalInsurance);
+            grossIncome - totalFees - totalWages - totalRent - totalLoan - totalInsurance, grounded);
     }
 }

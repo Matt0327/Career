@@ -69,4 +69,47 @@ public class OperationsServiceTests
             Assert.Equal(0, again.Trips); // no time passed since → nothing double-booked
         }
     }
+
+    [Fact]
+    public async Task Reconcile_HoldsAGroundedTail_AndWarns_WithoutFlyingIt()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Guid companyId, staffId, aircraftId;
+
+        using (var db = tdb.NewContext())
+        {
+            var company = new Company { Id = Guid.NewGuid(), Name = "Co" };
+            db.Companies.Add(company);
+            db.Airports.AddRange(A("EHAM", 52.3086, 4.7639), A("EHRD", 51.9569, 4.4372));
+            var type = new AircraftType { Id = Guid.NewGuid(), Key = "C172", CanonicalName = "C172", Category = AircraftCategory.LightSingle, CruiseKtas = 150, UsefulLoadLbs = 900 };
+            db.AircraftTypes.Add(type);
+            // Sub-floor condition ⇒ the tail is grounded before it can fly the order.
+            var inst = new AircraftInstance { Id = Guid.NewGuid(), TypeId = type.Id, CompanyId = company.Id, Tail = "CS-1", LocationIcao = "EHAM", HullConditionMilli = 10_000 };
+            db.AircraftInstances.Add(inst);
+            await db.SaveChangesAsync();
+            await new LedgerService(db, clock).PostAsync(company.Id, LedgerCategory.StartingBalance, 100_000m, "start");
+            companyId = company.Id;
+            aircraftId = inst.Id;
+        }
+
+        using (var db = tdb.NewContext())
+        {
+            var ops = new OperationsService(db, new LedgerService(db, clock), clock, Cfg);
+            var candidate = ops.GenerateCandidates(companyId.GetHashCode())[0];
+            staffId = (await ops.HireAsync(companyId, candidate.Seed)).Id;
+            await ops.CreateStandingOrderAsync(companyId, staffId, aircraftId, "EHRD");
+        }
+
+        clock.UtcNow = clock.UtcNow.AddDays(2);
+
+        ReconcileDigest digest;
+        using (var db = tdb.NewContext())
+            digest = await new OperationsService(db, new LedgerService(db, clock), clock, Cfg).ReconcileAsync(companyId);
+
+        Assert.Equal(0, digest.Trips);                                 // the grounded tail flew nothing
+        Assert.Contains(digest.Grounded, g => g.Contains("CS-1"));     // and the player is warned
+        using (var db = tdb.NewContext())
+            Assert.Equal(0, (await db.AircraftInstances.FindAsync(aircraftId))!.AirframeHours); // it never flew
+    }
 }

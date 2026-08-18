@@ -392,6 +392,7 @@ export interface ReconcileResult {
   loanCents: number
   insuranceCents: number
   netCents: number
+  grounded: string[] // Phase 7e — tails that couldn't fly their autonomous work (grounded, needs service)
 }
 
 export interface InsurancePolicy {

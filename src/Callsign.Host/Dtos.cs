@@ -97,7 +97,7 @@ public record StandingOrderDto(
     Guid Id, string StaffName, string Tail, string Origin, string Dest,
     double DistanceNm, double RoundTripHours, long RewardPerTripCents);
 public record StandingOrderRequest(Guid StaffId, Guid AircraftInstanceId, string DestIcao);
-public record ReconcileDto(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents);
+public record ReconcileDto(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, IReadOnlyList<string> Grounded);
 
 // --- Phase 4a: loans ---
 public record LoanOfferDto(int Tier, string Name, long MinPrincipalCents, long MaxPrincipalCents, int AprBps);

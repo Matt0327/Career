@@ -184,23 +184,26 @@ public sealed class AircraftDealerService
     public sealed record AirworthinessStatus(
         bool Airworthy, string? Reason, double HoursTo100h, int DaysToAnnual, long InspectionQuoteCents);
 
-    public AirworthinessStatus Airworthiness(AircraftInstance inst)
+    public AirworthinessStatus Airworthiness(AircraftInstance inst) => AirworthinessOf(inst, _cfg, _clock.UtcNow);
+
+    /// <summary>Airworthiness against a given config + clock — a pure function, so the autonomous reconcile
+    /// loop can gate grounded tails without taking a dependency on this service.</summary>
+    public static AirworthinessStatus AirworthinessOf(AircraftInstance inst, EconomyConfig cfg, DateTimeOffset now)
     {
-        var now = _clock.UtcNow;
         double hoursSince100h = inst.AirframeHours - inst.Last100hHoursWatermark;
-        double hoursTo100h = Math.Max(0, _cfg.HundredHourIntervalHours - hoursSince100h);
+        double hoursTo100h = Math.Max(0, cfg.HundredHourIntervalHours - hoursSince100h);
         var annualBase = inst.LastAnnualAt ?? inst.AcquiredAt ?? now;
         double daysSinceAnnual = (now - annualBase).TotalDays;
-        int daysToAnnual = (int)Math.Ceiling(_cfg.AnnualIntervalDays - daysSinceAnnual);
+        int daysToAnnual = (int)Math.Ceiling(cfg.AnnualIntervalDays - daysSinceAnnual);
 
-        bool due100h = hoursSince100h >= _cfg.HundredHourIntervalHours;
-        bool dueAnnual = daysSinceAnnual >= _cfg.AnnualIntervalDays;
+        bool due100h = hoursSince100h >= cfg.HundredHourIntervalHours;
+        bool dueAnnual = daysSinceAnnual >= cfg.AnnualIntervalDays;
         int worstCond = Math.Min(inst.HullConditionMilli, inst.EngineConditionMilli);
-        long quote = (due100h ? _cfg.HundredHourInspectionCents : 0) + (dueAnnual ? _cfg.AnnualInspectionCents : 0);
+        long quote = (due100h ? cfg.HundredHourInspectionCents : 0) + (dueAnnual ? cfg.AnnualInspectionCents : 0);
 
         string? reason =
-            worstCond < _cfg.AirworthyFloorMilli
-                ? $"condition {worstCond / 1000}% is below the {_cfg.AirworthyFloorMilli / 1000}% airworthy floor — service it"
+            worstCond < cfg.AirworthyFloorMilli
+                ? $"condition {worstCond / 1000}% is below the {cfg.AirworthyFloorMilli / 1000}% airworthy floor — service it"
             : due100h && dueAnnual ? "100-hour and annual inspections overdue"
             : due100h ? "100-hour inspection overdue"
             : dueAnnual ? "annual inspection overdue"
