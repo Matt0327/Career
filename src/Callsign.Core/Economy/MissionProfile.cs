@@ -76,11 +76,15 @@ public static class MissionProfiles
 
     private static MissionOutcome Comfort(FlightRecord f, bool canFail, int failFloorMilli, string who)
     {
+        // Sink rate is the one comfort signal present even on an unscored/legacy record (where g, bank and
+        // violations are neutral defaults) — so a hard manual VIP landing still grades down, like fragile.
+        double sink = Math.Abs(f.Scored ? f.TouchdownFpmWorst3 : f.TouchdownFpm);
         double g = f.TouchdownG;
         double bank = f.TouchdownBankDeg;
         int violations = f.ViolationPoints;
 
-        double discomfort = 30_000 * Math.Max(0, g - 1.2)     // a firm touchdown they feel
+        double discomfort = 20_000 * Math.Max(0, sink - 150) / 100.0 // a firm touchdown they feel in the seat
+                          + 30_000 * Math.Max(0, g - 1.2)     // vertical load at contact
                           + 3_000 * Math.Max(0, bank - 8)     // steep bank on landing
                           + 2_500 * violations;               // every exceedance rattles them
         // Tourist never fails — the ride is merely graded; VIP can lose the client outright.

@@ -84,6 +84,16 @@ public class MissionProfilesTests
         => Assert.Equal(MissionGrade.Full, MissionProfiles.Evaluate(MissionType.Express, Landed(-80)).Grade);
 
     [Fact]
+    public void Vip_UnscoredHardLanding_StillGradesDown()
+    {
+        // A manual/legacy record (Scored=false, so g/bank/violations are neutral defaults) carries only a
+        // raw touchdown rate. A hard VIP arrival must still grade down, not sail through as Full.
+        var rec = new FlightRecord("x", T0, T0.AddMinutes(30), -900, 5000, 0, 0, 0, 0, 100, 50, []);
+        Assert.False(rec.Scored);
+        Assert.NotEqual(MissionGrade.Full, MissionProfiles.Evaluate(MissionType.Vip, rec).Grade);
+    }
+
+    [Fact]
     public void Tourist_NeverFails_ButIsGraded()
     {
         // A rough tour is merely graded down (never a hard fail), floored so it always pays something.

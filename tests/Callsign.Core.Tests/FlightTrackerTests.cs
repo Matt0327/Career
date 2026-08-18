@@ -215,6 +215,49 @@ public class FlightTrackerTests
     }
 
     [Fact]
+    public void GoAround_GradesTheFinalApproachFresh_NotThePooledOne()
+    {
+        var t = new FlightTracker();
+        t.Observe(Snap(0, 0, 0, 0, onGround: true));
+        t.Observe(Snap(10, 300, 90, 800, onGround: false));   // climb out
+        // an unstable first approach below the gate...
+        t.Observe(Snap(40, 600, 120, -1600, onGround: false));
+        t.Observe(Snap(45, 300, 110, -1500, onGround: false));
+        // ...then a go-around: climb back above the gate abandons it
+        t.Observe(Snap(60, 1500, 120, 900, onGround: false));
+        // a textbook second approach, all within limits
+        t.Observe(Snap(90, 800, 90, -600, onGround: false));
+        t.Observe(Snap(95, 300, 80, -500, onGround: false));
+        t.Observe(Snap(100, 40, 70, -120, onGround: false));
+        t.Observe(Snap(101, 0, 60, 0, onGround: true));       // touchdown
+        t.Observe(Snap(160, 0, 0, 0, onGround: true));        // stop
+
+        var r = t.Result!;
+        Assert.Equal(100, r.ApproachScore);   // graded on the clean final approach, not pooled with the aborted one
+        Assert.True(r.StabilizedApproach);
+        Assert.DoesNotContain(r.Events, e => e.Message == "Unstable approach"); // no spurious warning
+    }
+
+    [Fact]
+    public void HardBounce_IsGradedOnTheSlam_NotTheGentleReSettle()
+    {
+        var t = new FlightTracker();
+        t.Observe(Snap(0, 0, 0, 0, onGround: true));
+        t.Observe(Snap(10, 200, 80, 500, onGround: false));   // takeoff
+        t.Observe(Snap(60, 40, 70, -900, onGround: false));   // hard sink to the runway
+        t.Observe(Snap(61, 0, 60, 0, onGround: true));        // slam (-900)
+        t.Observe(Snap(62, 15, 62, 300, onGround: false));    // bounces back up but stays below the gate
+        t.Observe(Snap(70, 5, 55, -60, onGround: false));     // settles
+        t.Observe(Snap(71, 0, 50, 0, onGround: true));        // gentle re-touch (-60)
+        t.Observe(Snap(120, 0, 0, 0, onGround: true));        // stop
+
+        var r = t.Result!;
+        Assert.Equal(-60, r.TouchdownFpm);           // raw last contact — unchanged behaviour
+        Assert.True(r.TouchdownFpmWorst3 <= -800);   // the slam survives; the soft re-touch can't game it away
+        Assert.True(r.LandingScore <= 10);           // graded on the -900 slam
+    }
+
+    [Fact]
     public void GoAround_KeepsTheFinalTouchdown_NotTheBounce()
     {
         var t = new FlightTracker();

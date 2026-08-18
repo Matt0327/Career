@@ -47,11 +47,14 @@ public sealed class FlightTracker
     private double _touchdownFpm;
 
     // Phase 7b working state.
-    private readonly List<double> _recentVs = []; // last ≤3 airborne descent samples (reset on go-around)
+    private readonly List<double> _recentVs = []; // last ≤3 airborne descent samples (reset on a real go-around)
     private double _lastAirborneBankDeg;
     private double _lastAirborneG = 1.0;
-    private double _touchdownG = 1.0;
-    private double _touchdownBankDeg;
+    // The WORST across every ground contact of the landing (a bounce has more than one), so a hard slam
+    // followed by a gentle re-settle still grades on the slam — a bounce can't game the landing away.
+    private double _worstFpm;         // most-negative sink at contact; 0 = no contact yet
+    private double _worstG = 1.0;     // hardest vertical g at contact
+    private double _worstBank;        // steepest bank at contact
     private int _approachPass, _approachTotal;
     private int _violationPoints;
     private bool _overspeedWarned, _stallWarned, _bankWarned, _gWarned;
@@ -96,11 +99,9 @@ public sealed class FlightTracker
             }
             else
             {
-                // airborne again after a touchdown: a go-around / bounce, not the final landing.
-                // The next approach is graded fresh, so forget the previous approach's flare samples.
+                // airborne again after a touchdown: a go-around or a bounce (which one is decided below).
                 _landed = false;
             }
-            _recentVs.Clear();
             Phase = FlightPhase.Takeoff;
         }
         else
@@ -108,6 +109,17 @@ public sealed class FlightTracker
             Phase = t.VerticalSpeedFpm > ClimbVsFpm ? FlightPhase.Climb
                   : t.VerticalSpeedFpm < DescentVsFpm ? FlightPhase.Approach
                   : FlightPhase.Cruise;
+        }
+
+        // A real go-around abandons the approach: once we climb back above the gate having already flown
+        // one, grade the NEXT approach and the next touchdown fresh. A low bounce never climbs above the
+        // gate, so its hard impact stays in the worst-across-contacts trackers and can't be gamed away.
+        double aglNow = t.AltitudeAglFt > 0 ? t.AltitudeAglFt : t.AltitudeFt;
+        if (_approachTotal > 0 && aglNow >= GateAglFt && t.VerticalSpeedFpm > ClimbVsFpm)
+        {
+            _approachPass = 0; _approachTotal = 0;
+            _recentVs.Clear();
+            _worstFpm = 0; _worstG = 1.0; _worstBank = 0;
         }
 
         PushRecentVs(t.VerticalSpeedFpm);
@@ -120,11 +132,14 @@ public sealed class FlightTracker
     {
         if (_wasAirborne && _inFlight)
         {
-            // touchdown: the descent rate on the last airborne sample is the raw touchdown rate; the
-            // grade uses the worst of the last three (computed in Complete), which a soft frame can't game.
-            _touchdownFpm = _lastAirborneVs;
-            _touchdownG = Math.Max(Math.Abs(t.GForce), _lastAirborneG); // impact load, or the last flown load
-            _touchdownBankDeg = _lastAirborneBankDeg;
+            // touchdown: this contact (there may be more if it bounces). The raw rate is the last airborne
+            // sample; the grade tracks the WORST across contacts — worst of the last three of THIS contact,
+            // min'd with earlier contacts — so a soft frame OR a bounce can't game the landing away.
+            double contactWorstFpm = _recentVs.Count > 0 ? _recentVs.Min() : _lastAirborneVs;
+            _worstFpm = Math.Min(_worstFpm, contactWorstFpm);
+            _worstG = Math.Max(_worstG, Math.Max(Math.Abs(t.GForce), _lastAirborneG));
+            _worstBank = Math.Max(_worstBank, _lastAirborneBankDeg);
+            _touchdownFpm = _lastAirborneVs; // raw last-frame rate of the latest contact (kept for continuity)
             _arrivedAt = t.CapturedAt;
             _arrLat = t.LatitudeDeg;
             _arrLon = t.LongitudeDeg;
@@ -237,8 +252,8 @@ public sealed class FlightTracker
 
     private void Complete()
     {
-        double worst3 = _recentVs.Count > 0 ? _recentVs.Min() : _touchdownFpm;
-        int landing = Math.Min(FpmScore(worst3), Math.Min(GScore(_touchdownG), BankScore(_touchdownBankDeg)));
+        double worst3 = _worstFpm != 0 ? _worstFpm : _touchdownFpm;
+        int landing = Math.Min(FpmScore(worst3), Math.Min(GScore(_worstG), BankScore(_worstBank)));
         int approach = ApproachScore();
         int enroute = Math.Clamp(100 - _violationPoints, 0, 100);
         int overall = (int)Math.Round(0.55 * landing + 0.30 * approach + 0.15 * enroute);
@@ -251,8 +266,8 @@ public sealed class FlightTracker
             _events.ToList())
         {
             TouchdownFpmWorst3 = worst3,
-            TouchdownG = _touchdownG,
-            TouchdownBankDeg = _touchdownBankDeg,
+            TouchdownG = _worstG,
+            TouchdownBankDeg = _worstBank,
             LandingScore = landing,
             ApproachScore = approach,
             EnrouteScore = enroute,
