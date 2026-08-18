@@ -580,6 +580,68 @@ function linkBadge(wsOpen: boolean, link: string): { text: string; tone: string 
   }
 }
 
+// Bearing in degrees (0 = north) from one lat/lon to the next — points the aircraft marker along its track.
+function bearing(a: [number, number], b: [number, number]): number {
+  const r = Math.PI / 180
+  const dLon = (b[1] - a[1]) * r
+  const y = Math.sin(dLon) * Math.cos(b[0] * r)
+  const x = Math.cos(a[0] * r) * Math.sin(b[0] * r) - Math.sin(a[0] * r) * Math.cos(b[0] * r) * Math.cos(dLon)
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360
+}
+
+function planeIcon(hdg: number): L.DivIcon {
+  return L.divIcon({
+    className: 'plane-marker',
+    html: `<svg viewBox="0 0 24 24" style="transform:rotate(${hdg}deg)"><path d="M12 2c.7 0 1.2 1.1 1.2 2.6v5.1l8 4.6v1.9l-8-2.7v4.4l2.3 1.7v1.4L12 20l-3.5 1.3v-1.4l2.3-1.7v-4.4l-8 2.7v-1.9l8-4.6V4.6C10.8 3.1 11.3 2 12 2z"/></svg>`,
+    iconSize: [34, 34], iconAnchor: [17, 17],
+  })
+}
+
+// The live moving-map on the Flight screen. Built ONCE; each telemetry frame just moves the aircraft
+// marker and extends the trail (never rebuilds the map, so tracking stays smooth). Esri satellite tiles.
+function FlightMap({ tele }: { tele: Telemetry | null }) {
+  const host = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<L.Map | null>(null)
+  const marker = useRef<L.Marker | null>(null)
+  const trail = useRef<L.Polyline | null>(null)
+  const path = useRef<[number, number][]>([])
+  const centred = useRef(false)
+  const online = typeof navigator === 'undefined' ? true : navigator.onLine
+
+  useEffect(() => {
+    if (!host.current || !online) return
+    const map = L.map(host.current, { attributionControl: true, zoomControl: false, worldCopyJump: true }).setView([25, 0], 2)
+    L.control.zoom({ position: 'topright' }).addTo(map) // top-left is where the HUD overlay lives
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics', maxZoom: 18,
+    }).addTo(map)
+    trail.current = L.polyline([], { color: '#6d84ff', weight: 3, opacity: .85 }).addTo(map)
+    mapRef.current = map
+    const t = setTimeout(() => map.invalidateSize(), 60) // WebView2 flex layout can settle a beat late
+    return () => { clearTimeout(t); map.remove(); mapRef.current = null; marker.current = null; trail.current = null; path.current = []; centred.current = false }
+  }, [online])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !tele || (tele.lat === 0 && tele.lon === 0)) return
+    const pos: [number, number] = [tele.lat, tele.lon]
+    const prev = path.current[path.current.length - 1]
+    if (!prev || prev[0] !== pos[0] || prev[1] !== pos[1]) {
+      path.current.push(pos)
+      if (path.current.length > 500) path.current.shift()
+      trail.current?.setLatLngs(path.current)
+    }
+    const hdg = prev ? bearing(prev, pos) : 0
+    if (!marker.current) marker.current = L.marker(pos, { icon: planeIcon(hdg), interactive: false }).addTo(map)
+    else { marker.current.setLatLng(pos); marker.current.setIcon(planeIcon(hdg)) }
+    if (!centred.current) { map.setView(pos, 8); centred.current = true }
+    else map.panTo(pos, { animate: true, duration: .5 })
+  }, [tele])
+
+  if (!online) return <div className="flightmap-empty">The moving-map needs a connection for satellite imagery.</div>
+  return <div className="satmap flightmap" ref={host} role="img" aria-label="Live flight map" />
+}
+
 function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [begun, setBegun] = useState<Assignment | null>(null)
@@ -649,13 +711,18 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
           <h2>Live flight</h2>
           <span className={`conn ${badge.tone}`}>{badge.text}</span>
         </div>
-        <div className="phase num">{tele?.phase ?? '—'}</div>
-        <div className="gauges">
-          <Gauge label="Altitude" value={tele ? Math.round(tele.alt).toLocaleString() : '—'} unit="ft" />
-          <Gauge label="Airspeed" value={tele ? Math.round(tele.ias).toString() : '—'} unit="kt IAS" />
-          <Gauge label="Vertical" value={tele ? signed(Math.round(tele.vs)) : '—'} unit="fpm"
-            tone={tele ? (tele.vs < -50 ? 'down' : tele.vs > 50 ? 'up' : undefined) : undefined} />
-          <Gauge label="Ground" value={tele ? (tele.onGround ? 'ON' : 'AIR') : '—'} unit={tele?.title?.split('(')[0].trim() ?? ''} />
+        <div className="flightmap-wrap">
+          <FlightMap tele={tele} />
+          <div className="fm-overlay">
+            <span className="fm-phase num">{tele?.phase ?? 'STANDING BY'}</span>
+            <span className="fm-reads">
+              <span className="fm-read"><b className="num">{tele ? Math.round(tele.alt).toLocaleString() : '—'}</b> ft</span>
+              <span className="fm-read"><b className="num">{tele ? Math.round(tele.ias) : '—'}</b> kt</span>
+              <span className={`fm-read ${tele ? (tele.vs < -50 ? 'down' : tele.vs > 50 ? 'up' : '') : ''}`}><b className="num">{tele ? signed(Math.round(tele.vs)) : '—'}</b> fpm</span>
+              <span className="fm-read"><b>{tele ? (tele.onGround ? 'GND' : 'AIR') : '—'}</b></span>
+            </span>
+          </div>
+          {!tele && <div className="flightmap-veil">Waiting for your aircraft — start MSFS and begin a leg.</div>}
         </div>
         {diverted && <div className="banner warn">You landed {Math.round(diverted.distanceNm)} nm from <b>{diverted.destIcao}</b>. The job's still open — take off and fly on to {diverted.destIcao}.</div>}
         {begun
@@ -740,16 +807,6 @@ function CheckFlightCard({ result }: { result: CheckFlightDone }) {
       </div>
       {!result.passed && <div className="hint">Too firm — a check-flight needs ≤ 200 fpm. Book another attempt when you're ready.</div>}
     </section>
-  )
-}
-
-function Gauge({ label, value, unit, tone }: { label: string; value: string; unit: string; tone?: 'up' | 'down' }) {
-  return (
-    <div className="gauge">
-      <div className="gauge-label">{label}</div>
-      <div className={`gauge-value num ${tone ?? ''}`}>{value}</div>
-      <div className="gauge-unit">{unit}</div>
-    </div>
   )
 }
 

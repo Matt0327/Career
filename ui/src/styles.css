@@ -488,3 +488,19 @@ input { font: inherit; }
 .fleet-facts .metalabel{font-size:10px}
 .fleet-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:10px;border-top:1px solid var(--line);margin-top:auto}
 .warn-text{font-size:12px;font-weight:600;color:#d99a1c}
+
+/* ── Flight — live moving-map + HUD overlay (Phase 6). Overlay chips sit on satellite imagery,
+      so their colours are fixed light values (not theme tokens) to stay legible in both themes. ── */
+.flightmap-wrap{position:relative}
+.satmap.flightmap{height:420px}
+.plane-marker{background:transparent;border:0}
+.plane-marker svg{width:34px;height:34px;fill:#6d84ff;stroke:#fff;stroke-width:.8;filter:drop-shadow(0 2px 4px rgba(0,0,0,.6))}
+.fm-overlay{position:absolute;left:12px;top:12px;z-index:500;display:flex;flex-direction:column;gap:6px;pointer-events:none}
+.fm-phase{align-self:flex-start;font-size:11px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;color:#eef2f8;background:rgba(9,12,17,.74);border:1px solid rgba(255,255,255,.14);padding:4px 10px;border-radius:999px}
+.fm-reads{display:flex;gap:6px;flex-wrap:wrap}
+.fm-read{font-size:12px;color:#aeb8c6;background:rgba(9,12,17,.74);border:1px solid rgba(255,255,255,.14);padding:4px 9px;border-radius:7px}
+.fm-read b{color:#eef2f8;font-size:14px}
+.fm-read.up b{color:#6d84ff}
+.fm-read.down b{color:#f26a5c}
+.flightmap-veil{position:absolute;inset:0;z-index:500;display:grid;place-items:center;text-align:center;padding:20px;color:var(--muted);background:color-mix(in srgb,var(--panel) 55%,transparent);font-size:14px;pointer-events:none;border-radius:10px}
+.flightmap-empty{height:420px;display:grid;place-items:center;text-align:center;padding:20px;color:var(--muted);border:1px solid var(--line);border-radius:10px;background:var(--panel-2)}
