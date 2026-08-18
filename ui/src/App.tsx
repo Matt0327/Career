@@ -685,6 +685,32 @@ function FlightMap({ tele }: { tele: Telemetry | null }) {
   return <div className="satmap flightmap" ref={host} role="img" aria-label="Live flight map" />
 }
 
+type LogSev = 'info' | 'ok' | 'warn' | 'bad'
+interface LogEntry { id: number; at: string; sev: LogSev; text: string }
+const clock = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+
+// The live event-log / narration channel — the running story of the flight (connection, phases, settlement,
+// warnings), timestamped and severity-coded, the way a real ops console talks back to you.
+function FlightLog({ log }: { log: LogEntry[] }) {
+  const end = useRef<HTMLDivElement>(null)
+  useEffect(() => { end.current?.scrollIntoView({ block: 'nearest' }) }, [log])
+  return (
+    <div className="flog" aria-live="polite">
+      <div className="flog-head"><span className="flog-dotlive" /> Flight log</div>
+      <div className="flog-body">
+        {log.map(e => (
+          <div key={e.id} className={`flog-row ${e.sev}`}>
+            <span className="flog-time num">{e.at}</span>
+            <span className="flog-mark" />
+            <span className="flog-text">{e.text}</span>
+          </div>
+        ))}
+        <div ref={end} />
+      </div>
+    </div>
+  )
+}
+
 function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [begun, setBegun] = useState<Assignment | null>(null)
@@ -696,6 +722,9 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
   const [quals, setQuals] = useState<QualClass[]>([])
   const [checkPending, setCheckPending] = useState<string | null>(null) // class name of a check-flight in progress
   const [checkResult, setCheckResult] = useState<CheckFlightDone | null>(null)
+  const [log, setLog] = useState<LogEntry[]>(() => [{ id: 0, at: clock(), sev: 'info', text: 'Flight console ready — standing by.' }])
+  const logId = useRef(1)
+  const addLog = useCallback((sev: LogSev, text: string) => setLog(l => [...l, { id: logId.current++, at: clock(), sev, text }].slice(-80)), [])
 
   const loadAssignments = useCallback(() => { api.assignments().then(setAssignments).catch(() => {}) }, [])
   const loadQuals = useCallback(() => { api.quals().then(setQuals).catch(() => {}) }, [])
@@ -717,17 +746,40 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
       onSettled()
       loadAssignments()
       loadFleet() // the airframe moved to the destination + ticked hours
+      addLog('ok', `Job settled — ${money(s.payoutCents)}, +${s.xp} XP${s.payloadMatched ? ' (aircraft bonus)' : ''}.`)
+      if (s.promotedTo) addLog('ok', `Promoted to ${s.promotedTo}.`)
     },
-    d => setDiverted(d), // landed away from the destination — the job stays open
+    d => { setDiverted(d); addLog('warn', `Landed ${Math.round(d.distanceNm)} nm off ${d.destIcao} — the job stays open, fly on.`) },
     c => { // a check-flight was graded on landing (3d)
       setCheckResult(c)
       setCheckPending(null)
       onSettled()      // cash changed (the fee)
       loadQuals()      // a pass adds/upgrades a class
       loadFleet()      // newly-rated aircraft become flyable
+      addLog(c.passed ? 'ok' : 'bad', `Check-flight ${c.className}: ${c.passed ? 'passed' : 'failed'} at ${signed(Math.round(c.touchdownFpm))} fpm.`)
     },
   )
   const badge = linkBadge(wsOpen, link)
+
+  // Narrate connection + phase transitions into the flight log (only on an actual change).
+  const prevOpen = useRef(wsOpen), prevLink = useRef(link), prevPhase = useRef<string | null>(null)
+  useEffect(() => {
+    if (prevOpen.current !== wsOpen) { addLog(wsOpen ? 'ok' : 'warn', wsOpen ? 'Connected to Callsign.' : 'Connection lost — reconnecting…'); prevOpen.current = wsOpen }
+  }, [wsOpen, addLog])
+  useEffect(() => {
+    if (prevLink.current === link) return
+    const m: Record<string, [LogSev, string]> = {
+      Connecting: ['info', 'Connecting to the simulator…'],
+      Connected: ['ok', 'Simulator connected — telemetry is live.'],
+      Disconnected: ['warn', 'Waiting for the simulator…'],
+      SimExited: ['bad', 'Simulator closed.'],
+    }
+    const e = m[link]; if (e) addLog(e[0], e[1]); prevLink.current = link
+  }, [link, addLog])
+  useEffect(() => {
+    const p = tele?.phase ?? null
+    if (p && p !== prevPhase.current) { addLog('info', `Phase — ${p}.`); prevPhase.current = p }
+  }, [tele?.phase, addLog])
 
   const beginCheck = async (cls: string, name: string) => {
     setBeginErr(null); setCheckResult(null)
@@ -742,6 +794,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
     try {
       await api.beginFlight(a.id, aircraftId || undefined)
       setBegun(a)
+      addLog('info', `Leg begun — ${a.origin} → ${a.dest} (${a.destName}). Fly it and land at ${a.dest}.`)
     } catch (e) {
       setBeginErr(cleanErr(e)) // e.g. "You're not rated for the …"
     }
@@ -754,18 +807,21 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
           <h2>Live flight</h2>
           <span className={`conn ${badge.tone}`}>{badge.text}</span>
         </div>
-        <div className="flightmap-wrap">
-          <FlightMap tele={tele} />
-          <div className="fm-overlay">
-            <span className="fm-phase num">{tele?.phase ?? 'STANDING BY'}</span>
-            <span className="fm-reads">
-              <span className="fm-read"><b className="num">{tele ? Math.round(tele.alt).toLocaleString() : '—'}</b> ft</span>
-              <span className="fm-read"><b className="num">{tele ? Math.round(tele.ias) : '—'}</b> kt</span>
-              <span className={`fm-read ${tele ? (tele.vs < -50 ? 'down' : tele.vs > 50 ? 'up' : '') : ''}`}><b className="num">{tele ? signed(Math.round(tele.vs)) : '—'}</b> fpm</span>
-              <span className="fm-read"><b>{tele ? (tele.onGround ? 'GND' : 'AIR') : '—'}</b></span>
-            </span>
+        <div className="hud-live">
+          <div className="flightmap-wrap">
+            <FlightMap tele={tele} />
+            <div className="fm-overlay">
+              <span className="fm-phase num">{tele?.phase ?? 'STANDING BY'}</span>
+              <span className="fm-reads">
+                <span className="fm-read"><b className="num">{tele ? Math.round(tele.alt).toLocaleString() : '—'}</b> ft</span>
+                <span className="fm-read"><b className="num">{tele ? Math.round(tele.ias) : '—'}</b> kt</span>
+                <span className={`fm-read ${tele ? (tele.vs < -50 ? 'down' : tele.vs > 50 ? 'up' : '') : ''}`}><b className="num">{tele ? signed(Math.round(tele.vs)) : '—'}</b> fpm</span>
+                <span className="fm-read"><b>{tele ? (tele.onGround ? 'GND' : 'AIR') : '—'}</b></span>
+              </span>
+            </div>
+            {!tele && <div className="flightmap-veil">Waiting for your aircraft — start MSFS and begin a leg.</div>}
           </div>
-          {!tele && <div className="flightmap-veil">Waiting for your aircraft — start MSFS and begin a leg.</div>}
+          <FlightLog log={log} />
         </div>
         {diverted && <div className="banner warn">You landed {Math.round(diverted.distanceNm)} nm from <b>{diverted.destIcao}</b>. The job's still open — take off and fly on to {diverted.destIcao}.</div>}
         {begun
