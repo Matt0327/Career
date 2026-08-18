@@ -392,6 +392,7 @@ export interface ReconcileResult {
   loanCents: number
   insuranceCents: number
   netCents: number
+  incidents: number // Phase 7f — autonomous trips a crew botched (fewer with a higher-skill pilot)
   grounded: string[] // Phase 7e — tails that couldn't fly their autonomous work (grounded, needs service)
 }
 

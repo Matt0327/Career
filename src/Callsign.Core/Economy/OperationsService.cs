@@ -10,7 +10,7 @@ namespace Callsign.Core.Economy;
 public sealed record StaffCandidate(int Seed, string Name, long WagePerDayCents, int SkillMilli);
 
 /// <summary>What a reconcile produced (for the reopen digest).</summary>
-public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, IReadOnlyList<string> Grounded);
+public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded);
 
 /// <summary>
 /// Staff + standing orders (Phase 2d): hire pilots, set repeating autonomous routes, and reconcile the
@@ -132,6 +132,7 @@ public sealed class OperationsService
         var now = _clock.UtcNow;
         int totalTrips = 0;
         long grossIncome = 0, totalFees = 0, totalWages = 0, totalRent = 0, totalLoan = 0, totalInsurance = 0;
+        int totalIncidents = 0;            // trips a crew botched — skill is what keeps this down (Phase 7f)
         var grounded = new List<string>(); // tails that couldn't fly their autonomous work — surfaced in the digest
 
         // Airports where we own a base — landings there are fee-free.
@@ -158,7 +159,10 @@ public sealed class OperationsService
             var dAir = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == o.DestIcao, ct);
             long feePerTrip = (oAir is not null && !baseIcaos.Contains(o.OriginIcao) ? _cfg.LandingFeeCents(oAir.Kind) : 0)
                             + (dAir is not null && !baseIcaos.Contains(o.DestIcao) ? _cfg.LandingFeeCents(dAir.Kind) : 0);
-            long income = trips * o.RewardPerTripCents;
+            // The crew flies each trip: their skill sets how often a trip is botched (a diversion — half pay).
+            var soCrew = await _db.Staff.FirstOrDefaultAsync(s => s.Id == o.StaffId, ct);
+            var soRoll = RollTrips(o.Id, o.LastReconciledAt.UtcTicks, trips, soCrew?.SkillMilli ?? 50_000, o.RewardPerTripCents);
+            long income = soRoll.Income;
             long fees = trips * feePerTrip;
             var stamp = o.LastReconciledAt.UtcTicks;
 
@@ -177,7 +181,7 @@ public sealed class OperationsService
             {
                 double hours = trips * o.RoundTripHours;
                 aircraft.AirframeHours += hours;
-                int wear = (int)Math.Round(hours * _cfg.ConditionWearMilliPerHour);
+                int wear = (int)Math.Round(hours * _cfg.ConditionWearMilliPerHour) + soRoll.ExtraWearMilli;
                 aircraft.HullConditionMilli = Math.Max(0, aircraft.HullConditionMilli - wear);
                 aircraft.EngineConditionMilli = Math.Max(0, aircraft.EngineConditionMilli - wear);
                 aircraft.UpdatedAt = now;
@@ -188,6 +192,7 @@ public sealed class OperationsService
             totalTrips += trips;
             grossIncome += income;
             totalFees += fees;
+            totalIncidents += soRoll.Incidents;
         }
 
         foreach (var s in await _db.Staff.Where(s => s.CompanyId == companyId && s.IsActive && !s.IsDeleted).ToListAsync(ct))
@@ -263,7 +268,9 @@ public sealed class OperationsService
                 continue; // held until serviced (Law 4)
             }
 
-            long income = trips * route.RewardPerTripCents;
+            var rtCrew = await _db.Staff.FirstOrDefaultAsync(s => s.Id == route.StaffId, ct);
+            var rtRoll = RollTrips(route.Id, route.LastReconciledAt.UtcTicks, trips, rtCrew?.SkillMilli ?? 50_000, route.RewardPerTripCents);
+            long income = rtRoll.Income;
             await _ledger.StageBatchAsync(companyId, new[]
             {
                 new LedgerPosting(LedgerCategory.JobPayout, income / 100m, $"Route {route.Name} ×{trips}",
@@ -275,7 +282,7 @@ public sealed class OperationsService
             {
                 double hours = trips * route.RoundTripHours;
                 aircraft.AirframeHours += hours;
-                int wear = (int)Math.Round(hours * _cfg.ConditionWearMilliPerHour);
+                int wear = (int)Math.Round(hours * _cfg.ConditionWearMilliPerHour) + rtRoll.ExtraWearMilli;
                 aircraft.HullConditionMilli = Math.Max(0, aircraft.HullConditionMilli - wear);
                 aircraft.EngineConditionMilli = Math.Max(0, aircraft.EngineConditionMilli - wear);
                 aircraft.UpdatedAt = now;
@@ -284,6 +291,7 @@ public sealed class OperationsService
             route.UpdatedAt = now;
             totalTrips += trips;
             grossIncome += income;
+            totalIncidents += rtRoll.Incidents;
         }
 
         // Insurance premiums (Phase 4c): the running cost of coverage, prorated by whole days.
@@ -306,6 +314,49 @@ public sealed class OperationsService
 
         await _db.SaveChangesAsync(ct);
         return new ReconcileDigest(totalTrips, grossIncome, totalFees, totalWages, totalRent, totalLoan, totalInsurance,
-            grossIncome - totalFees - totalWages - totalRent - totalLoan - totalInsurance, grounded);
+            grossIncome - totalFees - totalWages - totalRent - totalLoan - totalInsurance, totalIncidents, grounded);
+    }
+
+    /// <summary>
+    /// Fly a batch of autonomous trips, letting the crew's skill decide how many go wrong. Each trip rolls a
+    /// deterministic incident (seeded from the order id + trip ordinal + the reconcile watermark, so a retry
+    /// reproduces the SAME result and the ledger stays idempotent). A botched trip is a diversion — half the
+    /// fee and a little extra wear. p(incident) = base·(1−skill)^exp, so an ace almost never botches one and a
+    /// green pilot botches many. Fatigue and richer incident tiers come in later 7f slices.
+    /// </summary>
+    private (long Income, int Incidents, int ExtraWearMilli) RollTrips(Guid id, long stampTicks, int trips, int skillMilli, long rewardPerTrip)
+    {
+        double skillFrac = Math.Clamp(skillMilli / 100_000.0, 0, 1);
+        double pIncident = _cfg.BaseIncidentRatePct * Math.Pow(1 - skillFrac, _cfg.IncidentSkillExponent);
+        long income = 0;
+        int incidents = 0, wear = 0;
+        for (int i = 0; i < trips; i++)
+        {
+            var rng = new Random(StableSeed(id, i, stampTicks));
+            if (rng.NextDouble() < pIncident)
+            {
+                income += (long)Math.Round(rewardPerTrip * (1 - _cfg.IncidentPayDockPct));
+                wear += _cfg.IncidentExtraWearMilli;
+                incidents++;
+            }
+            else
+            {
+                income += rewardPerTrip;
+            }
+        }
+        return (income, incidents, wear);
+    }
+
+    // A STABLE seed (unlike string/HashCode.Combine, which are per-process randomised) so reconcile is
+    // deterministic across runs — the same window always rolls the same incidents.
+    private static int StableSeed(Guid id, int i, long ticks)
+    {
+        unchecked
+        {
+            int h = id.GetHashCode();
+            h = h * 397 + i;
+            h = h * 397 + (int)(ticks ^ (ticks >> 32));
+            return h;
+        }
     }
 }

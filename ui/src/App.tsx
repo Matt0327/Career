@@ -2115,10 +2115,11 @@ function Ops({ onChanged }: { onChanged: () => void }) {
       const base = d.trips > 0 || d.wagesCents > 0 || d.rentCents > 0
         ? `Booked ${d.trips} trip${d.trips === 1 ? '' : 's'}: ${money(d.grossIncomeCents)} gross − ${money(d.feesCents)} fees − ${money(d.wagesCents)} wages − ${money(d.rentCents)} rent = ${money(d.netCents)} net.`
         : 'Up to date — nothing new.'
+      const inc = d.incidents > 0 ? ` ${d.incidents} trip${d.incidents === 1 ? '' : 's'} diverted — a sharper crew loses fewer.` : ''
       const warn = d.grounded.length > 0
         ? ` · Grounded, not flying: ${d.grounded.join('; ')} — service them in the Hangar.`
         : ''
-      setMsg(base + warn)
+      setMsg(base + inc + warn)
     } catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
 
