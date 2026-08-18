@@ -666,6 +666,43 @@ public class SettlementServiceTests
         }
     }
 
+    [Fact]
+    public async Task Settle_OwnedAircraft_ChargesForTheFuelBurned()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Seed s;
+        Guid assignmentId, aircraftId;
+        using (var db = tdb.NewContext())
+        {
+            s = await SeedAsync(db);
+            var typeId = await db.AircraftTypes.Select(t => t.Id).FirstAsync();
+            var inst = new AircraftInstance
+            {
+                Id = Guid.NewGuid(), TypeId = typeId, CompanyId = s.CompanyId, Tail = "CS-1",
+                Ownership = OwnershipKind.Owned, Availability = AircraftAvailability.Available, LocationIcao = "EHAM",
+            };
+            db.AircraftInstances.Add(inst);
+            await db.SaveChangesAsync();
+            aircraftId = inst.Id;
+            assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, s.PilotId)).Id;
+        }
+
+        using (var db = tdb.NewContext())
+        {
+            // Flown(-80) burned 60 lb; greaser → +10% landing. 200000 + 20000 - (60 × $0.90 = 5400) = 214600.
+            var r = await new SettlementService(db, new LedgerService(db, clock), clock, EconomyConfig.Default)
+                .SettleAsync(assignmentId, Flown(-80), aircraftId);
+            Assert.Equal(214_600, r.PayoutCents);
+        }
+        using (var db = tdb.NewContext())
+        {
+            var ledger = await db.LedgerEntries.Where(e => e.AccountId == s.CompanyId).ToListAsync();
+            Assert.Contains(ledger, e => e.Category == LedgerCategory.Fuel && e.AmountCents == -5_400);
+            Assert.Equal(214_600, (await db.Companies.FindAsync(s.CompanyId))!.CashCents); // ledger sum == payout
+        }
+    }
+
     [Theory]
     [InlineData(-50, 0.10)]
     [InlineData(-150, 0.05)]

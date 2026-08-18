@@ -183,6 +183,7 @@ public sealed record EconomyConfig
     public long MaintenancePerHourCents { get; init; } = 20_000;   // $200 per airframe hour since the last service
     public int ConditionWearMilliPerHour { get; init; } = 400;     // hull + engine wear per airframe hour (0..100000)
     public int HardLandingWearMilli { get; init; } = 1_500;        // extra hull wear on a hard touchdown
+    public long FuelPriceCentsPerLb { get; init; } = 90;           // ~$0.90/lb of consumable fuel burned (Phase 7e)
 
     // --- Bases: one-off setup + recurring rent, by airport size (§4.8) ---
     public long BaseOpenCents(AirportKind kind) => kind switch

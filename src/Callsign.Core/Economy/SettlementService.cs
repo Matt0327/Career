@@ -117,7 +117,20 @@ public sealed class SettlementService
             lines.Add(new($"Landing fee ({a.DestIcao})", -landingFee));
         }
 
-        long total = baseCents + landingDelta - landingFee;
+        // Fuel actually burned is a real running cost for a leg flown in an owned airframe (Phase 7e) —
+        // the FuelUsedLbs the tracker already recorded, finally priced. A leg flown outside your fleet
+        // (no owned instance) isn't tracked, so it carries no fuel charge.
+        long fuelCost = aircraftInstanceId is not null && flight.FuelUsedLbs > 0
+            ? (long)Math.Round(flight.FuelUsedLbs * _cfg.FuelPriceCentsPerLb)
+            : 0;
+        if (fuelCost > 0)
+        {
+            postings.Add(new(LedgerCategory.Fuel, -(fuelCost / 100m), $"Fuel — {flight.FuelUsedLbs:F0} lb",
+                LedgerRefType.Job, jobRef, DedupeKey: $"settle:{a.Id}:fuel"));
+            lines.Add(new($"Fuel ({flight.FuelUsedLbs:F0} lb)", -fuelCost));
+        }
+
+        long total = baseCents + landingDelta - landingFee - fuelCost;
         var breakdown = new PayoutBreakdown(total, lines);
 
         // Stage the ledger rows + cash delta (not saved), then commit them together with the Flight
