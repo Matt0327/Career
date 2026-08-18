@@ -98,6 +98,10 @@ public sealed class OperationsService
 
         double dist = GeoMath.DistanceNm(oAir.Latitude, oAir.Longitude, dAir.Latitude, dAir.Longitude);
         var type = await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == aircraft.TypeId, ct);
+        // Type rating: a hired pilot must be experienced enough for the aircraft's category (Phase 7f).
+        int need = _cfg.MinSkillMilliForCategory(type?.Category ?? AircraftCategory.Unknown);
+        if (staff.SkillMilli < need)
+            throw new InvalidOperationException($"{staff.Name} ({staff.SkillMilli / 1000}%) isn't rated for the {type!.Category} — assign a pilot at {need / 1000}%+.");
         double cruise = type?.CruiseKtas ?? 150;
         double rtHours = 2 * dist / Math.Max(60, cruise);
         int weight = Math.Min(type?.UsefulLoadLbs ?? 1_000, 1_000);

@@ -258,4 +258,36 @@ public class OperationsServiceTests
             Assert.True(staff.SkillMilli <= Cfg.CrewSkillCeilingMilli);  // but experience tops out below perfect
         }
     }
+
+    [Fact]
+    public async Task CreateStandingOrder_GatesByCrewTypeRating()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Guid companyId, aircraftId, greenId, aceId;
+        using (var db = tdb.NewContext())
+        {
+            var company = new Company { Id = Guid.NewGuid(), Name = "Co" };
+            db.Companies.Add(company);
+            db.Airports.AddRange(A("EHAM", 52.3086, 4.7639), A("EHRD", 51.9569, 4.4372));
+            var type = new AircraftType { Id = Guid.NewGuid(), Key = "PC12", CanonicalName = "Pilatus PC-12", Category = AircraftCategory.Turboprop, CruiseKtas = 270, UsefulLoadLbs = 1_000 };
+            db.AircraftTypes.Add(type);
+            var inst = new AircraftInstance { Id = Guid.NewGuid(), TypeId = type.Id, CompanyId = company.Id, Tail = "CS-1", LocationIcao = "EHAM" };
+            db.AircraftInstances.Add(inst);
+            var green = new Staff { Id = Guid.NewGuid(), CompanyId = company.Id, Name = "Green", SkillMilli = 40_000, WagePerDayCents = 10_000, IsActive = true, HiredAt = clock.UtcNow, LastPaidAt = clock.UtcNow };
+            var ace = new Staff { Id = Guid.NewGuid(), CompanyId = company.Id, Name = "Ace", SkillMilli = 80_000, WagePerDayCents = 20_000, IsActive = true, HiredAt = clock.UtcNow, LastPaidAt = clock.UtcNow };
+            db.Staff.AddRange(green, ace);
+            await db.SaveChangesAsync();
+            companyId = company.Id; aircraftId = inst.Id; greenId = green.Id; aceId = ace.Id;
+        }
+
+        using (var db = tdb.NewContext())
+        {
+            var ops = new OperationsService(db, new LedgerService(db, clock), clock, Cfg);
+            // A turboprop needs 50% — the 40% green pilot is refused...
+            await Assert.ThrowsAsync<InvalidOperationException>(() => ops.CreateStandingOrderAsync(companyId, greenId, aircraftId, "EHRD"));
+            // ...but the 80% ace can be trusted with it.
+            Assert.NotNull(await ops.CreateStandingOrderAsync(companyId, aceId, aircraftId, "EHRD"));
+        }
+    }
 }

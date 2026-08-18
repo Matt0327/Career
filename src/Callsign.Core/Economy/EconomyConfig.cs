@@ -201,6 +201,19 @@ public sealed record EconomyConfig
     public int CrewProficiencyGainMilliPerTrip { get; init; } = 40;  // a hired pilot sharpens ~0.04%/trip flown — hire green cheap, they improve
     public int CrewSkillCeilingMilli { get; init; } = 95_000;        // experience tops out at 95% (nobody is perfect)
 
+    /// <summary>Skill a hired pilot needs to be trusted with a category (their "type rating", Phase 7f) — a
+    /// green crew flies light singles; bigger, faster iron demands a sharper pilot. Assignment is gated on it.</summary>
+    public int MinSkillMilliForCategory(AircraftCategory category) => category switch
+    {
+        AircraftCategory.LightTwin => 35_000,
+        AircraftCategory.Helicopter => 45_000,
+        AircraftCategory.Turboprop => 50_000,
+        AircraftCategory.LightJet => 65_000,
+        AircraftCategory.Jet => 78_000,
+        AircraftCategory.Heavy => 88_000,
+        _ => 0, // light single / glider / unknown — anyone can be trusted with it
+    };
+
     // --- Bases: one-off setup + recurring rent, by airport size (§4.8) ---
     public long BaseOpenCents(AirportKind kind) => kind switch
     {
