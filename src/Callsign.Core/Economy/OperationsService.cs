@@ -10,7 +10,7 @@ namespace Callsign.Core.Economy;
 public sealed record StaffCandidate(int Seed, string Name, long WagePerDayCents, int SkillMilli);
 
 /// <summary>What a reconcile produced (for the reopen digest).</summary>
-public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded);
+public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed);
 
 /// <summary>
 /// Staff + standing orders (Phase 2d): hire pilots, set repeating autonomous routes, and reconcile the
@@ -134,6 +134,7 @@ public sealed class OperationsService
         long grossIncome = 0, totalFees = 0, totalWages = 0, totalRent = 0, totalLoan = 0, totalInsurance = 0;
         int totalIncidents = 0;            // trips a crew botched — skill is what keeps this down (Phase 7f)
         var grounded = new List<string>(); // tails that couldn't fly their autonomous work — surfaced in the digest
+        var dutyMaxed = new List<string>();// tails whose lone crew hit the duty limit — hire more crew to fly them harder
 
         // Airports where we own a base — landings there are fee-free.
         var baseIcaos = (await _db.Bases.Where(b => b.CompanyId == companyId && b.IsActive && !b.IsDeleted)
@@ -142,8 +143,8 @@ public sealed class OperationsService
         foreach (var o in await _db.StandingOrders.Where(o => o.CompanyId == companyId && o.IsActive && !o.IsDeleted).ToListAsync(ct))
         {
             double elapsedH = (now - o.LastReconciledAt).TotalHours;
-            int trips = o.RoundTripHours > 0 ? (int)Math.Floor(elapsedH / o.RoundTripHours) : 0;
-            if (trips <= 0)
+            int rawTrips = o.RoundTripHours > 0 ? (int)Math.Floor(elapsedH / o.RoundTripHours) : 0;
+            if (rawTrips <= 0)
                 continue;
 
             // A grounded tail can't fly: hold the order (its clock doesn't advance, so the trips resume once
@@ -154,6 +155,14 @@ public sealed class OperationsService
                 grounded.Add($"{soAircraft.Tail} — {soAw.Reason}");
                 continue;
             }
+
+            // FTL: the lone crew can only fly so many duty hours per day. Cap the trips to that — the rest of
+            // the window is rest, not deferred flying — so one pilot can't run a tail round the clock.
+            int soMaxTrips = o.RoundTripHours > 0 ? (int)Math.Floor(_cfg.MaxDutyHoursPerDay / 24.0 * elapsedH / o.RoundTripHours) : 0;
+            int trips = Math.Min(rawTrips, soMaxTrips);
+            bool dutyCapped = trips < rawTrips;
+            if (trips <= 0)
+                continue; // not enough duty accrued yet — the crew rests until the next trip is legal
 
             var oAir = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == o.OriginIcao, ct);
             var dAir = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == o.DestIcao, ct);
@@ -187,12 +196,14 @@ public sealed class OperationsService
                 aircraft.UpdatedAt = now;
             }
 
-            o.LastReconciledAt = o.LastReconciledAt.AddHours(trips * o.RoundTripHours); // advance by whole trips only
+            // Duty-capped: consume the whole window (the excess was rest); else advance by whole trips only.
+            o.LastReconciledAt = dutyCapped ? now : o.LastReconciledAt.AddHours(trips * o.RoundTripHours);
             o.UpdatedAt = now;
             totalTrips += trips;
             grossIncome += income;
             totalFees += fees;
             totalIncidents += soRoll.Incidents;
+            if (dutyCapped) dutyMaxed.Add(soAircraft?.Tail ?? $"{o.OriginIcao}↔{o.DestIcao}");
         }
 
         foreach (var s in await _db.Staff.Where(s => s.CompanyId == companyId && s.IsActive && !s.IsDeleted).ToListAsync(ct))
@@ -257,8 +268,8 @@ public sealed class OperationsService
         foreach (var route in await _db.Routes.Where(r => r.CompanyId == companyId && r.Active && !r.IsDeleted).ToListAsync(ct))
         {
             double elapsedH = (now - route.LastReconciledAt).TotalHours;
-            int trips = route.RoundTripHours > 0 ? (int)Math.Floor(elapsedH / route.RoundTripHours) : 0;
-            if (trips <= 0)
+            int rawTrips = route.RoundTripHours > 0 ? (int)Math.Floor(elapsedH / route.RoundTripHours) : 0;
+            if (rawTrips <= 0)
                 continue;
 
             var rtAircraft = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == route.AircraftInstanceId, ct);
@@ -267,6 +278,12 @@ public sealed class OperationsService
                 grounded.Add($"{rtAircraft.Tail} — {rtAw.Reason}");
                 continue; // held until serviced (Law 4)
             }
+
+            int rtMaxTrips = route.RoundTripHours > 0 ? (int)Math.Floor(_cfg.MaxDutyHoursPerDay / 24.0 * elapsedH / route.RoundTripHours) : 0;
+            int trips = Math.Min(rawTrips, rtMaxTrips);
+            bool dutyCapped = trips < rawTrips;
+            if (trips <= 0)
+                continue; // duty not yet accrued — the crew rests
 
             var rtCrew = await _db.Staff.FirstOrDefaultAsync(s => s.Id == route.StaffId, ct);
             var rtRoll = RollTrips(route.Id, route.LastReconciledAt.UtcTicks, trips, rtCrew?.SkillMilli ?? 50_000, route.RewardPerTripCents);
@@ -287,11 +304,12 @@ public sealed class OperationsService
                 aircraft.EngineConditionMilli = Math.Max(0, aircraft.EngineConditionMilli - wear);
                 aircraft.UpdatedAt = now;
             }
-            route.LastReconciledAt = route.LastReconciledAt.AddHours(trips * route.RoundTripHours);
+            route.LastReconciledAt = dutyCapped ? now : route.LastReconciledAt.AddHours(trips * route.RoundTripHours);
             route.UpdatedAt = now;
             totalTrips += trips;
             grossIncome += income;
             totalIncidents += rtRoll.Incidents;
+            if (dutyCapped) dutyMaxed.Add(rtAircraft?.Tail ?? route.Name);
         }
 
         // Insurance premiums (Phase 4c): the running cost of coverage, prorated by whole days.
@@ -314,7 +332,7 @@ public sealed class OperationsService
 
         await _db.SaveChangesAsync(ct);
         return new ReconcileDigest(totalTrips, grossIncome, totalFees, totalWages, totalRent, totalLoan, totalInsurance,
-            grossIncome - totalFees - totalWages - totalRent - totalLoan - totalInsurance, totalIncidents, grounded);
+            grossIncome - totalFees - totalWages - totalRent - totalLoan - totalInsurance, totalIncidents, grounded, dutyMaxed);
     }
 
     /// <summary>

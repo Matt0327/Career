@@ -197,6 +197,7 @@ public sealed record EconomyConfig
     public double IncidentSkillExponent { get; init; } = 2.0;     // p = base·(1-skill)^exp — skill bites hard
     public double IncidentPayDockPct { get; init; } = 0.50;       // an incident (a diversion) delivers half
     public int IncidentExtraWearMilli { get; init; } = 800;       // and knocks the airframe about a bit
+    public double MaxDutyHoursPerDay { get; init; } = 8;          // FTL: one crew flies ~8 of 24 h — own crew depth to run a tail harder
 
     // --- Bases: one-off setup + recurring rent, by airport size (§4.8) ---
     public long BaseOpenCents(AirportKind kind) => kind switch

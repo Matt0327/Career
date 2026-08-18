@@ -150,4 +150,43 @@ public class OperationsServiceTests
         Assert.True(green.Incidents > 0);              // a green crew definitely botches some
         Assert.True(green.Incidents > ace.Incidents);  // and far more than an ace
     }
+
+    [Fact]
+    public async Task Reconcile_CapsToOneCrewsDuty_AndNudgesToHireMore()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Guid companyId, aircraftId, staffId;
+        using (var db = tdb.NewContext())
+        {
+            var company = new Company { Id = Guid.NewGuid(), Name = "Co" };
+            db.Companies.Add(company);
+            db.Airports.AddRange(A("EHAM", 52.3086, 4.7639), A("EHRD", 51.9569, 4.4372));
+            var type = new AircraftType { Id = Guid.NewGuid(), Key = "C172", CanonicalName = "C172", Category = AircraftCategory.LightSingle, CruiseKtas = 150, UsefulLoadLbs = 900 };
+            db.AircraftTypes.Add(type);
+            var inst = new AircraftInstance { Id = Guid.NewGuid(), TypeId = type.Id, CompanyId = company.Id, Tail = "CS-1", LocationIcao = "EHAM" };
+            db.AircraftInstances.Add(inst);
+            var staff = new Staff { Id = Guid.NewGuid(), CompanyId = company.Id, Name = "Pilot", SkillMilli = 90_000, WagePerDayCents = 10_000, IsActive = true, HiredAt = clock.UtcNow, LastPaidAt = clock.UtcNow };
+            db.Staff.Add(staff);
+            await db.SaveChangesAsync();
+            await new LedgerService(db, clock).PostAsync(company.Id, LedgerCategory.StartingBalance, 100_000m, "start");
+            companyId = company.Id; aircraftId = inst.Id; staffId = staff.Id;
+        }
+        using (var db = tdb.NewContext())
+            await new OperationsService(db, new LedgerService(db, clock), clock, Cfg).CreateStandingOrderAsync(companyId, staffId, aircraftId, "EHRD");
+
+        clock.UtcNow = clock.UtcNow.AddDays(4); // 96 h elapsed — non-stop that would be ~96 airframe hours
+
+        ReconcileDigest digest;
+        using (var db = tdb.NewContext())
+            digest = await new OperationsService(db, new LedgerService(db, clock), clock, Cfg).ReconcileAsync(companyId);
+
+        Assert.Contains(digest.DutyMaxed, t => t.Contains("CS-1")); // the lone crew hit their limit
+        using (var db = tdb.NewContext())
+        {
+            var inst = await db.AircraftInstances.FindAsync(aircraftId);
+            Assert.True(inst!.AirframeHours > 0);                              // it did fly
+            Assert.True(inst.AirframeHours <= Cfg.MaxDutyHoursPerDay * 4 + 2); // but only ~8 h/day, not round the clock
+        }
+    }
 }

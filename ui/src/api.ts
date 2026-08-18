@@ -394,6 +394,7 @@ export interface ReconcileResult {
   netCents: number
   incidents: number // Phase 7f — autonomous trips a crew botched (fewer with a higher-skill pilot)
   grounded: string[] // Phase 7e — tails that couldn't fly their autonomous work (grounded, needs service)
+  dutyMaxed: string[] // Phase 7f — tails whose lone crew hit the daily duty limit (hire more crew)
 }
 
 export interface InsurancePolicy {
