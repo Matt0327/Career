@@ -515,3 +515,42 @@ input { font: inherit; }
 .mission-route .arrow{color:var(--faint);font-weight:400;margin:0 3px}
 .mission-dist{flex:none;font-size:16px;font-weight:700;color:var(--ink);align-self:flex-start}
 .mission-dist i{font-size:11px;color:var(--muted);font-style:normal;margin-left:2px;font-weight:600}
+
+/* ── Finances / Logbook — bars + trend lines (Phase 6) ──────────────────────── */
+.bars{display:flex;flex-direction:column;gap:9px}
+.barrow{display:grid;grid-template-columns:84px 1fr auto;align-items:center;gap:10px}
+.barrow-label{font-size:13px;color:var(--muted)}
+.barrow-track{height:8px;border-radius:4px;background:color-mix(in srgb,var(--ink) 8%,var(--panel));overflow:hidden}
+.barrow-fill{height:100%;border-radius:4px}
+.barrow-fill.accent{background:var(--accent)}
+.barrow-fill.pos{background:var(--pos)}
+.barrow-fill.neg{background:var(--neg)}
+.barrow-val{font-size:13px;font-weight:600;text-align:right;min-width:72px}
+.barrow-val.pos{color:var(--pos)}
+.barrow-val.neg{color:var(--neg)}
+.trends{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px}
+.trend-cell{display:flex;flex-direction:column;gap:8px}
+.trend-head{display:flex;align-items:baseline;justify-content:space-between}
+.trend-head .metalabel{font-size:11px}
+.trend{width:100%;height:auto;display:block;overflow:visible}
+.trend-area{fill:color-mix(in srgb,var(--accent) 15%,transparent);stroke:none}
+.trend-line{fill:none;stroke:var(--accent);stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}
+.trend-dot{fill:var(--accent);stroke:var(--panel);stroke-width:2}
+.trend.pos .trend-area{fill:color-mix(in srgb,var(--pos) 15%,transparent)}
+.trend.pos .trend-line{stroke:var(--pos)}
+.trend.pos .trend-dot{fill:var(--pos)}
+.chart-empty{color:var(--muted);font-size:13px;padding:14px 0}
+
+/* ── Awards — medals; Campaigns — progress ring (Phase 6) ── */
+.ach-medal{flex:none}
+.ach-medal svg{width:46px;height:46px;display:block}
+.ach-ring-track{fill:none;stroke:color-mix(in srgb,var(--ink) 12%,var(--panel));stroke-width:4}
+.ach-ring{fill:none;stroke:var(--faint);stroke-width:4;stroke-linecap:round;transition:stroke-dashoffset .5s ease}
+.ach.earned .ach-ring{stroke:#d9b84a}
+.ach-star{fill:var(--faint);font-size:18px;text-anchor:middle;dominant-baseline:central}
+.ach.earned .ach-star{fill:#d9b84a}
+.ach-prog{font-size:11px}
+.camp-ring svg{width:40px;height:40px;display:block}
+.camp-ring-track{fill:none;stroke:color-mix(in srgb,var(--ink) 12%,var(--panel));stroke-width:3.5}
+.camp-ring-arc{fill:none;stroke:var(--accent);stroke-width:3.5;stroke-linecap:round;transition:stroke-dashoffset .5s ease}
+.camp-ring-txt{fill:var(--ink);font-size:9px;font-weight:700;text-anchor:middle;dominant-baseline:central}

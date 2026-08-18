@@ -55,7 +55,7 @@ export function App() {
         {tab === 'campaigns' && <Campaigns onChanged={reload} />}
         {tab === 'awards' && <Awards />}
         {tab === 'community' && <Community />}
-        {tab === 'logbook' && <Logbook />}
+        {tab === 'logbook' && <Logbook state={state} />}
         {tab === 'settings' && <Settings />}
         </main>
       </div>
@@ -1450,6 +1450,39 @@ function Trade({ state, onChanged }: { state: State; onChanged: () => void }) {
 
 // ─── Finances (loans) ────────────────────────────────────────────────────────
 
+// ─── Chart primitives (Phase 6) ──────────────────────────────────────────────
+
+// A responsive SVG trend line — balance over time, landing-fpm trend. Fixed viewBox, scales uniformly.
+function Trendline({ values, tone = 'accent' }: { values: number[]; tone?: string }) {
+  if (values.length < 2) return <div className="chart-empty">Not enough data yet — fly a few legs.</div>
+  const W = 600, H = 120, P = 12
+  const min = Math.min(...values), max = Math.max(...values)
+  const range = max - min || 1
+  const x = (i: number) => P + (i / (values.length - 1)) * (W - 2 * P)
+  const y = (v: number) => P + (1 - (v - min) / range) * (H - 2 * P)
+  const line = values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')
+  const area = `${x(0).toFixed(1)},${H - P} ${line} ${x(values.length - 1).toFixed(1)},${H - P}`
+  return (
+    <svg className={`trend ${tone}`} viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Trend chart">
+      <polygon className="trend-area" points={area} />
+      <polyline className="trend-line" points={line} />
+      <circle className="trend-dot" cx={x(values.length - 1)} cy={y(values[values.length - 1])} r="4.5" />
+    </svg>
+  )
+}
+
+// A labelled horizontal bar — P&L per category, net-worth composition.
+function BarRow({ label, value, max, tone }: { label: string; value: number; max: number; tone: 'pos' | 'neg' | 'accent' }) {
+  const pct = max > 0 ? Math.min(100, (Math.abs(value) / max) * 100) : 0
+  return (
+    <div className="barrow">
+      <span className="barrow-label">{label}</span>
+      <div className="barrow-track"><div className={`barrow-fill ${tone}`} style={{ width: `${Math.max(2, pct)}%` }} /></div>
+      <span className={`barrow-val num ${tone === 'accent' ? '' : tone}`}>{money(value)}</span>
+    </div>
+  )
+}
+
 function Finances({ state, onChanged }: { state: State; onChanged: () => void }) {
   const [data, setData] = useState<Loans | null>(null)
   const [fin, setFin] = useState<FinancesData | null>(null)
@@ -1498,20 +1531,27 @@ function Finances({ state, onChanged }: { state: State; onChanged: () => void })
       {fin && (
         <section className="card">
           <div className="row-head"><h2>Net worth</h2><span className={`num rep-score ${fin.netWorth.netWorthCents >= 0 ? 'pos' : 'neg'}`}>{money(fin.netWorth.netWorthCents)}</span></div>
-          <table className="tbl">
-            <tbody>
-              <tr><td>Cash</td><td className="r num">{money(fin.netWorth.cashCents)}</td></tr>
-              <tr><td>Aircraft <span className="muted">· resale</span></td><td className="r num">{money(fin.netWorth.aircraftCents)}</td></tr>
-              <tr><td>Inventory <span className="muted">· at cost</span></td><td className="r num">{money(fin.netWorth.inventoryCents)}</td></tr>
-              <tr><td>Loans <span className="muted">· outstanding</span></td><td className="r num neg">{money(-fin.netWorth.loansCents)}</td></tr>
-            </tbody>
-          </table>
+          {(() => {
+            const nw = fin.netWorth
+            const rows: { label: string; value: number; tone: 'accent' | 'neg' }[] = [
+              { label: 'Cash', value: nw.cashCents, tone: 'accent' },
+              { label: 'Aircraft', value: nw.aircraftCents, tone: 'accent' },
+              { label: 'Inventory', value: nw.inventoryCents, tone: 'accent' },
+              { label: 'Loans', value: -nw.loansCents, tone: 'neg' },
+            ]
+            const max = Math.max(1, ...rows.map(r => Math.abs(r.value)))
+            return <div className="bars">{rows.map(r => <BarRow key={r.label} label={r.label} value={r.value} max={max} tone={r.tone} />)}</div>
+          })()}
         </section>
       )}
 
       {fin && fin.pnl.lines.length > 0 && (
         <section className="card">
           <div className="row-head"><h2>Cash flow · {fin.pnl.days}d</h2><span className={`num rep-score ${fin.pnl.netCents >= 0 ? 'pos' : 'neg'}`}>{money(fin.pnl.netCents)}</span></div>
+          {(() => {
+            const max = Math.max(1, ...fin.pnl.lines.map(l => Math.abs(l.netCents)))
+            return <div className="bars">{fin.pnl.lines.map(l => <BarRow key={l.category} label={spaced(l.category)} value={l.netCents} max={max} tone={l.netCents >= 0 ? 'pos' : 'neg'} />)}</div>
+          })()}
           <div className="tbl-wrap"><table className="tbl">
             <thead><tr><th>Category</th><th className="r">In</th><th className="r">Out</th><th className="r">Net</th></tr></thead>
             <tbody>{fin.pnl.lines.map(l => (
@@ -1621,7 +1661,7 @@ function Finances({ state, onChanged }: { state: State; onChanged: () => void })
 
 // ─── Logbook ─────────────────────────────────────────────────────────────────
 
-function Logbook() {
+function Logbook({ state }: { state: State }) {
   const [flights, setFlights] = useState<FlightLog[]>([])
   const [ledger, setLedger] = useState<LedgerEntry[]>([])
   useEffect(() => {
@@ -1629,8 +1669,33 @@ function Logbook() {
     api.ledger(50).then(setLedger).catch(() => {})
   }, [])
 
+  // Reconstruct the cash-balance curve from the ledger window, anchored so it ends at your current cash.
+  const balances = (() => {
+    const sorted = [...ledger].sort((a, b) => a.at.localeCompare(b.at))
+    if (sorted.length < 2) return [] as number[]
+    const net = sorted.reduce((s, e) => s + e.amountCents, 0)
+    let running = state.cashCents - net
+    return sorted.map(e => { running += e.amountCents; return Math.round(running / 100) })
+  })()
+  const fpms = [...flights].reverse().map(f => Math.round(f.touchdownFpm))
+
   return (
     <div className="grid">
+      {(balances.length > 1 || fpms.length > 1) && (
+        <section className="card">
+          <h2>Trends</h2>
+          <div className="trends">
+            <div className="trend-cell">
+              <div className="trend-head"><span className="metalabel">Cash balance</span><span className="num">{money(state.cashCents)}</span></div>
+              <Trendline values={balances} tone="accent" />
+            </div>
+            <div className="trend-cell">
+              <div className="trend-head"><span className="metalabel">Landing quality</span><span className="num">{fpms.length ? `${fpms[fpms.length - 1]} fpm` : '—'}</span></div>
+              <Trendline values={fpms} tone="pos" />
+            </div>
+          </div>
+        </section>
+      )}
       <section className="card">
         <h2>Flights</h2>
         {flights.length === 0 ? <div className="empty">No flights logged yet.</div> : (
@@ -1785,12 +1850,26 @@ function Campaigns({ onChanged }: { onChanged: () => void }) {
   )
 }
 
+function CampaignRing({ index, count }: { index: number; count: number }) {
+  const pct = count > 0 ? Math.min(100, (index / count) * 100) : 0
+  const r = 15, circ = 2 * Math.PI * r
+  return (
+    <div className="camp-ring">
+      <svg viewBox="0 0 36 36" aria-label={`${index} of ${count} steps`}>
+        <circle className="camp-ring-track" cx="18" cy="18" r={r} />
+        <circle className="camp-ring-arc" cx="18" cy="18" r={r} strokeDasharray={circ} strokeDashoffset={circ * (1 - pct / 100)} transform="rotate(-90 18 18)" />
+        <text x="18" y="18" className="camp-ring-txt num">{index}/{count}</text>
+      </svg>
+    </div>
+  )
+}
+
 function CampaignCard({ c }: { c: Campaign }) {
   return (
     <section className={`card campaign ${c.completed ? 'done' : ''}`}>
       <div className="row-head">
         <h2>{c.name}</h2>
-        {c.completed ? <span className="pill-done">Completed ✓</span> : <span className="hint num">{c.stepIndex} / {c.stepCount}</span>}
+        {c.completed ? <span className="pill-done">Completed ✓</span> : <CampaignRing index={c.stepIndex} count={c.stepCount} />}
       </div>
       <p className="muted camp-desc">{c.description}</p>
       <ol className="camp-steps">
@@ -1850,16 +1929,23 @@ function Awards() {
 }
 
 function Badge({ a }: { a: Achievement }) {
-  const pct = a.target > 0 ? Math.min(100, (a.progress / a.target) * 100) : 0
+  const pct = a.earned ? 100 : a.target > 0 ? Math.min(100, (a.progress / a.target) * 100) : 0
+  const r = 20, circ = 2 * Math.PI * r
   return (
     <div className={`ach ${a.earned ? 'earned' : ''}`}>
-      <div className="ach-medal">{a.earned ? '★' : '☆'}</div>
+      <div className="ach-medal">
+        <svg viewBox="0 0 48 48" aria-hidden="true">
+          <circle className="ach-ring-track" cx="24" cy="24" r={r} />
+          <circle className="ach-ring" cx="24" cy="24" r={r} strokeDasharray={circ} strokeDashoffset={circ * (1 - pct / 100)} transform="rotate(-90 24 24)" />
+          <text x="24" y="24" className="ach-star">★</text>
+        </svg>
+      </div>
       <div className="ach-body">
         <div className="ach-name">{a.name}</div>
         <div className="ach-desc muted">{a.description}</div>
         {a.earned
           ? <div className="ach-when muted">{a.earnedAt ? `Earned ${when(a.earnedAt)}` : 'Earned'}</div>
-          : <div className="ach-bar" title={`${a.progress} / ${a.target}`}><div className="ach-fill" style={{ width: `${pct}%` }} /></div>}
+          : <div className="ach-prog muted num">{a.progress} / {a.target}</div>}
       </div>
     </div>
   )
