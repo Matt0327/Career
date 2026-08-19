@@ -239,6 +239,10 @@ public sealed record EconomyConfig
     // --- Trade (Phase 2g): buy low here, sell high there ---
     /// <summary>How far a good's price swings above/below its catalog base across airports (±fraction).</summary>
     public double TradePriceSwing { get; init; } = 0.35;
+    /// <summary>Structural regional bias (Phase 7g): a FIXED per-airport export/import tilt per good — some
+    /// places always produce a good cheap, others always demand it dear — layered under the window swing so
+    /// commodity routes have a learnable shape, not just noise.</summary>
+    public double RegionBiasSwing { get; init; } = 0.25;
     /// <summary>Dealer spread: buy sits this fraction above mid, sell the same below — a same-airport
     /// round trip loses ~2× this, so profit has to come from flying goods somewhere pricier.</summary>
     public decimal TradeSpreadPct { get; init; } = 0.05m;

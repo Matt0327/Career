@@ -976,7 +976,7 @@ public static class CallsignWebApp
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             return Results.Ok(market.Quotes(pilot.CurrentIcao)
-                .Select(q => new MarketQuoteDto(q.Good, q.Name, q.BuyCents, q.SellCents, q.UnitWeightLbs)));
+                .Select(q => new MarketQuoteDto(q.Good, q.Name, q.BuyCents, q.SellCents, q.UnitWeightLbs, q.Region)));
         });
 
         app.MapGet("/api/trade/inventory", async (CallsignDbContext db, TradeService trade) =>

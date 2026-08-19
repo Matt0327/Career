@@ -556,6 +556,7 @@ export interface MarketQuote {
   buyCents: number
   sellCents: number
   unitWeightLbs: number
+  region: string | null // Phase 7g — "export" (cheap here, buy) | "demand" (dear here, sell) | null
 }
 
 export interface Inventory {

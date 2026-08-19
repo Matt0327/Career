@@ -3,7 +3,12 @@ using Callsign.Core.Time;
 namespace Callsign.Core.Economy;
 
 /// <summary>A commodity's current buy/sell price at one airport.</summary>
-public sealed record MarketQuote(string Good, string Name, long BuyCents, long SellCents, int UnitWeightLbs);
+public sealed record MarketQuote(string Good, string Name, long BuyCents, long SellCents, int UnitWeightLbs)
+{
+    /// <summary>The airport's structural tilt for this good (Phase 7g): "export" = it produces it cheap
+    /// (buy here), "demand" = it wants it dear (sell here), null = neutral. A fixed, learnable profile.</summary>
+    public string? Region { get; init; }
+}
 
 /// <summary>
 /// Deterministic commodity pricing (Phase 2g). A good's mid price is its catalog base swung by a stable
@@ -28,10 +33,22 @@ public sealed class MarketService
 
     public MarketQuote Quote(string icao, TradeGood g)
     {
-        long mid = (long)Math.Round(g.BasePriceCents * Multiplier(icao, g.Key, Epoch()));
+        double region = RegionBias(icao, g.Key);                        // fixed structural tilt (Phase 7g)
+        long mid = (long)Math.Round(g.BasePriceCents * region * Multiplier(icao, g.Key, Epoch()));
         long buy = (long)Math.Round(mid * (1m + _cfg.TradeSpreadPct), MidpointRounding.AwayFromZero);
         long sell = (long)Math.Round(mid * (1m - _cfg.TradeSpreadPct), MidpointRounding.AwayFromZero);
-        return new MarketQuote(g.Key, g.Name, buy, sell, g.UnitWeightLbs);
+        string? hint = region <= 1 - _cfg.RegionBiasSwing * 0.5 ? "export"
+                     : region >= 1 + _cfg.RegionBiasSwing * 0.5 ? "demand" : null;
+        return new MarketQuote(g.Key, g.Name, buy, sell, g.UnitWeightLbs) { Region = hint };
+    }
+
+    /// <summary>A stable per-airport export/import tilt for a good — no window term, so it never re-rolls:
+    /// the map has a permanent shape you can learn and trade against.</summary>
+    private double RegionBias(string icao, string goodKey)
+    {
+        uint h = Fnv1a($"{icao.ToUpperInvariant()}|{goodKey}|region");
+        double unit = (h & 0xFFFFFF) / (double)0x1000000; // [0,1)
+        return 1 - _cfg.RegionBiasSwing + unit * (2 * _cfg.RegionBiasSwing);
     }
 
     /// <summary>The current pricing window index — prices are constant within a window.</summary>

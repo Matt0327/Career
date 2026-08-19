@@ -24,6 +24,25 @@ public class MarketServiceTests
     }
 
     [Fact]
+    public void RegionalBias_IsStableAcrossWindows_AndGivesEachAirportAProfile()
+    {
+        var clock = new FakeClock();
+        var m = Market(clock);
+        string[] icaos = ["EHAM", "EGLL", "KJFK", "LFPG", "EDDF", "LEMD", "LIRF", "EIDW"];
+
+        // The structural region tag is FIXED — it survives a window re-roll (unlike the price itself).
+        var before = m.Quotes("KJFK").ToDictionary(q => q.Good, q => q.Region);
+        clock.UtcNow = clock.UtcNow + Cfg.TradePriceWindow + Cfg.TradePriceWindow; // move past the pricing window
+        foreach (var q in m.Quotes("KJFK"))
+            Assert.Equal(before[q.Good], q.Region);
+
+        // And the map has a learnable shape: some places export a good, others demand it.
+        var all = icaos.SelectMany(a => m.Quotes(a)).ToList();
+        Assert.Contains(all, x => x.Region == "export");
+        Assert.Contains(all, x => x.Region == "demand");
+    }
+
+    [Fact]
     public void Prices_Vary_AcrossAirports_SoArbitrageExists()
     {
         var m = Market(new FakeClock());

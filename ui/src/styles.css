@@ -627,6 +627,9 @@ input { font: inherit; }
 .flt-route-names{font-size:12.5px;margin-top:-4px}
 .flt-grid{grid-template-columns:repeat(3,1fr)}
 .flt-pay-head{margin-bottom:2px}
+.region-tag{margin-left:8px;font-size:11px;font-weight:600;padding:1px 7px;border-radius:5px}
+.region-tag.exp{color:var(--pos);background:color-mix(in srgb,var(--pos) 14%,transparent)}
+.region-tag.dem{color:#d99a1c;background:color-mix(in srgb,#d99a1c 14%,transparent)}
 .assign-meta .due{font-weight:600}
 .assign-meta .due.warn{color:#d99a1c}
 .assign-meta .due.neg{color:var(--neg)}

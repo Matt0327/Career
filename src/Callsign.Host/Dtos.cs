@@ -139,7 +139,7 @@ public record BaseOfferDto(string Icao, string Name, string Kind, double Distanc
 public record OpenBaseRequest(string AirportIcao);
 
 // --- Phase 2g: trade ---
-public record MarketQuoteDto(string Good, string Name, long BuyCents, long SellCents, int UnitWeightLbs);
+public record MarketQuoteDto(string Good, string Name, long BuyCents, long SellCents, int UnitWeightLbs, string? Region);
 public record InventoryDto(
     Guid Id, string Good, string Name, int Quantity, long UnitCostCents,
     long MarketSellCents, long UnrealizedPnlCents, int UnitWeightLbs, string LocationIcao);
