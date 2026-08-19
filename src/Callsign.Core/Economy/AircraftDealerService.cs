@@ -120,6 +120,16 @@ public sealed class AircraftDealerService
         return instance;
     }
 
+    /// <summary>Discount maintenance / inspection when the tail is based at a company field with a shop (Phase 7g).</summary>
+    private async Task<long> ApplyShopDiscountAsync(Guid companyId, string locationIcao, long cost, CancellationToken ct)
+    {
+        int level = await _db.Bases
+            .Where(b => b.CompanyId == companyId && b.AirportIcao == locationIcao && b.IsActive && !b.IsDeleted)
+            .Select(b => (int?)b.MaintenanceLevel).FirstOrDefaultAsync(ct) ?? 0;
+        double disc = _cfg.MaintenanceShopDiscountPct(level);
+        return disc <= 0 ? cost : (long)Math.Round(cost * (1 - disc));
+    }
+
     /// <summary>What a maintenance service costs now: a base plus per-hour since the last service.</summary>
     public long MaintenanceQuoteCents(AircraftInstance inst)
         => _cfg.MaintenanceBaseCents
@@ -145,7 +155,7 @@ public sealed class AircraftDealerService
         var inst = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == instanceId && a.CompanyId == companyId, ct)
                    ?? throw new InvalidOperationException("Aircraft not found in your fleet.");
 
-        var cost = MaintenanceQuoteCents(inst);
+        long cost = await ApplyShopDiscountAsync(companyId, inst.LocationIcao, MaintenanceQuoteCents(inst), ct);
         if (company.CashCents < cost)
             throw new InvalidOperationException(
                 $"Not enough cash: maintenance costs {cost / 100m:C0}, you have {company.Cash:C0}.");
@@ -232,9 +242,10 @@ public sealed class AircraftDealerService
         var now = _clock.UtcNow;
         bool due100h = inst.AirframeHours - inst.Last100hHoursWatermark >= _cfg.HundredHourIntervalHours;
         bool dueAnnual = (now - (inst.LastAnnualAt ?? inst.AcquiredAt ?? now)).TotalDays >= _cfg.AnnualIntervalDays;
-        long cost = (due100h ? _cfg.HundredHourInspectionCents : 0) + (dueAnnual ? _cfg.AnnualInspectionCents : 0);
-        if (cost == 0)
+        long gross = (due100h ? _cfg.HundredHourInspectionCents : 0) + (dueAnnual ? _cfg.AnnualInspectionCents : 0);
+        if (gross == 0)
             throw new InvalidOperationException("No inspection is due on this aircraft.");
+        long cost = await ApplyShopDiscountAsync(companyId, inst.LocationIcao, gross, ct);
         if (company.CashCents < cost)
             throw new InvalidOperationException($"Not enough cash: the inspection costs {cost / 100m:C0}, you have {company.Cash:C0}.");
 

@@ -161,6 +161,42 @@ public class AircraftDealerServiceTests
     }
 
     [Fact]
+    public async Task Maintain_AtABaseWithAShop_IsDiscounted()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var type = C172();
+        var companyId = await SeedCompanyWithCashAsync(tdb, clock, 100_000_000, type);
+        Guid instId;
+        using (var db = tdb.NewContext())
+        {
+            var inst = new AircraftInstance
+            {
+                Id = Guid.NewGuid(), TypeId = type.Id, CompanyId = companyId, Tail = "CS-1", LocationIcao = "EHAM",
+                Ownership = OwnershipKind.Owned, Availability = AircraftAvailability.Available, AirframeHours = 60,
+            };
+            db.AircraftInstances.Add(inst);
+            db.Bases.Add(new Base
+            {
+                Id = Guid.NewGuid(), CompanyId = companyId, AirportIcao = "EHAM", RentPerDayCents = 0,
+                MaintenanceLevel = 1, OpenedAt = clock.UtcNow, LastRentBilledAt = clock.UtcNow, IsActive = true,
+            });
+            await db.SaveChangesAsync();
+            instId = inst.Id;
+        }
+
+        long full, charged;
+        using (var db = tdb.NewContext())
+        {
+            var dealer = new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg);
+            full = dealer.MaintenanceQuoteCents((await db.AircraftInstances.FindAsync(instId))!); // pre-discount quote
+            charged = await dealer.MaintainAsync(companyId, instId);
+        }
+        Assert.True(charged < full);
+        Assert.Equal((long)Math.Round(full * (1 - Cfg.MaintenanceShopDiscountPct(1))), charged);
+    }
+
+    [Fact]
     public async Task Buy_WithoutEnoughCash_Throws_AndBuysNothing()
     {
         using var tdb = new TestDb();

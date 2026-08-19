@@ -2321,6 +2321,11 @@ function Bases({ state, onChanged }: { state: State; onChanged: () => void }) {
     try { await api.openBase(o.icao); await load(); onChanged(); setMsg(`Opened a base at ${o.icao} · ${o.name}.`) }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
+  const upgradeShop = async (b: BaseView) => {
+    setBusy(true); setMsg(null)
+    try { const r = await api.upgradeShop(b.id); await load(); onChanged(); setMsg(`${b.icao} maintenance shop is now level ${r.maintenanceLevel} — cheaper servicing for tails based there.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
 
   const mapPoints: MapPoint[] = [
     ...bases.map((b): MapPoint => ({ lat: b.latitude, lon: b.longitude, label: b.icao, kind: b.isHome ? 'home' : 'base' })),
@@ -2337,12 +2342,21 @@ function Bases({ state, onChanged }: { state: State; onChanged: () => void }) {
         <h2>Your bases</h2>
         {bases.length === 0 ? <div className="empty">No bases.</div> : (
           <table className="tbl">
-            <thead><tr><th>Airport</th><th>Name</th><th className="r">Rent / day</th></tr></thead>
+            <thead><tr><th>Airport</th><th>Name</th><th className="r">Rent / day</th><th>Maintenance shop</th></tr></thead>
             <tbody>{bases.map(b => (
               <tr key={b.id}>
                 <td><span className="loc">{b.icao}</span>{b.isHome && <span className="tag" style={{ marginLeft: 8 }}>home</span>}</td>
                 <td>{b.name}</td>
                 <td className="r num muted">{b.rentPerDayCents ? money(b.rentPerDayCents) : 'free'}</td>
+                <td className="shop-cell">
+                  {b.maintenanceLevel > 0
+                    ? <span className="shop-lvl">L{b.maintenanceLevel} <span className="muted">· {Math.round(b.maintenanceDiscountPct * 100)}% off servicing</span></span>
+                    : <span className="muted">none</span>}
+                  {b.nextShopUpgradeCents > 0 &&
+                    <button className="small" disabled={busy} onClick={() => upgradeShop(b)}>
+                      {b.maintenanceLevel > 0 ? 'Upgrade' : 'Build'} · {money(b.nextShopUpgradeCents)}
+                    </button>}
+                </td>
               </tr>
             ))}</tbody>
           </table>

@@ -537,6 +537,10 @@ export interface BaseView {
   rentPerDayCents: number
   latitude: number
   longitude: number
+  // Phase 7g — maintenance shop
+  maintenanceLevel: number
+  nextShopUpgradeCents: number
+  maintenanceDiscountPct: number
 }
 
 export interface BaseOffer {
@@ -790,6 +794,7 @@ export const api = {
   bases: () => fetch('/api/bases').then(ok<BaseView[]>),
   baseCandidates: () => fetch('/api/bases/candidates').then(ok<BaseOffer[]>),
   openBase: (airportIcao: string) => POST_IDEM('/api/bases/open', { airportIcao }).then(ok),
+  upgradeShop: (id: string) => POST_IDEM(`/api/bases/${id}/upgrade-shop`).then(ok<{ maintenanceLevel: number }>),
   tradeMarket: () => fetch('/api/trade/market').then(ok<MarketQuote[]>),
   inventory: () => fetch('/api/trade/inventory').then(ok<Inventory[]>),
   buyGood: (good: string, qty: number) => POST_IDEM('/api/trade/buy', { good, qty }).then(ok),

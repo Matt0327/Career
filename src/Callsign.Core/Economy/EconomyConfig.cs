@@ -236,6 +236,21 @@ public sealed record EconomyConfig
         _ => 4_000,                            // $40/day
     };
 
+    // --- Base maintenance shop (Phase 7g): a capex hub that discounts servicing your fleet based there ---
+    public int MaxMaintenanceShopLevel { get; init; } = 3;
+    public long MaintenanceShopUpgradeCents(int toLevel) => toLevel switch  // one-off capex to reach a level
+    {
+        1 => 5_000_000, 2 => 15_000_000, 3 => 40_000_000, _ => 0,          // $50k / $150k / $400k
+    };
+    public double MaintenanceShopDiscountPct(int level) => level switch     // off maintenance + inspections here
+    {
+        >= 3 => 0.35, 2 => 0.25, 1 => 0.15, _ => 0,
+    };
+    public long MaintenanceShopUpkeepCentsPerDay(int level) => level switch  // the fixed daily cost of running it
+    {
+        >= 3 => 15_000, 2 => 7_000, 1 => 3_000, _ => 0,                    // $150 / $70 / $30 a day
+    };
+
     // --- Trade (Phase 2g): buy low here, sell high there ---
     /// <summary>How far a good's price swings above/below its catalog base across airports (±fraction).</summary>
     public double TradePriceSwing { get; init; } = 0.35;

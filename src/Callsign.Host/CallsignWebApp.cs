@@ -941,12 +941,24 @@ public static class CallsignWebApp
         });
 
         // --- Bases (Phase 2e) ---
-        app.MapGet("/api/bases", async (CallsignDbContext db, BaseService bases) =>
+        app.MapGet("/api/bases", async (CallsignDbContext db, BaseService bases, EconomyConfig cfg) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             var list = await bases.GetBasesAsync(pilot.CompanyId);
-            return Results.Ok(list.Select(b => new BaseViewDto(b.Id, b.Icao, b.Name, b.IsHome, b.RentPerDayCents, b.Latitude, b.Longitude)));
+            return Results.Ok(list.Select(b => new BaseViewDto(b.Id, b.Icao, b.Name, b.IsHome, b.RentPerDayCents, b.Latitude, b.Longitude,
+                b.MaintenanceLevel,
+                b.MaintenanceLevel < cfg.MaxMaintenanceShopLevel ? cfg.MaintenanceShopUpgradeCents(b.MaintenanceLevel + 1) : 0,
+                cfg.MaintenanceShopDiscountPct(b.MaintenanceLevel))));
+        });
+
+        app.MapPost("/api/bases/{id:guid}/upgrade-shop", async (Guid id, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, BaseService bases) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try { return Results.Ok(new { maintenanceLevel = await bases.UpgradeMaintenanceShopAsync(pilot.CompanyId, id, idem) }); }
+            catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "Cash changed at the same time — try again." }); }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
         app.MapGet("/api/bases/candidates", async (CallsignDbContext db, BaseService bases) =>

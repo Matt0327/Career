@@ -240,16 +240,19 @@ public sealed class OperationsService
         {
             double days = (now - b.LastRentBilledAt).TotalDays;
             long rent = (long)Math.Round(days * b.RentPerDayCents);
-            if (rent <= 0)
+            long upkeep = (long)Math.Round(days * _cfg.MaintenanceShopUpkeepCentsPerDay(b.MaintenanceLevel)); // shop running cost
+            long charge = rent + upkeep;
+            if (charge <= 0)
                 continue;
             await _ledger.StageBatchAsync(companyId, new[]
             {
-                new LedgerPosting(LedgerCategory.BaseRent, -(rent / 100m), $"Base rent — {b.AirportIcao}",
+                new LedgerPosting(LedgerCategory.BaseRent, -(charge / 100m),
+                    upkeep > 0 ? $"Base costs — {b.AirportIcao}" : $"Base rent — {b.AirportIcao}",
                     BaseId: b.Id, DedupeKey: $"rent:{b.Id}:{b.LastRentBilledAt.UtcTicks}"),
             }, ct);
             b.LastRentBilledAt = now;
             b.UpdatedAt = now;
-            totalRent += rent;
+            totalRent += charge;
         }
 
         // Loans (Phase 4a): bill accrued interest + straight-line principal over whole elapsed days.

@@ -91,4 +91,30 @@ public class BaseServiceTests
             Assert.Equal(10_000_000 - Cfg.BaseOpenCents(AirportKind.MediumAirport), (await db.Companies.FindAsync(companyId))!.CashCents);
         }
     }
+
+    [Fact]
+    public async Task UpgradeMaintenanceShop_RaisesLevel_BillsCapex_AndReconciles()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var companyId = await SeedAsync(tdb, clock, 100_000_000); // $1M
+        Guid baseId;
+        using (var db = tdb.NewContext())
+            baseId = (await NewBaseService(db, clock).OpenBaseAsync(companyId, "EHRD")).Id;
+
+        int level;
+        using (var db = tdb.NewContext())
+            level = await NewBaseService(db, clock).UpgradeMaintenanceShopAsync(companyId, baseId);
+
+        Assert.Equal(1, level);
+        using (var db = tdb.NewContext())
+        {
+            Assert.Equal(1, (await db.Bases.FindAsync(baseId))!.MaintenanceLevel);
+            Assert.Contains(await db.LedgerEntries.ToListAsync(),
+                e => e.AmountCents == -Cfg.MaintenanceShopUpgradeCents(1) && e.BaseId == baseId);
+            var company = await db.Companies.FindAsync(companyId);
+            var ledgerSum = await db.LedgerEntries.Where(e => e.AccountId == companyId).SumAsync(e => e.AmountCents);
+            Assert.Equal(ledgerSum, company!.CashCents); // the capex reconciles through the ledger
+        }
+    }
 }

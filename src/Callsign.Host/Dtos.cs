@@ -134,7 +134,8 @@ public record StatementRowDto(DateTimeOffset At, string Category, long AmountCen
     string? Aircraft, string? Staff, string? Base);
 
 // --- Phase 2e: bases ---
-public record BaseViewDto(Guid Id, string Icao, string Name, bool IsHome, long RentPerDayCents, double Latitude, double Longitude);
+public record BaseViewDto(Guid Id, string Icao, string Name, bool IsHome, long RentPerDayCents, double Latitude, double Longitude,
+    int MaintenanceLevel, long NextShopUpgradeCents, double MaintenanceDiscountPct);
 public record BaseOfferDto(string Icao, string Name, string Kind, double DistanceNm, long OpenCents, long RentPerDayCents, double Latitude, double Longitude);
 public record OpenBaseRequest(string AirportIcao);
 
