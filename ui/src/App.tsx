@@ -2860,13 +2860,16 @@ function Finances({ state, onChanged }: { state: State; onChanged: () => void })
       </section>
 
       <section className="card">
-        <div className="row-head"><h2>Borrow</h2><span className="hint">Bigger loans, lower APR</span></div>
+        <div className="row-head">
+          <h2>Borrow</h2>
+          {data && <span className={`credit-badge g-${data.credit.grade}`} title={`Credit score ${data.credit.score}/100 — ${data.credit.aprDeltaBps === 0 ? 'terms at the listed rate' : data.credit.aprDeltaBps < 0 ? `${(-data.credit.aprDeltaBps / 100).toFixed(1)}% off every rate` : `+${(data.credit.aprDeltaBps / 100).toFixed(1)}% on every rate`}`}>Rating {data.credit.grade} · {data.credit.score}</span>}
+        </div>
         <label className="pick">Amount ($)&nbsp;
           <input type="number" min={0} step={1000} value={amount} onChange={e => setAmount(Number(e.target.value))} />
         </label>
         <p className="muted" style={{ margin: '10px 0' }}>
           {tier
-            ? <>Tier <b>{tier.name}</b> at <b>{(tier.aprBps / 100).toFixed(1)}%</b> APR, repaid over 90 days. You have {money(state.cashCents)}.</>
+            ? <>Tier <b>{tier.name}</b> at <b>{(tier.effectiveAprBps / 100).toFixed(1)}%</b> APR{tier.effectiveAprBps !== tier.aprBps && <span> ({tier.effectiveAprBps < tier.aprBps ? 'discounted from' : 'up from'} {(tier.aprBps / 100).toFixed(1)}% by your rating)</span>}, repaid over 90 days. You have {money(state.cashCents)}.</>
             : 'That amount is outside the lending range.'}
         </p>
         <button className="primary" disabled={busy || !tier} onClick={take}>Borrow {money(cents)}</button>
@@ -2876,13 +2879,13 @@ function Finances({ state, onChanged }: { state: State; onChanged: () => void })
         <h2>Lending tiers</h2>
         {data && (
           <div className="tbl-wrap"><table className="tbl">
-            <thead><tr><th>Tier</th><th className="r">From</th><th className="r">To</th><th className="r">APR</th></tr></thead>
+            <thead><tr><th>Tier</th><th className="r">From</th><th className="r">To</th><th className="r">Your APR</th></tr></thead>
             <tbody>{data.offers.map(o => (
               <tr key={o.tier}>
                 <td>{o.name}</td>
                 <td className="r num muted">{money(o.minPrincipalCents)}</td>
                 <td className="r num muted">{money(o.maxPrincipalCents)}</td>
-                <td className="r num">{(o.aprBps / 100).toFixed(1)}%</td>
+                <td className="r num">{(o.effectiveAprBps / 100).toFixed(1)}%{o.effectiveAprBps !== o.aprBps && <span className="fair-ref"> vs {(o.aprBps / 100).toFixed(1)}%</span>}</td>
               </tr>
             ))}</tbody>
           </table></div>

@@ -29,6 +29,16 @@ public static class LoanCatalog
     public static long MaxPrincipalCents => Tiers[^1].MaxPrincipalCents;
     public static long MinPrincipalCents => Tiers[0].MinPrincipalCents;
 
+    /// <summary>A letter grade for a 0–100 credit score — the human-legible face of the number (Phase 7g).</summary>
+    public static string CreditGrade(int score) => score switch
+    {
+        >= 85 => "A",
+        >= 70 => "B",
+        >= 55 => "C",
+        >= 40 => "D",
+        _ => "E",
+    };
+
     /// <summary>
     /// Interest + principal accrued over <paramref name="days"/>: declining-balance interest (on the
     /// shrinking outstanding) with a straight-line principal repayment (original ÷ term). Pure.

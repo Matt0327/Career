@@ -781,11 +781,13 @@ public static class CallsignWebApp
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             var active = await loans.GetActiveAsync(pilot.CompanyId);
+            var (credit, offers) = await loans.OffersForAsync(pilot.CompanyId);
             return Results.Ok(new
             {
                 loans = active.Select(l => new LoanDto(l.Id, l.Tier, l.PrincipalCents, l.OutstandingCents,
                     l.AprBps, l.TermDays, l.Status.ToString(), l.TakenAt)),
-                offers = loans.Offers().Select(t => new LoanOfferDto(t.Tier, t.Name, t.MinPrincipalCents, t.MaxPrincipalCents, t.AprBps)),
+                offers = offers.Select(o => new LoanOfferDto(o.Tier.Tier, o.Tier.Name, o.Tier.MinPrincipalCents, o.Tier.MaxPrincipalCents, o.Tier.AprBps, o.EffectiveAprBps)),
+                credit = new CreditDto(credit.Score, credit.Grade, credit.AprDeltaBps),
             });
         });
 

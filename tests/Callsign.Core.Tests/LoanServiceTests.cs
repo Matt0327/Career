@@ -133,4 +133,109 @@ public class LoanServiceTests
             Assert.Equal(LoanStatus.PaidOff, loan.Status);
         }
     }
+
+    // ── Credit rating (Phase 7g): your track record sets your borrowing terms ──
+
+    [Fact]
+    public void CreditScore_FreshCompany_IsTheNeutralPivot_NoAprAdjustment()
+    {
+        int score = Cfg.CreditScore(paidOffLoans: 0, defaultedLoans: 0, outstandingCents: 0, cashCents: 5_000_000);
+        Assert.Equal(Cfg.CreditPivotScore, score);
+        Assert.Equal(0, Cfg.CreditAprDeltaBps(score));
+        Assert.Equal(1_000, Cfg.EffectiveAprBps(1_000, score)); // the tier's listed rate, untouched
+    }
+
+    [Fact]
+    public void CreditScore_PaidRecordDiscounts_DefaultAndLeveragePenalise()
+    {
+        int good = Cfg.CreditScore(paidOffLoans: 4, defaultedLoans: 0, outstandingCents: 0, cashCents: 10_000_000);
+        int defaulted = Cfg.CreditScore(paidOffLoans: 0, defaultedLoans: 1, outstandingCents: 0, cashCents: 10_000_000);
+        int levered = Cfg.CreditScore(paidOffLoans: 0, defaultedLoans: 0, outstandingCents: 10_000_000, cashCents: 0);
+
+        Assert.True(good > Cfg.CreditPivotScore);
+        Assert.True(defaulted < Cfg.CreditPivotScore);
+        Assert.True(levered < Cfg.CreditPivotScore);                 // carrying debt against little cash hurts
+        Assert.True(Cfg.CreditAprDeltaBps(good) < 0);                // a discount
+        Assert.True(Cfg.CreditAprDeltaBps(defaulted) > 0);           // a premium
+        Assert.True(Cfg.EffectiveAprBps(1_000, good) < Cfg.EffectiveAprBps(1_000, defaulted));
+    }
+
+    [Fact]
+    public void EffectiveAprBps_NeverDropsBelowTheFloor()
+    {
+        int best = Cfg.CreditScore(paidOffLoans: Cfg.CreditPaidLoanCap, defaultedLoans: 0, outstandingCents: 0, cashCents: 1_000_000_000);
+        Assert.True(Cfg.EffectiveAprBps(200, best) >= Cfg.CreditAprFloorBps); // even the deepest discount is floored
+    }
+
+    // A prior loan the company carried for ~60 days before clearing (seasoned) unless heldDays says otherwise.
+    private static Loan HistoryLoan(Guid companyId, DateTimeOffset at, LoanStatus status, int heldDays = 60)
+        => new() { Id = Guid.NewGuid(), CompanyId = companyId, Tier = 2, PrincipalCents = 20_000_000, AprBps = 1_000,
+                   TermDays = 90, OutstandingCents = 0, Status = status, TakenAt = at, PaymentLastBilledAt = at.AddDays(heldDays) };
+
+    [Fact]
+    public async Task Take_AfterADefault_ChargesAPremiumOverTheTierRate()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var companyId = await SeedCompanyAsync(tdb, clock, 100_000_000); // $1M cash
+        using (var db = tdb.NewContext())
+        {
+            db.Loans.Add(HistoryLoan(companyId, clock.UtcNow, LoanStatus.Defaulted));
+            await db.SaveChangesAsync();
+        }
+        using (var db = tdb.NewContext())
+        {
+            var loan = await Loans(db, clock).TakeAsync(companyId, 20_000_000); // Business tier, listed 10%
+            Assert.True(loan.AprBps > 1_000); // a default premium above the listed rate
+        }
+    }
+
+    [Fact]
+    public async Task Take_AfterCleanRepayments_ChargesADiscount()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var companyId = await SeedCompanyAsync(tdb, clock, 100_000_000);
+        using (var db = tdb.NewContext())
+        {
+            for (int i = 0; i < 3; i++)
+                db.Loans.Add(HistoryLoan(companyId, clock.UtcNow, LoanStatus.PaidOff));
+            await db.SaveChangesAsync();
+        }
+        using (var db = tdb.NewContext())
+        {
+            var loan = await Loans(db, clock).TakeAsync(companyId, 20_000_000);
+            Assert.True(loan.AprBps < 1_000); // a good-credit discount below the listed rate
+        }
+        using (var db = tdb.NewContext())
+        {
+            // The offer surface reflects the rating: a strong score discounts every tier.
+            var (credit, offers) = await Loans(db, clock).OffersForAsync(companyId);
+            Assert.True(credit.Score > Cfg.CreditPivotScore);
+            Assert.True(credit.AprDeltaBps < 0);
+            Assert.All(offers, o => Assert.True(o.EffectiveAprBps <= o.Tier.AprBps));
+        }
+    }
+
+    [Fact]
+    public async Task SameDayTakeAndRepay_DoesNotBuildCredit()
+    {
+        // Anti-farm: loans flipped the same day (zero interest, held < seasoning) prove nothing, so five of
+        // them leave the rating at the neutral pivot — you cannot conjure a free discount.
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var companyId = await SeedCompanyAsync(tdb, clock, 100_000_000);
+        using (var db = tdb.NewContext())
+        {
+            for (int i = 0; i < 5; i++)
+                db.Loans.Add(HistoryLoan(companyId, clock.UtcNow, LoanStatus.PaidOff, heldDays: 0)); // same-day churn
+            await db.SaveChangesAsync();
+        }
+        using (var db = tdb.NewContext())
+        {
+            var credit = await Loans(db, clock).AssessCreditAsync(companyId);
+            Assert.Equal(Cfg.CreditPivotScore, credit.Score); // unseasoned repayments don't count
+            Assert.Equal(0, credit.AprDeltaBps);
+        }
+    }
 }

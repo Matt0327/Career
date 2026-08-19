@@ -452,7 +452,14 @@ export interface LoanOffer {
   name: string
   minPrincipalCents: number
   maxPrincipalCents: number
-  aprBps: number
+  aprBps: number // the tier's listed rate
+  effectiveAprBps: number // Phase 7g — the rate priced for your credit rating
+}
+
+export interface Credit {
+  score: number // Phase 7g — 0-100 borrowing standing from repayment history + leverage
+  grade: string // A–E
+  aprDeltaBps: number // signed adjustment to every tier's APR (negative = discount)
 }
 
 export interface Loan {
@@ -469,6 +476,7 @@ export interface Loan {
 export interface Loans {
   loans: Loan[]
   offers: LoanOffer[]
+  credit: Credit
 }
 
 export interface NetWorth {

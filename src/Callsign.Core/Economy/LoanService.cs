@@ -5,10 +5,18 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Callsign.Core.Economy;
 
+/// <summary>Your borrowing standing (Phase 7g): a 0–100 score, its letter grade, and the APR adjustment it
+/// earns you (negative = a discount off the tier rate, positive = a premium).</summary>
+public sealed record CreditAssessment(int Score, string Grade, int AprDeltaBps);
+
+/// <summary>A lending tier priced for YOUR rating: the tier's listed APR plus the credit adjustment.</summary>
+public sealed record LoanOffer(LoanTierDef Tier, int EffectiveAprBps);
+
 /// <summary>
 /// Loans (Phase 4a): borrow against a tier's APR, draw the cash down through the ledger, and carry the
 /// outstanding principal as a liability. Interest + scheduled repayments are billed in the offline
 /// reconcile pass (<see cref="OperationsService"/>); this service handles taking a loan and paying one off.
+/// Your credit rating (Phase 7g) — built from repayment history and current leverage — shifts the APR.
 /// </summary>
 public sealed class LoanService
 {
@@ -31,6 +39,37 @@ public sealed class LoanService
         => _db.Loans.Where(l => l.CompanyId == companyId && l.Status == LoanStatus.Active && !l.IsDeleted)
                     .OrderBy(l => l.TakenAt).ToListAsync(ct);
 
+    /// <summary>
+    /// The company's current credit standing, from its loan repayment history and how leveraged it is right
+    /// now. A fresh company scores the neutral pivot (its loans price at the listed rate); a clean repayment
+    /// record earns a discount, a default or heavy leverage a premium.
+    /// </summary>
+    public async Task<CreditAssessment> AssessCreditAsync(Guid companyId, CancellationToken ct = default)
+    {
+        var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId, ct)
+                      ?? throw new InvalidOperationException($"Company {companyId} not found.");
+        // A repaid loan only counts if it was actually carried (seasoned) — a same-day take-and-repay accrues
+        // no interest and proves nothing, so it can't be farmed for a free rating.
+        var paidSpans = await _db.Loans
+            .Where(l => l.CompanyId == companyId && l.Status == LoanStatus.PaidOff && !l.IsDeleted)
+            .Select(l => new { l.TakenAt, l.PaymentLastBilledAt })
+            .ToListAsync(ct);
+        int paidOff = paidSpans.Count(l => (l.PaymentLastBilledAt - l.TakenAt).TotalDays >= _cfg.CreditSeasoningDays);
+        int defaulted = await _db.Loans.CountAsync(l => l.CompanyId == companyId && l.Status == LoanStatus.Defaulted && !l.IsDeleted, ct);
+        long outstanding = await _db.Loans.Where(l => l.CompanyId == companyId && l.Status == LoanStatus.Active && !l.IsDeleted)
+                                          .SumAsync(l => l.OutstandingCents, ct);
+        int score = _cfg.CreditScore(paidOff, defaulted, outstanding, company.CashCents);
+        return new CreditAssessment(score, LoanCatalog.CreditGrade(score), _cfg.CreditAprDeltaBps(score));
+    }
+
+    /// <summary>The lending tiers priced for the company's current rating, alongside that rating.</summary>
+    public async Task<(CreditAssessment Credit, IReadOnlyList<LoanOffer> Offers)> OffersForAsync(Guid companyId, CancellationToken ct = default)
+    {
+        var credit = await AssessCreditAsync(companyId, ct);
+        var offers = LoanCatalog.Tiers.Select(t => new LoanOffer(t, _cfg.EffectiveAprBps(t.AprBps, credit.Score))).ToList();
+        return (credit, offers);
+    }
+
     /// <summary>Borrow <paramref name="principalCents"/>: the draw-down credits cash; the debt is carried here.</summary>
     public async Task<Loan> TakeAsync(Guid companyId, long principalCents, CancellationToken ct = default)
     {
@@ -40,18 +79,22 @@ public sealed class LoanService
                    ?? throw new InvalidOperationException(
                        $"{principalCents / 100m:C0} is outside the lending range ({LoanCatalog.MinPrincipalCents / 100m:C0}–{LoanCatalog.MaxPrincipalCents / 100m:C0}).");
 
+        // Price the loan for this company's credit standing: the rate is snapshot at draw-down (Phase 7g).
+        var credit = await AssessCreditAsync(companyId, ct);
+        int aprBps = _cfg.EffectiveAprBps(tier.AprBps, credit.Score);
+
         var now = _clock.UtcNow;
         var loan = new Loan
         {
             Id = Guid.NewGuid(), CompanyId = companyId, Tier = tier.Tier, PrincipalCents = principalCents,
-            AprBps = tier.AprBps, TermDays = _cfg.LoanTermDays, OutstandingCents = principalCents,
+            AprBps = aprBps, TermDays = _cfg.LoanTermDays, OutstandingCents = principalCents,
             TakenAt = now, PaymentLastBilledAt = now, Status = LoanStatus.Active, UpdatedAt = now,
         };
         _db.Loans.Add(loan);
         await _ledger.StageBatchAsync(companyId, new[]
         {
             new LedgerPosting(LedgerCategory.LoanPrincipal, principalCents / 100m,
-                $"Loan draw-down — {tier.Name} ({tier.AprBps / 100.0:0.0}% APR)", LedgerRefType.Loan, loan.Id.ToString()),
+                $"Loan draw-down — {tier.Name} ({aprBps / 100.0:0.0}% APR, {credit.Grade} rating)", LedgerRefType.Loan, loan.Id.ToString()),
         }, ct);
         await _db.SaveChangesAsync(ct);
         return loan;

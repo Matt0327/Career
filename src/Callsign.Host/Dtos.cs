@@ -102,8 +102,9 @@ public record OrderPriceRequest(int PriceMultiplierMilli);
 public record ReconcileDto(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed, int EmptyLegs);
 
 // --- Phase 4a: loans ---
-public record LoanOfferDto(int Tier, string Name, long MinPrincipalCents, long MaxPrincipalCents, int AprBps);
+public record LoanOfferDto(int Tier, string Name, long MinPrincipalCents, long MaxPrincipalCents, int AprBps, int EffectiveAprBps);
 public record LoanDto(Guid Id, int Tier, long PrincipalCents, long OutstandingCents, int AprBps, int TermDays, string Status, DateTimeOffset TakenAt);
+public record CreditDto(int Score, string Grade, int AprDeltaBps);
 public record TakeLoanRequest(long PrincipalCents);
 
 // --- Phase 4d: routes ---

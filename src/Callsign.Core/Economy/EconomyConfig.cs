@@ -305,6 +305,52 @@ public sealed record EconomyConfig
     /// <summary>Repayment horizon for a new loan (straight-line principal over this many days).</summary>
     public int LoanTermDays { get; init; } = 90;
 
+    // --- Credit rating (Phase 7g): your track record sets your borrowing terms ---
+    /// <summary>The neutral credit score — a company with no history borrows at the tier's listed APR; above
+    /// it earns a discount, below it a premium. A fresh company scores exactly this (no adjustment).</summary>
+    public int CreditPivotScore { get; init; } = 60;
+    /// <summary>Score gained per loan repaid in full (proven reliability), counted up to the cap.</summary>
+    public int CreditPaidLoanPoints { get; init; } = 8;
+    public int CreditPaidLoanCap { get; init; } = 5;
+    /// <summary>A repaid loan only builds credit if it was actually carried this many days — a same-day
+    /// take-and-repay (which accrues no interest) proves nothing, so it doesn't count toward your rating.</summary>
+    public int CreditSeasoningDays { get; init; } = 14;
+    /// <summary>Score lost per loan defaulted on — a heavy, lasting hit to your terms.</summary>
+    public int CreditDefaultPenaltyPoints { get; init; } = 25;
+    /// <summary>Most score lost to leverage — scales with how much of your (cash + debt) is debt right now.</summary>
+    public int CreditMaxLeveragePenaltyPoints { get; init; } = 30;
+    /// <summary>Basis points added to (or removed from) a tier's APR per point of score away from the pivot.</summary>
+    public int CreditBpsPerScorePoint { get; init; } = 12;
+    /// <summary>The APR adjustment band (bps): the most a strong rating discounts, the most a weak one adds.</summary>
+    public int CreditAprDeltaMinBps { get; init; } = -400;
+    public int CreditAprDeltaMaxBps { get; init; } = 800;
+    /// <summary>An APR never drops below this floor, however good the rating.</summary>
+    public int CreditAprFloorBps { get; init; } = 100;
+
+    /// <summary>A 0–100 credit score from repayment history and current leverage. Pure; a fresh company
+    /// (no repaid/defaulted loans, no outstanding debt) scores exactly <see cref="CreditPivotScore"/>.</summary>
+    public int CreditScore(int paidOffLoans, int defaultedLoans, long outstandingCents, long cashCents)
+    {
+        double score = CreditPivotScore
+            + CreditPaidLoanPoints * Math.Min(paidOffLoans, CreditPaidLoanCap)
+            - (double)CreditDefaultPenaltyPoints * defaultedLoans;
+        if (outstandingCents > 0)
+        {
+            double denom = Math.Max(0, cashCents) + outstandingCents;
+            double debtLoad = denom > 0 ? outstandingCents / denom : 1.0; // fraction of your (cash + debt) that is debt, [0,1]
+            score -= CreditMaxLeveragePenaltyPoints * debtLoad;
+        }
+        return (int)Math.Round(Math.Clamp(score, 0, 100));
+    }
+
+    /// <summary>The APR adjustment (bps) for a score: negative discounts a strong rating, positive a weak one.</summary>
+    public int CreditAprDeltaBps(int score)
+        => Math.Clamp((CreditPivotScore - score) * CreditBpsPerScorePoint, CreditAprDeltaMinBps, CreditAprDeltaMaxBps);
+
+    /// <summary>A tier's base APR adjusted for the score, never below <see cref="CreditAprFloorBps"/>.</summary>
+    public int EffectiveAprBps(int baseAprBps, int score)
+        => Math.Max(CreditAprFloorBps, baseAprBps + CreditAprDeltaBps(score));
+
     // --- Balance sheet (Phase 4b) ---
     /// <summary>Resale haircut: a pristine airframe is worth this fraction of its market price as an asset.</summary>
     public double AircraftResaleFactor { get; init; } = 0.70;
