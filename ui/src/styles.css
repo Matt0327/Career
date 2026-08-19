@@ -70,9 +70,11 @@ input { font: inherit; }
 .mark.big { font-size: 40px; }
 
 /* ── Shell: a left nav rail + a workspace (context header + main) ── */
-.app { min-height: 100vh; display: flex; }
+/* One-screen shell (Phase 8 L9): the app fills the viewport exactly and never scrolls the page — the nav
+   rail and context header stay put, and only the .main content region scrolls, within its own bounds. */
+.app { height: 100dvh; display: flex; overflow: hidden; }
 .rail {
-  width: 64px; flex: none; position: sticky; top: 0; align-self: flex-start; height: 100vh;
+  width: 64px; flex: none; align-self: stretch; height: 100dvh; overflow-y: auto;
   background: var(--panel); border-right: 1px solid var(--line);
   display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 12px 0; z-index: 20;
 }
@@ -93,7 +95,7 @@ input { font: inherit; }
 }
 .ric:hover .tip { opacity: 1; }
 
-.work { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.work { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .ctxbar {
   position: sticky; top: 0; z-index: 10;
   display: flex; align-items: center; gap: 16px; padding: 13px 24px;
@@ -107,7 +109,7 @@ input { font: inherit; }
 .ctx .chip.cash b { font-size: 15px; }
 .ctx .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pos); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pos) 18%, transparent); }
 
-.main { padding: 22px 24px; max-width: 1200px; width: 100%; margin: 0 auto; }
+.main { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 22px 24px; max-width: 1200px; width: 100%; margin: 0 auto; }
 .grid { display: grid; gap: 16px; }
 
 /* ── Cards ── */
