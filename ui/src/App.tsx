@@ -37,7 +37,9 @@ export function App() {
   if (state === null) return <Onboarding onStarted={reload} />
 
   return (
-    <div className="app">
+    <div className="shell">
+      <TitleBar />
+      <div className="app">
       <NavRail tab={tab} setTab={setTab} airline={airline} />
       <div className="work">
         <ContextHeader state={state} tab={tab} />
@@ -59,6 +61,32 @@ export function App() {
         {tab === 'settings' && <Settings />}
         </main>
       </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Desktop window chrome: a frameless title bar (only inside the WebView2 shell) ───
+
+// True only in the packaged desktop app (the WebView2 host), never in a plain browser.
+const inWebView = typeof window !== 'undefined' && !!(window as { chrome?: { webview?: unknown } }).chrome?.webview
+function winCmd(cmd: string) {
+  try { (window as unknown as { chrome: { webview: { postMessage: (m: string) => void } } }).chrome.webview.postMessage(cmd) } catch { /* not in the desktop shell */ }
+}
+
+// The CALL·SIGN top bar: brand + minimize / maximize / close, and a drag region — matching the launcher.
+// Rendered only in the desktop app; in a browser the native/browser chrome is kept, so dev is unaffected.
+function TitleBar() {
+  if (!inWebView) return null
+  return (
+    <div className="wtitlebar"
+      onPointerDown={e => { if ((e.target as HTMLElement).closest('.wbtn')) return; if (e.button === 0) winCmd('win:drag') }}
+      onDoubleClick={() => winCmd('win:maximize')}>
+      <span className="wbrand">CALL<span className="dot">·</span>SIGN</span>
+      <span className="wsp" />
+      <button className="wbtn" title="Minimize" aria-label="Minimize" onClick={() => winCmd('win:minimize')}>&#x2013;</button>
+      <button className="wbtn" title="Maximize" aria-label="Maximize" onClick={() => winCmd('win:maximize')}>&#x25A1;</button>
+      <button className="wbtn close" title="Close" aria-label="Close" onClick={() => winCmd('win:close')}>&#x2715;</button>
     </div>
   )
 }
