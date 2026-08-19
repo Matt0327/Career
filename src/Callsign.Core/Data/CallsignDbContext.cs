@@ -256,6 +256,7 @@ public sealed class CallsignDbContext : DbContext
         route.Property(r => r.OriginIcao).IsRequired().HasMaxLength(12);
         route.Property(r => r.DestIcao).IsRequired().HasMaxLength(12);
         route.Property(r => r.Mission).HasConversion<string>().HasMaxLength(20);
+        route.Property(r => r.PriceMultiplierMilli).HasDefaultValue(1000); // existing routes backfill to the fair rate
         route.HasIndex(r => r.CompanyId);
         route.HasOne<Company>().WithMany().HasForeignKey(r => r.CompanyId).OnDelete(DeleteBehavior.Restrict);
         route.HasOne<AircraftInstance>().WithMany().HasForeignKey(r => r.AircraftInstanceId).OnDelete(DeleteBehavior.Restrict);

@@ -16,7 +16,10 @@ public sealed class Route : ISyncable
     public MissionType Mission { get; set; }
     public double DistanceNm { get; set; }
     public double RoundTripHours { get; set; }
-    public long RewardPerTripCents { get; set; }       // economy-frozen
+    public long RewardPerTripCents { get; set; }       // economy-frozen fair rate
+    /// <summary>Your markup over the fair rate, in thousandths (1000 = fair, up to MaxContractMarkup). A
+    /// premium pays more per filled trip but the client fills fewer — some legs fly empty (Phase 7g).</summary>
+    public int PriceMultiplierMilli { get; set; } = 1000;
     public Guid AircraftInstanceId { get; set; }
     public Guid StaffId { get; set; }
     public bool Active { get; set; } = true;

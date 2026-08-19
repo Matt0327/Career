@@ -2070,6 +2070,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
   const [rStaff, setRStaff] = useState('')
   const [rAircraft, setRAircraft] = useState('')
   const [rMission, setRMission] = useState('Cargo')
+  const [rMarkup, setRMarkup] = useState(1000)
 
   const load = useCallback(async () => {
     try {
@@ -2088,9 +2089,14 @@ function Ops({ onChanged }: { onChanged: () => void }) {
     if (!rStaff || !rAircraft || !rOrigin || !rDest) { setMsg('A route needs a pilot, an aircraft, and two of your bases.'); return }
     setBusy(true); setMsg(null)
     try {
-      await api.createRoute({ name: rName.trim() || undefined, originIcao: rOrigin, destIcao: rDest, aircraftInstanceId: rAircraft, staffId: rStaff, mission: rMission })
-      setRName(''); setROrigin(''); setRDest(''); setRStaff(''); setRAircraft(''); await load(); onChanged(); setMsg('Route opened — it earns while you fly.')
+      await api.createRoute({ name: rName.trim() || undefined, originIcao: rOrigin, destIcao: rDest, aircraftInstanceId: rAircraft, staffId: rStaff, mission: rMission, priceMultiplierMilli: rMarkup })
+      setRName(''); setROrigin(''); setRDest(''); setRStaff(''); setRAircraft(''); setRMarkup(1000); await load(); onChanged(); setMsg('Route opened — it earns while you fly.')
     } catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+  const repriceRoute = async (id: string, milli: number) => {
+    setBusy(true); setMsg(null)
+    try { await api.setRoutePrice(id, milli); await load(); onChanged() }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
   const cancelRoute = async (id: string) => {
     setBusy(true); setMsg(null)
@@ -2207,12 +2213,18 @@ function Ops({ onChanged }: { onChanged: () => void }) {
         <div className="row-head"><h2>Routes</h2><span className="hint">Base-to-base lines — fee-free, earning while you fly</span></div>
         {routes && routes.routes.length > 0 && (
           <div className="tbl-wrap"><table className="tbl">
-            <thead><tr><th>Route</th><th>Leg</th><th className="r">Reward/trip</th><th></th></tr></thead>
+            <thead><tr><th>Route</th><th>Leg</th><th className="r">Reward/trip</th><th className="r">Price</th><th></th></tr></thead>
             <tbody>{routes.routes.map(r => (
               <tr key={r.id}>
                 <td>{r.name} <span className="muted">· {r.mission}</span></td>
                 <td><span className="loc">{r.origin}</span> → <span className="loc">{r.dest}</span> <span className="muted">· {Math.round(r.distanceNm)} nm</span></td>
-                <td className="r num pos">{money(r.rewardPerTripCents)}</td>
+                <td className="r num pos">{money(r.rewardPerTripCents)}{r.priceMultiplierMilli > 1000 && <span className="fair-ref"> vs {money(r.fairRewardPerTripCents)}</span>}</td>
+                <td className="r">
+                  <select className="markup-sel" value={r.priceMultiplierMilli} disabled={busy} onChange={e => repriceRoute(r.id, Number(e.target.value))} title="Re-price this route — applies to future trips only">
+                    {MARKUP_OPTS.map(m => <option key={m} value={m}>{markupLabel(m)}</option>)}
+                  </select>
+                  <span className={`fill-hint${r.fillPct < 100 ? ' warn' : ''}`}>{r.fillPct}% fill</span>
+                </td>
                 <td className="r"><button disabled={busy} onClick={() => cancelRoute(r.id)}>Cancel</button></td>
               </tr>
             ))}</tbody>
@@ -2229,6 +2241,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
               <select value={rStaff} onChange={e => setRStaff(e.target.value)}><option value="">Pilot…</option>{staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
               <select value={rAircraft} onChange={e => setRAircraft(e.target.value)}><option value="">Aircraft…</option>{fleet.map(f => <option key={f.id} value={f.id}>{f.tail} — {f.locationIcao}</option>)}</select>
               <select value={rMission} onChange={e => setRMission(e.target.value)}>{routes.missions.map(m => <option key={m} value={m}>{m}</option>)}</select>
+              <select value={rMarkup} onChange={e => setRMarkup(Number(e.target.value))} title="Demand a premium over the fair rate — more per filled trip, but the client ships fewer">{MARKUP_OPTS.map(m => <option key={m} value={m}>{markupLabel(m)} · {fillFor(m)}% fill</option>)}</select>
               <button className="primary" disabled={busy} onClick={createRoute}>Open route</button>
             </div>
           )}

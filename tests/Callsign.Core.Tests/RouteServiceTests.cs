@@ -105,4 +105,60 @@ public class RouteServiceTests
         using (var db = tdb.NewContext())
             Assert.Equal(AircraftAvailability.Available, (await db.AircraftInstances.FindAsync(aircraftId))!.Availability);
     }
+
+    [Fact]
+    public async Task CreateRoute_ClampsMarkup_AndRepriceClampsToo()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var (companyId, aircraftId, staffId) = await SeedAsync(tdb, clock);
+        Guid routeId;
+        using (var db = tdb.NewContext())
+        {
+            var r = await Routes(db, clock).CreateRouteAsync(companyId, "R", "EHAM", "EHRD", aircraftId, staffId, MissionType.Cargo, 9_000); // absurd markup
+            routeId = r.Id;
+            Assert.Equal(Cfg.MaxContractMarkupMilli, r.PriceMultiplierMilli); // clamped to the cap
+        }
+        using (var db = tdb.NewContext())
+        {
+            int m = await Ops(db, clock).SetRoutePriceAsync(companyId, routeId, 500); // below fair → clamps up to fair
+            Assert.Equal(1000, m);
+            Assert.Equal(1000, (await db.Routes.FindAsync(routeId))!.PriceMultiplierMilli);
+        }
+    }
+
+    [Fact]
+    public async Task Reprice_BooksPendingTripsAtOldPrice_NotRetroactively()
+    {
+        // A route reprice must reconcile FIRST at the OLD rate; trips already flown are never re-priced up.
+        // Compared against a plain reconcile over the same window, a reprice-to-+50% books the SAME payout.
+        var cfg = Cfg with { BaseIncidentRatePct = 0.0 }; // no incidents → income is exactly filled × price
+
+        async Task<long> RunAsync(bool reprice)
+        {
+            using var tdb = new TestDb();
+            var clock = new FakeClock();
+            var (companyId, aircraftId, staffId) = await SeedAsync(tdb, clock);
+            Guid routeId;
+            using (var db = tdb.NewContext())
+                routeId = (await new RouteService(db, clock, cfg)
+                    .CreateRouteAsync(companyId, "R", "EHAM", "EHRD", aircraftId, staffId, MissionType.Cargo)).Id; // fair rate (1000)
+
+            clock.UtcNow = clock.UtcNow.AddDays(3); // trips accrue at the fair rate
+
+            using (var db = tdb.NewContext())
+            {
+                var ops = new OperationsService(db, new LedgerService(db, clock), clock, cfg);
+                if (reprice) await ops.SetRoutePriceAsync(companyId, routeId, 1500); // reconciles-first, THEN marks up
+                else await ops.ReconcileAsync(companyId);
+            }
+            using (var db = tdb.NewContext())
+                return await db.LedgerEntries.Where(e => e.Category == LedgerCategory.JobPayout).SumAsync(e => e.AmountCents);
+        }
+
+        long control = await RunAsync(reprice: false);
+        long repriced = await RunAsync(reprice: true);
+        Assert.True(control > 0);           // trips actually accrued and paid out
+        Assert.Equal(control, repriced);    // repricing booked the pending trips at the OLD fair rate, not +50%
+    }
 }

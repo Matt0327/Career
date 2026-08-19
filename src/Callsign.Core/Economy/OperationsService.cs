@@ -140,6 +140,22 @@ public sealed class OperationsService
         return markup;
     }
 
+    /// <summary>
+    /// Re-price an active route. Reconciles first so trips already flown book at the OLD price (the new markup
+    /// applies to future trips only). Returns the clamped markup actually stored.
+    /// </summary>
+    public async Task<int> SetRoutePriceAsync(Guid companyId, Guid routeId, int priceMultiplierMilli, CancellationToken ct = default)
+    {
+        await ReconcileAsync(companyId, ct); // book pending trips at the current price before it changes
+        var route = await _db.Routes.FirstOrDefaultAsync(r => r.Id == routeId && r.CompanyId == companyId && r.Active && !r.IsDeleted, ct)
+                    ?? throw new InvalidOperationException("Route not found.");
+        int markup = Math.Clamp(priceMultiplierMilli, 1000, _cfg.MaxContractMarkupMilli);
+        route.PriceMultiplierMilli = markup;
+        route.UpdatedAt = _clock.UtcNow;
+        await _db.SaveChangesAsync(ct);
+        return markup;
+    }
+
     /// <summary>Cancel a standing order and free its aircraft.</summary>
     public async Task CancelStandingOrderAsync(Guid companyId, Guid orderId, CancellationToken ct = default)
     {
@@ -323,7 +339,7 @@ public sealed class OperationsService
                 continue; // duty not yet accrued — the crew rests
 
             var rtCrew = await _db.Staff.FirstOrDefaultAsync(s => s.Id == route.StaffId, ct);
-            var rtRoll = RollTrips(_cfg, route.Id, route.LastReconciledAt.UtcTicks, trips, rtCrew?.SkillMilli ?? 50_000, route.RewardPerTripCents);
+            var rtRoll = RollTrips(_cfg, route.Id, route.LastReconciledAt.UtcTicks, trips, rtCrew?.SkillMilli ?? 50_000, route.RewardPerTripCents, route.PriceMultiplierMilli);
             long income = rtRoll.Income;
             await _ledger.StageBatchAsync(companyId, new[]
             {
@@ -346,6 +362,7 @@ public sealed class OperationsService
             totalTrips += trips;
             grossIncome += income;
             totalIncidents += rtRoll.Incidents;
+            totalEmpty += rtRoll.Empty;
             if (dutyCapped) dutyMaxed.Add(rtAircraft?.Tail ?? route.Name);
             SharpenCrew(rtCrew, trips, now);
         }

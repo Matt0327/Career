@@ -919,7 +919,7 @@ public static class CallsignWebApp
         });
 
         // --- Routes (Phase 4d) ---
-        app.MapGet("/api/routes", async (CallsignDbContext db, RouteService routes, BaseService bases) =>
+        app.MapGet("/api/routes", async (CallsignDbContext db, RouteService routes, BaseService bases, EconomyConfig cfg) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
@@ -929,8 +929,13 @@ public static class CallsignWebApp
                 .Select(d => d.Type.ToString()).ToList();
             return Results.Ok(new
             {
-                routes = active.Select(r => new RouteDto(r.Id, r.Name, r.OriginIcao, r.DestIcao, r.Mission.ToString(),
-                    r.DistanceNm, r.RoundTripHours, r.RewardPerTripCents)),
+                routes = active.Select(r =>
+                {
+                    long effReward = (long)Math.Round(r.RewardPerTripCents * (r.PriceMultiplierMilli / 1000.0));
+                    int fillPct = (int)Math.Round(cfg.ContractFillProbability(r.PriceMultiplierMilli) * 100);
+                    return new RouteDto(r.Id, r.Name, r.OriginIcao, r.DestIcao, r.Mission.ToString(),
+                        r.DistanceNm, r.RoundTripHours, effReward, r.PriceMultiplierMilli, fillPct, r.RewardPerTripCents);
+                }),
                 bases = baseViews.Select(b => new RouteBaseDto(b.Icao, b.Name)),
                 missions,
             });
@@ -944,8 +949,20 @@ public static class CallsignWebApp
                 return Results.BadRequest(new { error = $"Unknown mission '{req.Mission}'." });
             try
             {
-                var r = await routes.CreateRouteAsync(pilot.CompanyId, req.Name, req.OriginIcao, req.DestIcao, req.AircraftInstanceId, req.StaffId, mission);
-                return Results.Ok(new { id = r.Id, name = r.Name, rewardPerTripCents = r.RewardPerTripCents });
+                var r = await routes.CreateRouteAsync(pilot.CompanyId, req.Name, req.OriginIcao, req.DestIcao, req.AircraftInstanceId, req.StaffId, mission, req.PriceMultiplierMilli ?? 1000);
+                return Results.Ok(new { id = r.Id, name = r.Name, rewardPerTripCents = r.RewardPerTripCents, priceMultiplierMilli = r.PriceMultiplierMilli });
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        app.MapPost("/api/routes/{id:guid}/price", async (Guid id, OrderPriceRequest req, CallsignDbContext db, OperationsService ops) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                int markup = await ops.SetRoutePriceAsync(pilot.CompanyId, id, req.PriceMultiplierMilli);
+                return Results.Ok(new { id, priceMultiplierMilli = markup });
             }
             catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });

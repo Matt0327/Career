@@ -29,7 +29,7 @@ public sealed class RouteService
         => _db.Routes.Where(r => r.CompanyId == companyId && r.Active && !r.IsDeleted).OrderBy(r => r.Name).ToListAsync(ct);
 
     public async Task<Route> CreateRouteAsync(
-        Guid companyId, string? name, string originIcao, string destIcao, Guid aircraftId, Guid staffId, MissionType mission, CancellationToken ct = default)
+        Guid companyId, string? name, string originIcao, string destIcao, Guid aircraftId, Guid staffId, MissionType mission, int priceMultiplierMilli = 1000, CancellationToken ct = default)
     {
         if (string.Equals(originIcao, destIcao, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("A route needs two different airports.");
@@ -72,7 +72,8 @@ public sealed class RouteService
         long baseReward = def.CarriesPassengers
             ? _cfg.PaxRewardCents(dist, (_cfg.MinPax + _cfg.MaxPax) / 2)
             : _cfg.CargoRewardCents(dist, (_cfg.MinCargoWeightLbs + _cfg.MaxCargoWeightLbs) / 2);
-        long reward = (long)Math.Round(baseReward * def.RewardMult); // economy-frozen, never player-set
+        long reward = (long)Math.Round(baseReward * def.RewardMult); // economy-frozen FAIR rate; your markup rides on top
+        int markup = Math.Clamp(priceMultiplierMilli, 1000, _cfg.MaxContractMarkupMilli);
 
         var now = _clock.UtcNow;
         var route = new Route
@@ -80,7 +81,8 @@ public sealed class RouteService
             Id = Guid.NewGuid(), CompanyId = companyId,
             Name = string.IsNullOrWhiteSpace(name) ? $"{originIcao}–{destIcao} {def.DisplayName}" : name!.Trim(),
             OriginIcao = originIcao, DestIcao = destIcao, Mission = mission, DistanceNm = dist,
-            RoundTripHours = rtHours, RewardPerTripCents = reward, AircraftInstanceId = aircraftId, StaffId = staffId,
+            RoundTripHours = rtHours, RewardPerTripCents = reward, PriceMultiplierMilli = markup,
+            AircraftInstanceId = aircraftId, StaffId = staffId,
             Active = true, StartedAt = now, LastReconciledAt = now, UpdatedAt = now,
         };
         _db.Routes.Add(route);

@@ -435,7 +435,10 @@ export interface RouteInfo {
   mission: string
   distanceNm: number
   roundTripHours: number
-  rewardPerTripCents: number
+  rewardPerTripCents: number // effective per FILLED trip at your markup
+  priceMultiplierMilli: number // Phase 7g — your markup over the fair rate (1000 = fair)
+  fillPct: number // Phase 7g — expected share of trips the client actually ships at this price
+  fairRewardPerTripCents: number // Phase 7g — the frozen fair rate the markup rides on
 }
 
 export interface RouteData {
@@ -756,8 +759,10 @@ export const api = {
   statement: (days: number) => fetch(`/api/finances/statement?days=${days}`).then(ok<StatementRow[]>),
   insurance: () => fetch('/api/insurance').then(ok<Insurance>),
   routes: () => fetch('/api/routes').then(ok<RouteData>),
-  createRoute: (body: { name?: string; originIcao: string; destIcao: string; aircraftInstanceId: string; staffId: string; mission: string }) =>
+  createRoute: (body: { name?: string; originIcao: string; destIcao: string; aircraftInstanceId: string; staffId: string; mission: string; priceMultiplierMilli?: number }) =>
     POST('/api/routes', body).then(ok),
+  setRoutePrice: (id: string, priceMultiplierMilli: number) =>
+    POST(`/api/routes/${id}/price`, { priceMultiplierMilli }).then(ok),
   cancelRoute: (id: string) => POST(`/api/routes/${id}/cancel`).then(ok),
   insure: (aircraftInstanceId: string) => POST_IDEM('/api/insurance/insure', { aircraftInstanceId }).then(ok),
   cancelInsurance: (id: string) => POST(`/api/insurance/${id}/cancel`).then(ok),
