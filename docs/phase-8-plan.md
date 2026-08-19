@@ -28,6 +28,8 @@ Phase 7's five laws still hold in full — **score the sim never command it; one
 
 **L8 — The world raises stakes; it never hard-blocks the only path.** Bad weather makes a leg harder and riskier and can delay an autonomous trip — it does not delete the player's ability to fly (they can choose to launch into it). A missing certificate gates a *category* of work, never all work. An economy bust thins the job board, never empties it. The world pressures; the player always has a move.
 
+**L9 — one tab, one screen: no page scroll.** Open any tab and everything that matters is visible at a glance — the summary, the primary controls, the current state — in a single viewport, no scrolling the page to find things. This is how a cockpit or an ops board reads: you take it in, you don't hunt. Concretely: the tab lays out to the viewport (a grid/columns that fills the height, not a tall stack); an unavoidably long list — logbook, ledger, a full job board — lives in its **own fixed-height panel that scrolls internally**, so the page frame, the headline numbers, and the actions never leave the screen. The body never scrolls; only a panel does. This binds **every** UI a Phase 8 slice adds — and it is a **retrofit target for the tabs already built**: today most tabs are a tall single column you must scroll, which is exactly the legibility debt the consolidated polish pass pays down. New surfaces are born one-screen; old ones are converted to it. (This is the app's quality bar — image-forward, deep-but-easy, the big calls surfaced up front — expressed as a hard layout rule.)
+
 ---
 
 ## 2. The integration spine
