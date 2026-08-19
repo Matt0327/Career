@@ -266,6 +266,22 @@ public sealed record EconomyConfig
     /// <summary>Fallback carry capacity when no owned aircraft has a known useful load.</summary>
     public int TradeDefaultHoldLbs { get; init; } = 1_500;
 
+    // --- Market pressure (Phase 7g): your own trading moves the local price ---
+    /// <summary>The most your own footprint can shove one good's price at one airport (±fraction) once you
+    /// have fully cornered or flooded it — layered on top of region bias + window swing. Buying lifts the
+    /// price, selling softens it, so the very arbitrage you work erodes as you work it.
+    /// INVARIANT: keep this at or below the round-trip dealer cost (2 × <see cref="TradeSpreadPct"/>) so a
+    /// same-airport buy-then-sell-back always LOSES. Above ~2×spread, a single large buy lifts that airport's
+    /// own sell price past what you paid, turning the mechanic into a risk-free money pump. At 0.08 vs a 0.10
+    /// round trip a full-scale round trip still loses ~2.4% of mid — a comfortable margin.</summary>
+    public double MarketPressureSwing { get; init; } = 0.08;
+    /// <summary>Net weight of a single good (lb) your trades must move at one airport to reach the full
+    /// <see cref="MarketPressureSwing"/> — a few loaded runs. Below this the market barely notices you.</summary>
+    public int MarketPressureFullScaleLbs { get; init; } = 12_000;
+    /// <summary>How fast market pressure mean-reverts to neutral — half of it is gone after this long. An
+    /// arbitrage you leave alone heals; one you keep hammering stays suppressed while you work it.</summary>
+    public TimeSpan MarketPressureHalfLife { get; init; } = TimeSpan.FromDays(2);
+
     // --- Loans (Phase 4a) ---
     /// <summary>Repayment horizon for a new loan (straight-line principal over this many days).</summary>
     public int LoanTermDays { get; init; } = 90;

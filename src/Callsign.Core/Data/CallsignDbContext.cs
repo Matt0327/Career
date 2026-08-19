@@ -26,6 +26,7 @@ public sealed class CallsignDbContext : DbContext
     public DbSet<StandingOrder> StandingOrders => Set<StandingOrder>();
     public DbSet<Base> Bases => Set<Base>();
     public DbSet<InventoryLot> InventoryLots => Set<InventoryLot>();
+    public DbSet<MarketPressure> MarketPressures => Set<MarketPressure>();
     public DbSet<PilotQualification> PilotQualifications => Set<PilotQualification>();
     public DbSet<ReputationEvent> ReputationEvents => Set<ReputationEvent>();
     public DbSet<Loan> Loans => Set<Loan>();
@@ -206,6 +207,14 @@ public sealed class CallsignDbContext : DbContext
         lot.Property(l => l.LocationIcao).IsRequired().HasMaxLength(12);
         lot.HasIndex(l => new { l.CompanyId, l.Good, l.LocationIcao });
         lot.HasOne<Company>().WithMany().HasForeignKey(l => l.CompanyId).OnDelete(DeleteBehavior.Restrict);
+
+        // --- Market pressure (Phase 7g): your own trading moves the local price ---
+        var pressure = model.Entity<MarketPressure>();
+        pressure.HasKey(p => p.Id);
+        pressure.Property(p => p.Icao).IsRequired().HasMaxLength(12);
+        pressure.Property(p => p.Good).IsRequired().HasMaxLength(40);
+        pressure.HasIndex(p => new { p.CompanyId, p.Icao, p.Good }).IsUnique(); // one accumulator per market cell
+        pressure.HasOne<Company>().WithMany().HasForeignKey(p => p.CompanyId).OnDelete(DeleteBehavior.Restrict);
 
         // --- Pilot licence classes (Phase 3c) ---
         var qual = model.Entity<PilotQualification>();

@@ -561,6 +561,7 @@ export interface MarketQuote {
   sellCents: number
   unitWeightLbs: number
   region: string | null // Phase 7g — "export" (cheap here, buy) | "demand" (dear here, sell) | null
+  pressurePct: number // Phase 7g — how far YOUR trading moved this price (+ bid up, − softened), decays to 0
 }
 
 export interface Inventory {

@@ -983,12 +983,13 @@ public static class CallsignWebApp
         });
 
         // --- Trade (Phase 2g): the market is priced at your current airport ---
-        app.MapGet("/api/trade/market", async (CallsignDbContext db, MarketService market) =>
+        app.MapGet("/api/trade/market", async (CallsignDbContext db, TradeService trade) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
-            return Results.Ok(market.Quotes(pilot.CurrentIcao)
-                .Select(q => new MarketQuoteDto(q.Good, q.Name, q.BuyCents, q.SellCents, q.UnitWeightLbs, q.Region)));
+            var quotes = await trade.GetMarketAsync(pilot.CompanyId, pilot.CurrentIcao);
+            return Results.Ok(quotes
+                .Select(q => new MarketQuoteDto(q.Good, q.Name, q.BuyCents, q.SellCents, q.UnitWeightLbs, q.Region, q.PressurePct)));
         });
 
         app.MapGet("/api/trade/inventory", async (CallsignDbContext db, TradeService trade) =>

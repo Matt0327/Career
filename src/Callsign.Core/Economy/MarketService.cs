@@ -8,6 +8,10 @@ public sealed record MarketQuote(string Good, string Name, long BuyCents, long S
     /// <summary>The airport's structural tilt for this good (Phase 7g): "export" = it produces it cheap
     /// (buy here), "demand" = it wants it dear (sell here), null = neutral. A fixed, learnable profile.</summary>
     public string? Region { get; init; }
+
+    /// <summary>How far YOUR own trading has moved this price off neutral (Phase 7g), signed percent:
+    /// positive = you've bid it up by buying, negative = you've softened it by selling. Decays back to 0.</summary>
+    public int PressurePct { get; init; }
 }
 
 /// <summary>
@@ -31,15 +35,41 @@ public sealed class MarketService
     public IReadOnlyList<MarketQuote> Quotes(string icao)
         => TradeCatalog.Goods.Select(g => Quote(icao, g)).ToList();
 
-    public MarketQuote Quote(string icao, TradeGood g)
+    /// <summary>
+    /// The live quote for one good at one airport. <paramref name="effectivePressureLbs"/> is the caller's
+    /// own already-decayed trading footprint here (0 = untouched market): positive lifts the price, negative
+    /// softens it, on top of the fixed region tilt and the time-window swing.
+    /// </summary>
+    public MarketQuote Quote(string icao, TradeGood g, long effectivePressureLbs = 0)
     {
         double region = RegionBias(icao, g.Key);                        // fixed structural tilt (Phase 7g)
-        long mid = (long)Math.Round(g.BasePriceCents * region * Multiplier(icao, g.Key, Epoch()));
+        double pressure = PressureFactor(effectivePressureLbs);         // your own footprint (Phase 7g)
+        long mid = (long)Math.Round(g.BasePriceCents * region * Multiplier(icao, g.Key, Epoch()) * pressure);
         long buy = (long)Math.Round(mid * (1m + _cfg.TradeSpreadPct), MidpointRounding.AwayFromZero);
         long sell = (long)Math.Round(mid * (1m - _cfg.TradeSpreadPct), MidpointRounding.AwayFromZero);
         string? hint = region <= 1 - _cfg.RegionBiasSwing * 0.5 ? "export"
                      : region >= 1 + _cfg.RegionBiasSwing * 0.5 ? "demand" : null;
-        return new MarketQuote(g.Key, g.Name, buy, sell, g.UnitWeightLbs) { Region = hint };
+        int pressurePct = (int)Math.Round((pressure - 1) * 100);
+        return new MarketQuote(g.Key, g.Name, buy, sell, g.UnitWeightLbs) { Region = hint, PressurePct = pressurePct };
+    }
+
+    /// <summary>The price factor from a trading footprint: neutral at 0, ramping linearly to ±<see
+    /// cref="EconomyConfig.MarketPressureSwing"/> as net weight reaches ±full-scale, then clamped.</summary>
+    private double PressureFactor(long effectivePressureLbs)
+    {
+        if (effectivePressureLbs == 0 || _cfg.MarketPressureFullScaleLbs <= 0) return 1.0;
+        double p = Math.Clamp((double)effectivePressureLbs / _cfg.MarketPressureFullScaleLbs, -1.0, 1.0);
+        return 1.0 + p * _cfg.MarketPressureSwing;
+    }
+
+    /// <summary>Exponential mean-reversion of a stored pressure to a later moment: half is gone each
+    /// half-life. Pure and deterministic (same inputs → same output), so reads never need to persist.</summary>
+    public static long DecayPressureLbs(long storedLbs, TimeSpan elapsed, TimeSpan halfLife)
+    {
+        if (storedLbs == 0 || elapsed <= TimeSpan.Zero) return storedLbs;
+        double hl = Math.Max(1, halfLife.Ticks);
+        double factor = Math.Pow(0.5, elapsed.Ticks / hl);
+        return (long)Math.Round(storedLbs * factor, MidpointRounding.AwayFromZero);
     }
 
     /// <summary>A stable per-airport export/import tilt for a good — no window term, so it never re-rolls:

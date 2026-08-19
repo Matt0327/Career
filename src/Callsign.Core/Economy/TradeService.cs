@@ -36,7 +36,48 @@ public sealed class TradeService
         _cfg = cfg;
     }
 
-    public IReadOnlyList<MarketQuote> Market(string icao) => _market.Quotes(icao);
+    /// <summary>The market at <paramref name="icao"/> priced through <paramref name="companyId"/>'s own
+    /// trading footprint here — the same prices its buy/sell will use, so what you see is what you pay.</summary>
+    public async Task<IReadOnlyList<MarketQuote>> GetMarketAsync(Guid companyId, string icao, CancellationToken ct = default)
+    {
+        var now = _clock.UtcNow;
+        var rows = await _db.MarketPressures
+            .Where(p => p.CompanyId == companyId && p.Icao == icao)
+            .ToListAsync(ct);
+        long Eff(string good) => rows.FirstOrDefault(r => string.Equals(r.Good, good, StringComparison.OrdinalIgnoreCase)) is { } r
+            ? MarketService.DecayPressureLbs(r.PressureLbs, now - r.UpdatedAt, _cfg.MarketPressureHalfLife)
+            : 0;
+        return TradeCatalog.Goods.Select(g => _market.Quote(icao, g, Eff(g.Key))).ToList();
+    }
+
+    // The company's own decayed trading footprint on one market cell, plus the live row to fold into.
+    private async Task<(MarketPressure? row, long effectiveLbs)> LoadPressureAsync(
+        Guid companyId, string icao, string good, DateTimeOffset now, CancellationToken ct)
+    {
+        var row = await _db.MarketPressures.FirstOrDefaultAsync(
+            p => p.CompanyId == companyId && p.Icao == icao && p.Good == good, ct);
+        long eff = row is null ? 0 : MarketService.DecayPressureLbs(row.PressureLbs, now - row.UpdatedAt, _cfg.MarketPressureHalfLife);
+        return (row, eff);
+    }
+
+    // Fold a trade's weight into the local pressure: re-anchor the decayed value at `now` and add the delta.
+    // Buying pushes it positive (price up next time), selling negative (price down). Rides the trade's own
+    // SaveChanges, so a replayed/raced trade — which returns before reaching here — never double-applies it.
+    private void ApplyPressure(MarketPressure? row, Guid companyId, string icao, string good,
+        long decayedNowLbs, long deltaLbs, DateTimeOffset now)
+    {
+        if (row is null)
+            _db.MarketPressures.Add(new MarketPressure
+            {
+                Id = Guid.NewGuid(), CompanyId = companyId, Icao = icao, Good = good,
+                PressureLbs = decayedNowLbs + deltaLbs, UpdatedAt = now,
+            });
+        else
+        {
+            row.PressureLbs = decayedNowLbs + deltaLbs;
+            row.UpdatedAt = now;
+        }
+    }
 
     /// <summary>Everything you're holding, valued at the market where it currently sits.</summary>
     public async Task<IReadOnlyList<InventoryView>> GetInventoryAsync(Guid companyId, CancellationToken ct = default)
@@ -45,11 +86,20 @@ public sealed class TradeService
             .Where(l => l.CompanyId == companyId && l.Quantity > 0 && !l.IsDeleted)
             .ToListAsync(ct);
 
+        // Value each lot at the sell price it would actually fetch where it sits — including the softening
+        // effect of anything you've already dumped there, so unrealised P&L doesn't overstate a flooded market.
+        var now = _clock.UtcNow;
+        var pressRows = await _db.MarketPressures.Where(p => p.CompanyId == companyId).ToListAsync(ct);
+        long Eff(string icao, string good) => pressRows.FirstOrDefault(
+            r => r.Icao == icao && string.Equals(r.Good, good, StringComparison.OrdinalIgnoreCase)) is { } r
+            ? MarketService.DecayPressureLbs(r.PressureLbs, now - r.UpdatedAt, _cfg.MarketPressureHalfLife)
+            : 0;
+
         var views = new List<InventoryView>(lots.Count);
         foreach (var l in lots)
         {
             var g = TradeCatalog.Find(l.Good);
-            long sell = g is null ? 0 : _market.Quote(l.LocationIcao, g).SellCents;
+            long sell = g is null ? 0 : _market.Quote(l.LocationIcao, g, Eff(l.LocationIcao, l.Good)).SellCents;
             long unrealized = (sell - l.UnitCostCents) * l.Quantity;
             views.Add(new InventoryView(l.Id, l.Good, g?.Name ?? l.Good, l.Quantity, l.UnitCostCents,
                 sell, unrealized, g?.UnitWeightLbs ?? 0, l.LocationIcao));
@@ -86,15 +136,15 @@ public sealed class TradeService
         var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId, ct)
                       ?? throw new InvalidOperationException($"Company {companyId} not found.");
 
-        var quote = _market.Quote(icao, good);
+        var now = _clock.UtcNow;
+        var (pRow, effPressure) = await LoadPressureAsync(companyId, icao, good.Key, now, ct);
+        var quote = _market.Quote(icao, good, effPressure);   // priced at your footprint *before* this order
         long cost = quote.BuyCents * (long)qty;
         if (company.CashCents < cost)
             throw new InvalidOperationException(
                 $"Not enough cash: {qty} × {good.Name} costs {cost / 100m:C0}, you have {company.Cash:C0}.");
 
         await EnsureCarryCapacityAsync(companyId, qty * good.UnitWeightLbs, ct);
-
-        var now = _clock.UtcNow;
         // One lot per (good, location): merge with a weighted-average cost basis so P&L stays honest.
         var lot = await _db.InventoryLots.FirstOrDefaultAsync(
             l => l.CompanyId == companyId && l.Good == good.Key && l.LocationIcao == icao && !l.IsDeleted, ct);
@@ -114,6 +164,9 @@ public sealed class TradeService
             lot.UnitCostCents = blended / lot.Quantity; // weighted average (integer cents)
             lot.UpdatedAt = now;
         }
+
+        // Draining local supply lifts the price for your next order here.
+        ApplyPressure(pRow, companyId, icao, good.Key, effPressure, +(long)qty * good.UnitWeightLbs, now);
 
         await _ledger.StageBatchAsync(companyId, new[]
         {
@@ -164,13 +217,18 @@ public sealed class TradeService
         if (lot.Quantity < qty)
             throw new InvalidOperationException($"You only hold {lot.Quantity} × {good.Name} at {icao}.");
 
-        var quote = _market.Quote(icao, good);
+        var now = _clock.UtcNow;
+        var (pRow, effPressure) = await LoadPressureAsync(companyId, icao, good.Key, now, ct);
+        var quote = _market.Quote(icao, good, effPressure);   // priced at your footprint *before* this sale
         long proceeds = quote.SellCents * (long)qty;
         long costBasis = lot.UnitCostCents * (long)qty;
         long pnl = proceeds - costBasis;
 
         lot.Quantity -= qty;
-        lot.UpdatedAt = _clock.UtcNow;
+        lot.UpdatedAt = now;
+
+        // Flooding the local market softens the price for your next sale here.
+        ApplyPressure(pRow, companyId, icao, good.Key, effPressure, -(long)qty * good.UnitWeightLbs, now);
 
         string pnlText = pnl >= 0 ? $"+{pnl / 100m:C0}" : $"-{Math.Abs(pnl) / 100m:C0}";
         await _ledger.StageBatchAsync(companyId, new[]

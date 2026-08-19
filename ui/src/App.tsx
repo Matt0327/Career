@@ -2435,7 +2435,12 @@ function Trade({ state, onChanged }: { state: State; onChanged: () => void }) {
             <thead><tr><th>Commodity</th><th className="r">Buy</th><th className="r">Sell</th><th className="r">Unit wt</th><th className="r">Qty</th><th></th></tr></thead>
             <tbody>{market.map(m => (
               <tr key={m.good}>
-                <td>{m.name}{m.region === 'export' ? <span className="region-tag exp">produced here</span> : m.region === 'demand' ? <span className="region-tag dem">in demand</span> : null}</td>
+                <td>
+                  {m.name}
+                  {m.region === 'export' ? <span className="region-tag exp">produced here</span> : m.region === 'demand' ? <span className="region-tag dem">in demand</span> : null}
+                  {m.pressurePct >= 1 ? <span className="pressure-tag up" title="Your buying has bid this market up. It drifts back to normal once you stop.">you bid +{m.pressurePct}%</span>
+                    : m.pressurePct <= -1 ? <span className="pressure-tag down" title="Your selling has flooded this market. It drifts back to normal once you stop.">you softened −{Math.abs(m.pressurePct)}%</span> : null}
+                </td>
                 <td className="r num">{money(m.buyCents)}</td>
                 <td className="r num muted">{money(m.sellCents)}</td>
                 <td className="r muted">{m.unitWeightLbs} lb</td>

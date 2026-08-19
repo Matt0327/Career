@@ -71,14 +71,10 @@ public class TradeServiceTests
         using var tdb = new TestDb();
         var clock = new FakeClock { UtcNow = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero) };
         var companyId = await SeedAsync(tdb, clock, 100_000_000);
-        var market = new MarketService(clock, Cfg);
-        long p1 = market.Quote("EHAM", TradeCatalog.Find("coffee")!).BuyCents;
-
         using (var db = tdb.NewContext())
             await Trade(db, clock).BuyAsync(companyId, "EHAM", "coffee", 4);
 
         clock.UtcNow = clock.UtcNow.AddHours(12); // prices re-roll to a new window
-        long p2 = new MarketService(clock, Cfg).Quote("EHAM", TradeCatalog.Find("coffee")!).BuyCents;
 
         using (var db = tdb.NewContext())
             await Trade(db, clock).BuyAsync(companyId, "EHAM", "coffee", 6);
@@ -86,6 +82,13 @@ public class TradeServiceTests
         using (var db = tdb.NewContext())
         {
             var lot = await db.InventoryLots.SingleAsync(l => l.CompanyId == companyId);
+            // Each buy was charged whatever the market asked (the first also nudged the local price up for
+            // the second); the cost basis is their weighted average. Recover each actual price from its
+            // ledger posting so the assertion stays exact regardless of the pressure lift.
+            var buys = await db.LedgerEntries
+                .Where(e => e.Category == LedgerCategory.Trade).OrderBy(e => e.At).ToListAsync();
+            long p1 = -buys[0].AmountCents / 4;
+            long p2 = -buys[1].AmountCents / 6;
             Assert.Equal(10, lot.Quantity);
             Assert.Equal((p1 * 4 + p2 * 6) / 10, lot.UnitCostCents); // weighted average, integer cents
         }
@@ -99,8 +102,8 @@ public class TradeServiceTests
         var companyId = await SeedAsync(tdb, clock, 10_000_000);
         var market = new MarketService(clock, Cfg);
         var coffee = TradeCatalog.Find("coffee")!;
-        long buy = market.Quote("EHAM", coffee).BuyCents;
-        long sell = market.Quote("EHAM", coffee).SellCents;
+        long buy = market.Quote("EHAM", coffee).BuyCents;          // first buy is at the untouched market
+        long sellNeutral = market.Quote("EHAM", coffee).SellCents; // before any pressure
 
         using (var db = tdb.NewContext())
             await Trade(db, clock).BuyAsync(companyId, "EHAM", "coffee", 10);
@@ -110,15 +113,16 @@ public class TradeServiceTests
             r = await Trade(db, clock).SellAsync(companyId, "EHAM", "coffee", 4);
 
         Assert.Equal(4, r.Quantity);
-        Assert.Equal(sell * 4, r.ProceedsCents);
-        Assert.Equal(buy * 4, r.CostBasisCents);
-        Assert.Equal((sell - buy) * 4, r.PnlCents); // negative: same-airport round trip loses the spread
+        Assert.Equal(buy * 4, r.CostBasisCents);                   // cost basis from the neutral first buy
+        Assert.True(r.ProceedsCents > sellNeutral * 4);            // buying 10 bid the local sell price up
+        Assert.Equal(r.ProceedsCents - r.CostBasisCents, r.PnlCents);
+        Assert.True(r.PnlCents < 0);                               // same-airport round trip still loses
 
         using (var db = tdb.NewContext())
         {
             var lot = await db.InventoryLots.SingleAsync(l => l.CompanyId == companyId);
             Assert.Equal(6, lot.Quantity);
-            long expectedCash = 10_000_000 - buy * 10 + sell * 4;
+            long expectedCash = 10_000_000 - buy * 10 + r.ProceedsCents; // proceeds are pressure-lifted
             Assert.Equal(expectedCash, (await db.Companies.FindAsync(companyId))!.CashCents);
         }
     }
@@ -241,7 +245,6 @@ public class TradeServiceTests
         using var tdb = new TestDb();
         var clock = new FakeClock();
         var companyId = await SeedAsync(tdb, clock, 10_000_000);
-        long sell = new MarketService(clock, Cfg).Quote("EHAM", TradeCatalog.Find("coffee")!).SellCents;
 
         using (var db = tdb.NewContext())
             await Trade(db, clock).BuyAsync(companyId, "EHAM", "coffee", 5);
@@ -252,7 +255,7 @@ public class TradeServiceTests
         using (var db = tdb.NewContext())
             r2 = await Trade(db, clock).SellAsync(companyId, "EHAM", "coffee", 3, "sell-1"); // retry, same token
 
-        Assert.Equal(sell * 3, r1.ProceedsCents);
+        Assert.True(r1.ProceedsCents > 0);
         Assert.Equal(r1.Quantity, r2.Quantity);          // replay reconstructs the same breakdown
         Assert.Equal(r1.ProceedsCents, r2.ProceedsCents);
         Assert.Equal(r1.CostBasisCents, r2.CostBasisCents);
@@ -263,6 +266,155 @@ public class TradeServiceTests
             var lot = await db.InventoryLots.SingleAsync(l => l.CompanyId == companyId);
             Assert.Equal(2, lot.Quantity); // sold 3 once (5 -> 2), not twice
             Assert.Equal(1, await db.LedgerEntries.CountAsync(e => e.Category == LedgerCategory.Trade && e.AmountCents > 0)); // one credit
+        }
+    }
+
+    // ── Market pressure (Phase 7g): your own trading moves the local price ──────
+
+    [Fact]
+    public async Task Buying_LiftsLocalBuyPrice()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var companyId = await SeedAsync(tdb, clock, 100_000_000);
+        long neutralBuy = new MarketService(clock, Cfg).Quote("EHAM", TradeCatalog.Find("coffee")!).BuyCents;
+
+        using (var db = tdb.NewContext())
+            await Trade(db, clock).BuyAsync(companyId, "EHAM", "coffee", 60); // ~3600 lb — a real dent in supply
+
+        using (var db = tdb.NewContext())
+        {
+            var q = (await Trade(db, clock).GetMarketAsync(companyId, "EHAM")).Single(m => m.Good == "coffee");
+            Assert.True(q.BuyCents > neutralBuy); // you bid the local market up
+            Assert.True(q.PressurePct > 0);
+        }
+    }
+
+    [Fact]
+    public async Task Selling_SoftensLocalSellPrice()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var companyId = await SeedAsync(tdb, clock, 100_000_000);
+        long neutralSell = new MarketService(clock, Cfg).Quote("EHAM", TradeCatalog.Find("coffee")!).SellCents;
+
+        using (var db = tdb.NewContext())
+            await Trade(db, clock).BuyAsync(companyId, "KJFK", "coffee", 60); // buy it somewhere else
+        using (var db = tdb.NewContext())                                     // fly the goods to EHAM
+        {
+            var lot = await db.InventoryLots.SingleAsync(l => l.CompanyId == companyId);
+            lot.LocationIcao = "EHAM";
+            await db.SaveChangesAsync();
+        }
+        using (var db = tdb.NewContext())
+            await Trade(db, clock).SellAsync(companyId, "EHAM", "coffee", 40); // dump ~2400 lb into EHAM
+
+        using (var db = tdb.NewContext())
+        {
+            var q = (await Trade(db, clock).GetMarketAsync(companyId, "EHAM")).Single(m => m.Good == "coffee");
+            Assert.True(q.SellCents < neutralSell); // you flooded the local market
+            Assert.True(q.PressurePct < 0);
+        }
+    }
+
+    [Fact]
+    public async Task Pressure_DecaysBackToNeutral()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock { UtcNow = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero) };
+        var companyId = await SeedAsync(tdb, clock, 100_000_000);
+
+        using (var db = tdb.NewContext())
+            await Trade(db, clock).BuyAsync(companyId, "EHAM", "coffee", 60);
+
+        using (var db = tdb.NewContext()) // right after buying, the price is lifted
+            Assert.True((await Trade(db, clock).GetMarketAsync(companyId, "EHAM"))
+                .Single(m => m.Good == "coffee").PressurePct > 0);
+
+        clock.UtcNow = clock.UtcNow.AddDays(30); // leave it alone for ~15 half-lives (2-day HL)
+
+        using (var db = tdb.NewContext())
+        {
+            var q = (await Trade(db, clock).GetMarketAsync(companyId, "EHAM")).Single(m => m.Good == "coffee");
+            long neutral = new MarketService(clock, Cfg).Quote("EHAM", TradeCatalog.Find("coffee")!).BuyCents;
+            Assert.Equal(0, q.PressurePct);   // drifted back to neutral
+            Assert.Equal(neutral, q.BuyCents);
+        }
+    }
+
+    [Fact]
+    public async Task Buy_Idempotent_MovesLocalPriceOnce()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var companyId = await SeedAsync(tdb, clock, 100_000_000);
+
+        using (var db = tdb.NewContext())
+            await Trade(db, clock).BuyAsync(companyId, "EHAM", "coffee", 20, "buy-1");
+        using (var db = tdb.NewContext())
+            await Trade(db, clock).BuyAsync(companyId, "EHAM", "coffee", 20, "buy-1"); // retry, same token
+
+        using (var db = tdb.NewContext())
+        {
+            var row = await db.MarketPressures.SingleAsync(
+                p => p.CompanyId == companyId && p.Icao == "EHAM" && p.Good == "coffee");
+            Assert.Equal(20L * 60, row.PressureLbs); // applied once (1200 lb), not twice
+        }
+    }
+
+    [Fact]
+    public void DecayPressureLbs_HalvesEachHalfLife()
+    {
+        var hl = TimeSpan.FromDays(2);
+        Assert.Equal(1000, MarketService.DecayPressureLbs(1000, TimeSpan.Zero, hl));
+        Assert.Equal(500, MarketService.DecayPressureLbs(1000, hl, hl));
+        Assert.Equal(250, MarketService.DecayPressureLbs(1000, hl + hl, hl));
+        Assert.Equal(-500, MarketService.DecayPressureLbs(-1000, hl, hl)); // symmetric for sell pressure
+    }
+
+    [Fact]
+    public async Task LargeSameAirportRoundTrip_StillLoses()
+    {
+        // Regression guard: buying then immediately selling the same goods at the same airport must LOSE the
+        // dealer spread, even at a size large enough to fully move the local price. Market pressure must never
+        // let you pump your own sell-back above what you paid (MarketPressureSwing <= 2 * TradeSpreadPct).
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var companyId = await SeedAsync(tdb, clock, 100_000_000, usefulLoad: 20_000);
+
+        long cashBefore;
+        using (var db = tdb.NewContext())
+            cashBefore = (await db.Companies.FindAsync(companyId))!.CashCents;
+
+        using (var db = tdb.NewContext())
+            await Trade(db, clock).BuyAsync(companyId, "EHAM", "coffee", 200);  // 12,000 lb → full-scale pressure
+        using (var db = tdb.NewContext())
+            await Trade(db, clock).SellAsync(companyId, "EHAM", "coffee", 200); // sell it all straight back, same tick
+
+        using (var db = tdb.NewContext())
+        {
+            long cashAfter = (await db.Companies.FindAsync(companyId))!.CashCents;
+            Assert.True(cashAfter < cashBefore); // the round trip lost money — no money pump
+        }
+    }
+
+    [Fact]
+    public async Task PressuredBuyPrice_MatchesPureQuoteOracle()
+    {
+        // Pin the exact MAGNITUDE of the lift against the pure pricing function, not just its direction.
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var companyId = await SeedAsync(tdb, clock, 100_000_000);
+
+        using (var db = tdb.NewContext())
+            await Trade(db, clock).BuyAsync(companyId, "EHAM", "coffee", 50); // 3,000 lb, same tick → no decay
+
+        using (var db = tdb.NewContext())
+        {
+            var q = (await Trade(db, clock).GetMarketAsync(companyId, "EHAM")).Single(m => m.Good == "coffee");
+            long expected = new MarketService(clock, Cfg)
+                .Quote("EHAM", TradeCatalog.Find("coffee")!, 50L * 60).BuyCents; // oracle at +3,000 lb pressure
+            Assert.Equal(expected, q.BuyCents);
         }
     }
 }
