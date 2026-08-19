@@ -251,6 +251,21 @@ public sealed record EconomyConfig
         >= 3 => 15_000, 2 => 7_000, 1 => 3_000, _ => 0,                    // $150 / $70 / $30 a day
     };
 
+    // --- Base fuel farm (Phase 7g): a capex hub that buys fuel wholesale — legs departing here burn cheaper ---
+    public int MaxFuelFarmLevel { get; init; } = 3;
+    public long FuelFarmUpgradeCents(int toLevel) => toLevel switch          // one-off capex to reach a level
+    {
+        1 => 4_000_000, 2 => 12_000_000, 3 => 30_000_000, _ => 0,          // $40k / $120k / $300k
+    };
+    public double FuelFarmDiscountPct(int level) => level switch             // off the fuel burned on legs departing here
+    {
+        >= 3 => 0.25, 2 => 0.18, 1 => 0.10, _ => 0,
+    };
+    public long FuelFarmUpkeepCentsPerDay(int level) => level switch          // the fixed daily cost of running it
+    {
+        >= 3 => 11_000, 2 => 5_500, 1 => 2_500, _ => 0,                    // $110 / $55 / $25 a day
+    };
+
     // --- Trade (Phase 2g): buy low here, sell high there ---
     /// <summary>How far a good's price swings above/below its catalog base across airports (±fraction).</summary>
     public double TradePriceSwing { get; init; } = 0.35;

@@ -2361,6 +2361,11 @@ function Bases({ state, onChanged }: { state: State; onChanged: () => void }) {
     try { const r = await api.upgradeShop(b.id); await load(); onChanged(); setMsg(`${b.icao} maintenance shop is now level ${r.maintenanceLevel} — cheaper servicing for tails based there.`) }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
+  const upgradeFuelFarm = async (b: BaseView) => {
+    setBusy(true); setMsg(null)
+    try { const r = await api.upgradeFuelFarm(b.id); await load(); onChanged(); setMsg(`${b.icao} fuel farm is now level ${r.fuelFarmLevel} — cheaper fuel on legs departing there.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
 
   const mapPoints: MapPoint[] = [
     ...bases.map((b): MapPoint => ({ lat: b.latitude, lon: b.longitude, label: b.icao, kind: b.isHome ? 'home' : 'base' })),
@@ -2377,7 +2382,7 @@ function Bases({ state, onChanged }: { state: State; onChanged: () => void }) {
         <h2>Your bases</h2>
         {bases.length === 0 ? <div className="empty">No bases.</div> : (
           <table className="tbl">
-            <thead><tr><th>Airport</th><th>Name</th><th className="r">Rent / day</th><th>Maintenance shop</th></tr></thead>
+            <thead><tr><th>Airport</th><th>Name</th><th className="r">Rent / day</th><th>Maintenance shop</th><th>Fuel farm</th></tr></thead>
             <tbody>{bases.map(b => (
               <tr key={b.id}>
                 <td><span className="loc">{b.icao}</span>{b.isHome && <span className="tag" style={{ marginLeft: 8 }}>home</span>}</td>
@@ -2390,6 +2395,15 @@ function Bases({ state, onChanged }: { state: State; onChanged: () => void }) {
                   {b.nextShopUpgradeCents > 0 &&
                     <button className="small" disabled={busy} onClick={() => upgradeShop(b)}>
                       {b.maintenanceLevel > 0 ? 'Upgrade' : 'Build'} · {money(b.nextShopUpgradeCents)}
+                    </button>}
+                </td>
+                <td className="shop-cell">
+                  {b.fuelFarmLevel > 0
+                    ? <span className="shop-lvl">L{b.fuelFarmLevel} <span className="muted">· {Math.round(b.fuelDiscountPct * 100)}% off fuel</span></span>
+                    : <span className="muted">none</span>}
+                  {b.nextFuelFarmUpgradeCents > 0 &&
+                    <button className="small" disabled={busy} onClick={() => upgradeFuelFarm(b)}>
+                      {b.fuelFarmLevel > 0 ? 'Upgrade' : 'Build'} · {money(b.nextFuelFarmUpgradeCents)}
                     </button>}
                 </td>
               </tr>

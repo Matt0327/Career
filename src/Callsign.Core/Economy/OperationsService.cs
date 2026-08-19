@@ -278,7 +278,8 @@ public sealed class OperationsService
         {
             double days = (now - b.LastRentBilledAt).TotalDays;
             long rent = (long)Math.Round(days * b.RentPerDayCents);
-            long upkeep = (long)Math.Round(days * _cfg.MaintenanceShopUpkeepCentsPerDay(b.MaintenanceLevel)); // shop running cost
+            long upkeep = (long)Math.Round(days * (_cfg.MaintenanceShopUpkeepCentsPerDay(b.MaintenanceLevel)
+                + _cfg.FuelFarmUpkeepCentsPerDay(b.FuelFarmLevel))); // facilities running cost (shop + fuel farm)
             long charge = rent + upkeep;
             if (charge <= 0)
                 continue;

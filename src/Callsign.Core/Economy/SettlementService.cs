@@ -120,14 +120,26 @@ public sealed class SettlementService
         // Fuel actually burned is a real running cost for a leg flown in an owned airframe (Phase 7e) —
         // the FuelUsedLbs the tracker already recorded, finally priced. A leg flown outside your fleet
         // (no owned instance) isn't tracked, so it carries no fuel charge.
-        long fuelCost = aircraftInstanceId is not null && flight.FuelUsedLbs > 0
+        long grossFuel = aircraftInstanceId is not null && flight.FuelUsedLbs > 0
             ? (long)Math.Round(flight.FuelUsedLbs * _cfg.FuelPriceCentsPerLb)
             : 0;
+        // A fuel farm at the departure base sells you fuel wholesale — discount this leg's burn (Phase 7g).
+        long fuelCost = grossFuel;
+        if (grossFuel > 0)
+        {
+            int farm = await _db.Bases
+                .Where(b => b.CompanyId == a.AccountId && b.AirportIcao == a.OriginIcao && b.IsActive && !b.IsDeleted)
+                .Select(b => (int?)b.FuelFarmLevel).FirstOrDefaultAsync(ct) ?? 0;
+            double disc = _cfg.FuelFarmDiscountPct(farm);
+            if (disc > 0)
+                fuelCost = (long)Math.Round(grossFuel * (1 - disc));
+        }
         if (fuelCost > 0)
         {
-            postings.Add(new(LedgerCategory.Fuel, -(fuelCost / 100m), $"Fuel — {flight.FuelUsedLbs:F0} lb",
+            bool farmRate = fuelCost < grossFuel;
+            postings.Add(new(LedgerCategory.Fuel, -(fuelCost / 100m), farmRate ? $"Fuel — {flight.FuelUsedLbs:F0} lb (farm rate)" : $"Fuel — {flight.FuelUsedLbs:F0} lb",
                 LedgerRefType.Job, jobRef, DedupeKey: $"settle:{a.Id}:fuel"));
-            lines.Add(new($"Fuel ({flight.FuelUsedLbs:F0} lb)", -fuelCost));
+            lines.Add(new(farmRate ? $"Fuel ({flight.FuelUsedLbs:F0} lb, farm rate)" : $"Fuel ({flight.FuelUsedLbs:F0} lb)", -fuelCost));
         }
 
         long total = baseCents + landingDelta - landingFee - fuelCost;

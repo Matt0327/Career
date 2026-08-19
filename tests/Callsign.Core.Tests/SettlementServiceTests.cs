@@ -703,6 +703,75 @@ public class SettlementServiceTests
         }
     }
 
+    [Fact]
+    public async Task Settle_OwnedAircraft_FuelFarmAtOrigin_DiscountsTheFuel()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Seed s;
+        Guid assignmentId, aircraftId;
+        using (var db = tdb.NewContext())
+        {
+            s = await SeedAsync(db);
+            var typeId = await db.AircraftTypes.Select(t => t.Id).FirstAsync();
+            db.AircraftInstances.Add(new AircraftInstance
+            {
+                Id = Guid.NewGuid(), TypeId = typeId, CompanyId = s.CompanyId, Tail = "CS-1",
+                Ownership = OwnershipKind.Owned, Availability = AircraftAvailability.Available, LocationIcao = "EHAM",
+            });
+            // A level-3 fuel farm at the departure base (EHAM) → 25% off this leg's fuel.
+            db.Bases.Add(new Base { Id = Guid.NewGuid(), CompanyId = s.CompanyId, AirportIcao = "EHAM", IsActive = true, FuelFarmLevel = 3 });
+            await db.SaveChangesAsync();
+            aircraftId = (await db.AircraftInstances.FirstAsync(a => a.CompanyId == s.CompanyId)).Id;
+            assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, s.PilotId)).Id;
+        }
+
+        using (var db = tdb.NewContext())
+        {
+            // 60 lb × $0.90 = 5400 gross, ×0.75 (25% off) = 4050 → payout 200000 + 20000 − 4050 = 215950.
+            var r = await new SettlementService(db, new LedgerService(db, clock), clock, EconomyConfig.Default)
+                .SettleAsync(assignmentId, Flown(-80), aircraftId);
+            Assert.Equal(215_950, r.PayoutCents);
+        }
+        using (var db = tdb.NewContext())
+            Assert.Contains(await db.LedgerEntries.Where(e => e.AccountId == s.CompanyId).ToListAsync(),
+                e => e.Category == LedgerCategory.Fuel && e.AmountCents == -4_050);
+    }
+
+    [Fact]
+    public async Task Settle_OwnedAircraft_BaseWithoutFuelFarm_ChargesFullFuel()
+    {
+        // A base at the origin but with NO fuel farm built (level 0) charges full fuel — the facility, not the
+        // base, is what discounts. (Distinct from the no-base path the other fuel test covers.)
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Seed s;
+        Guid assignmentId, aircraftId;
+        using (var db = tdb.NewContext())
+        {
+            s = await SeedAsync(db);
+            var typeId = await db.AircraftTypes.Select(t => t.Id).FirstAsync();
+            db.AircraftInstances.Add(new AircraftInstance
+            {
+                Id = Guid.NewGuid(), TypeId = typeId, CompanyId = s.CompanyId, Tail = "CS-1",
+                Ownership = OwnershipKind.Owned, Availability = AircraftAvailability.Available, LocationIcao = "EHAM",
+            });
+            db.Bases.Add(new Base { Id = Guid.NewGuid(), CompanyId = s.CompanyId, AirportIcao = "EHAM", IsActive = true, FuelFarmLevel = 0 });
+            await db.SaveChangesAsync();
+            aircraftId = (await db.AircraftInstances.FirstAsync(a => a.CompanyId == s.CompanyId)).Id;
+            assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, s.PilotId)).Id;
+        }
+        using (var db = tdb.NewContext())
+        {
+            var r = await new SettlementService(db, new LedgerService(db, clock), clock, EconomyConfig.Default)
+                .SettleAsync(assignmentId, Flown(-80), aircraftId);
+            Assert.Equal(214_600, r.PayoutCents); // full fuel −5400, as with no base at all
+        }
+        using (var db = tdb.NewContext())
+            Assert.Contains(await db.LedgerEntries.Where(e => e.AccountId == s.CompanyId).ToListAsync(),
+                e => e.Category == LedgerCategory.Fuel && e.AmountCents == -5_400);
+    }
+
     [Theory]
     [InlineData(-50, 0.10)]
     [InlineData(-150, 0.05)]

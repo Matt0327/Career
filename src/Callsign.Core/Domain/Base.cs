@@ -13,6 +13,7 @@ public sealed class Base : ISyncable
     public bool IsHome { get; set; }
     public long RentPerDayCents { get; set; }
     public int MaintenanceLevel { get; set; }             // 0 = none; a maintenance shop discounts servicing here (Phase 7g)
+    public int FuelFarmLevel { get; set; }                // 0 = none; a fuel farm discounts the fuel burned on legs departing here (Phase 7g)
     public DateTimeOffset OpenedAt { get; set; }
     public DateTimeOffset LastRentBilledAt { get; set; }  // rent-accrual watermark
     public bool IsActive { get; set; } = true;

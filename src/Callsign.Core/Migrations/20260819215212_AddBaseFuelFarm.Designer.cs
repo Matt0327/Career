@@ -3,6 +3,7 @@ using System;
 using Callsign.Core.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Callsign.Core.Migrations
 {
     [DbContext(typeof(CallsignDbContext))]
-    partial class CallsignDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260819215212_AddBaseFuelFarm")]
+    partial class AddBaseFuelFarm
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.10");

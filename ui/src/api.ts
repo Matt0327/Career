@@ -558,6 +558,10 @@ export interface BaseView {
   maintenanceLevel: number
   nextShopUpgradeCents: number
   maintenanceDiscountPct: number
+  // Phase 7g — fuel farm
+  fuelFarmLevel: number
+  nextFuelFarmUpgradeCents: number
+  fuelDiscountPct: number
 }
 
 export interface BaseOffer {
@@ -817,6 +821,7 @@ export const api = {
   baseCandidates: () => fetch('/api/bases/candidates').then(ok<BaseOffer[]>),
   openBase: (airportIcao: string) => POST_IDEM('/api/bases/open', { airportIcao }).then(ok),
   upgradeShop: (id: string) => POST_IDEM(`/api/bases/${id}/upgrade-shop`).then(ok<{ maintenanceLevel: number }>),
+  upgradeFuelFarm: (id: string) => POST_IDEM(`/api/bases/${id}/upgrade-fuel-farm`).then(ok<{ fuelFarmLevel: number }>),
   tradeMarket: () => fetch('/api/trade/market').then(ok<MarketQuote[]>),
   inventory: () => fetch('/api/trade/inventory').then(ok<Inventory[]>),
   buyGood: (good: string, qty: number) => POST_IDEM('/api/trade/buy', { good, qty }).then(ok),

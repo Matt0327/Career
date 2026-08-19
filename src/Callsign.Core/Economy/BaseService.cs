@@ -10,7 +10,7 @@ namespace Callsign.Core.Economy;
 public sealed record BaseOffer(string Icao, string Name, string Kind, double DistanceNm, long OpenCents, long RentPerDayCents, double Latitude, double Longitude);
 
 /// <summary>An open base, joined to its airport name + coordinates (for the self-rendered map).</summary>
-public sealed record BaseView(Guid Id, string Icao, string Name, bool IsHome, long RentPerDayCents, double Latitude, double Longitude, int MaintenanceLevel);
+public sealed record BaseView(Guid Id, string Icao, string Name, bool IsHome, long RentPerDayCents, double Latitude, double Longitude, int MaintenanceLevel, int FuelFarmLevel);
 
 /// <summary>
 /// Company bases (Phase 2e): open one at an airport for a setup fee + recurring rent (both ledger
@@ -43,7 +43,7 @@ public sealed class BaseService
         {
             airports.TryGetValue(b.AirportIcao, out var ap);
             return new BaseView(b.Id, b.AirportIcao, ap?.Name ?? b.AirportIcao, b.IsHome, b.RentPerDayCents,
-                ap?.Latitude ?? 0, ap?.Longitude ?? 0, b.MaintenanceLevel);
+                ap?.Latitude ?? 0, ap?.Longitude ?? 0, b.MaintenanceLevel, b.FuelFarmLevel);
         }).ToList();
     }
 
@@ -84,6 +84,47 @@ public sealed class BaseService
         {
             _db.ChangeTracker.Clear();
             return (await _db.Bases.FirstOrDefaultAsync(x => x.Id == baseId, ct))?.MaintenanceLevel ?? toLevel;
+        }
+        return toLevel;
+    }
+
+    /// <summary>
+    /// Build or upgrade the fuel farm at a base by one level (Phase 7g): a one-off capex debit that raises the
+    /// fuel discount for legs departing there (and adds a daily upkeep, billed at reconcile). Idempotent via
+    /// <paramref name="idempotencyKey"/>. Returns the new level.
+    /// </summary>
+    public async Task<int> UpgradeFuelFarmAsync(
+        Guid companyId, Guid baseId, string? idempotencyKey = null, CancellationToken ct = default)
+    {
+        string? dedupe = idempotencyKey is null ? null : $"fuelfarm-upgrade:{idempotencyKey}";
+        if (dedupe is not null && await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct) is not null)
+            return (await _db.Bases.FirstOrDefaultAsync(x => x.Id == baseId && x.CompanyId == companyId, ct))?.FuelFarmLevel ?? 0;
+
+        var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId, ct)
+                      ?? throw new InvalidOperationException($"Company {companyId} not found.");
+        var b = await _db.Bases.FirstOrDefaultAsync(x => x.Id == baseId && x.CompanyId == companyId && x.IsActive && !x.IsDeleted, ct)
+                ?? throw new InvalidOperationException("Base not found.");
+        if (b.FuelFarmLevel >= _cfg.MaxFuelFarmLevel)
+            throw new InvalidOperationException("This fuel farm is already at its top level.");
+
+        int toLevel = b.FuelFarmLevel + 1;
+        long cost = _cfg.FuelFarmUpgradeCents(toLevel);
+        if (company.CashCents < cost)
+            throw new InvalidOperationException($"Not enough cash: the fuel farm upgrade costs {cost / 100m:C0}, you have {company.Cash:C0}.");
+
+        var now = _clock.UtcNow;
+        await _ledger.StageBatchAsync(companyId, new[]
+        {
+            new LedgerPosting(LedgerCategory.BaseRent, -(cost / 100m), $"Fuel farm L{toLevel} at {b.AirportIcao}",
+                BaseId: b.Id, DedupeKey: dedupe ?? $"fuelfarm-upgrade:{b.Id}:{toLevel}"),
+        }, ct);
+        b.FuelFarmLevel = toLevel;
+        b.UpdatedAt = now;
+        try { await _db.SaveChangesAsync(ct); }
+        catch (DbUpdateException) when (dedupe is not null)
+        {
+            _db.ChangeTracker.Clear();
+            return (await _db.Bases.FirstOrDefaultAsync(x => x.Id == baseId, ct))?.FuelFarmLevel ?? toLevel;
         }
         return toLevel;
     }
