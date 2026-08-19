@@ -4,7 +4,7 @@ import {
   type Achievement, type AircraftHistory, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type CheckFlightDone, type CloudSaveMeta, type CloudStatus, type Diverted,
   type FinancesData, type FinanceDetail, type AttributionLine, type CashPoint, type StatementRow, type FlightLog, type FlightDetail, type FlightTotals, type Insurance, type Inventory, type Job, type LeaderboardRow, type LedgerEntry, type LiveEvent, type Loan, type LoanOffer, type Loans,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
-  type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type UsedListing, type VersionInfo, type WsEvent,
+  type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type UsedListing, type VersionInfo, type Weather, type WsEvent,
 } from './api'
 import { loadPrefs, savePrefs, type Prefs, type Theme } from './prefs'
 import * as L from 'leaflet'
@@ -129,8 +129,19 @@ function NavRail({ tab, setTab, airline }: { tab: Tab; setTab: (t: Tab) => void;
   )
 }
 
+// Weather at the current field is rough enough to matter to a departure (Phase 8) — flag it.
+const roughWx = (c: string) => c === 'Storm' || c === 'Fog' || c === 'Snow'
+
 function ContextHeader({ state, tab }: { state: State; tab: Tab }) {
   const meta = TABS.find(t => t.id === tab)
+  const [wx, setWx] = useState<Weather | null>(null)
+  useEffect(() => {
+    let live = true
+    const load = () => api.weather().then(w => { if (live) setWx(w) }).catch(() => { if (live) setWx(null) })
+    load()
+    const t = setInterval(load, 5 * 60_000) // weather holds for a window; refresh occasionally as time advances
+    return () => { live = false; clearInterval(t) }
+  }, [state.currentIcao])
   return (
     <header className="ctxbar">
       <div className="ctx-title">
@@ -139,6 +150,9 @@ function ContextHeader({ state, tab }: { state: State; tab: Tab }) {
       </div>
       <div className="ctx">
         <span className="chip"><span className="dot" /> <b className="loc">{state.currentIcao}</b></span>
+        {wx && <span className={`chip wx${roughWx(wx.condition) ? ' rough' : ''}`} title={`${wx.name}: ${wx.summary} · gust ${wx.gustKts} kt · ceiling ${wx.ceilingFt.toLocaleString()} ft`}>
+          {wx.condition} · <span className="num">{wx.windKts}</span> kt · <span className="num">{wx.tempC}</span>°C
+        </span>}
         <span className="chip">{state.name} · <span className="muted">{state.rank}</span> · {state.xp.toLocaleString()} XP</span>
         <span className="chip cash"><b className="num">{money(state.cashCents)}</b></span>
       </div>

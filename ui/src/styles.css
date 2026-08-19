@@ -126,6 +126,8 @@ input { font: inherit; }
 .ctx .chip b { color: var(--ink); font-weight: 600; }
 .ctx .chip.cash b { font-size: 15px; }
 .ctx .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pos); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pos) 18%, transparent); }
+.ctx .chip.wx { cursor: help; }
+.ctx .chip.wx.rough { color: #d99a1c; border-color: color-mix(in srgb, #d99a1c 40%, var(--line)); } /* Phase 8 — weather worth noting before you launch */
 
 .main { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 22px 24px; max-width: 1200px; width: 100%; margin: 0 auto; }
 .grid { display: grid; gap: 16px; }

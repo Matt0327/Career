@@ -98,6 +98,7 @@ public static class CallsignWebApp
         builder.Services.AddScoped<CampaignService>();
         builder.Services.AddScoped<AirlineService>();
         builder.Services.AddSingleton<MarketService>(); // pure pricing (IClock + EconomyConfig)
+        builder.Services.AddSingleton<Callsign.Core.World.WorldOracle>(); // pure synthetic world model (Phase 8)
 
         builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
@@ -1051,6 +1052,19 @@ public static class CallsignWebApp
             }
             catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "Cash changed at the same time — try again." }); }
             catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        // --- Weather (Phase 8): the synthetic world model at a field (current airport, or ?icao=) ---
+        app.MapGet("/api/weather", async (string? icao, CallsignDbContext db, Callsign.Core.World.WorldOracle world, IClock clock) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var ident = string.IsNullOrWhiteSpace(icao) ? pilot.CurrentIcao : icao;
+            var airport = await db.Airports.FirstOrDefaultAsync(a => a.Ident == ident);
+            if (airport is null) return Results.NotFound();
+            var w = world.WeatherAt(airport.Latitude, airport.Longitude, clock.UtcNow);
+            return Results.Ok(new WeatherDto(airport.Ident, airport.Name, w.WindDirDeg, w.WindKts, w.GustKts,
+                w.VisibilitySm, w.CeilingFt, w.TempC, w.Condition, w.Summary));
         });
 
         // --- Trade (Phase 2g): the market is priced at your current airport ---

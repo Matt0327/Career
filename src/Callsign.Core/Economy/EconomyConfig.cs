@@ -278,6 +278,18 @@ public sealed record EconomyConfig
     public double UsedPriceFactor(int conditionMilli)
         => UsedMarketFloorFactor + Math.Clamp(conditionMilli / 100_000.0, 0, 1) * (UsedMarketCeilFactor - UsedMarketFloorFactor);
 
+    // --- Weather (Phase 8): the deterministic synthetic world model (WorldOracle) ---
+    /// <summary>How long the weather holds at a field before it re-rolls — keeps a run's conditions plannable.</summary>
+    public TimeSpan WeatherWindow { get; init; } = TimeSpan.FromHours(3);
+    /// <summary>Size (degrees) of a weather cell — nearby airports inside one cell share a front, not independent noise.</summary>
+    public double WeatherCellDeg { get; init; } = 2.5;
+    /// <summary>Floor wind speed (kt) — even a calm field has a breath of wind.</summary>
+    public int WeatherBaseWindKts { get; init; } = 3;
+    /// <summary>The windy-day ceiling (kt) that the tail of the wind distribution reaches for.</summary>
+    public int WeatherMaxWindKts { get; init; } = 32;
+    /// <summary>Fatness of the wind tail — higher means calm most days with rarer, stronger blows.</summary>
+    public double WeatherWindTailExp { get; init; } = 2.4;
+
     // --- Trade (Phase 2g): buy low here, sell high there ---
     /// <summary>How far a good's price swings above/below its catalog base across airports (±fraction).</summary>
     public double TradePriceSwing { get; init; } = 0.35;
