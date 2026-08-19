@@ -2045,6 +2045,12 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
   )
 }
 
+// Contract markups you can demand on a standing order. `fillFor` mirrors EconomyConfig.ContractFillProbability
+// (sensitivity 0.6, floor 25%) so the form previews how a premium thins the client's fill rate.
+const MARKUP_OPTS = [1000, 1100, 1250, 1400, 1500]
+const markupLabel = (m: number) => (m === 1000 ? 'Fair' : `+${Math.round(m / 10 - 100)}%`)
+const fillFor = (m: number) => (m <= 1000 ? 100 : Math.max(25, Math.round((1 - 0.6 * (m / 1000 - 1)) * 100)))
+
 function Ops({ onChanged }: { onChanged: () => void }) {
   const [staff, setStaff] = useState<Staff[]>([])
   const [candidates, setCandidates] = useState<StaffCandidate[]>([])
@@ -2056,6 +2062,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
   const [oStaff, setOStaff] = useState('')
   const [oAircraft, setOAircraft] = useState('')
   const [oDest, setODest] = useState('')
+  const [oMarkup, setOMarkup] = useState(1000)
   const [routes, setRoutes] = useState<RouteData | null>(null)
   const [rName, setRName] = useState('')
   const [rOrigin, setROrigin] = useState('')
@@ -2099,7 +2106,12 @@ function Ops({ onChanged }: { onChanged: () => void }) {
   const createOrder = async () => {
     if (!oStaff || !oAircraft || !oDest) { setMsg('Pick a pilot, an aircraft, and a destination.'); return }
     setBusy(true); setMsg(null)
-    try { await api.createOrder(oStaff, oAircraft, oDest); setOStaff(''); setOAircraft(''); setODest(''); await load(); onChanged(); setMsg("Standing order set — it flies while you're away.") }
+    try { await api.createOrder(oStaff, oAircraft, oDest, oMarkup); setOStaff(''); setOAircraft(''); setODest(''); setOMarkup(1000); await load(); onChanged(); setMsg("Standing order set — it flies while you're away.") }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+  const reprice = async (o: StandingOrder, milli: number) => {
+    setBusy(true); setMsg(null)
+    try { await api.setOrderPrice(o.id, milli); await load(); onChanged() }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
   const cancel = async (o: StandingOrder) => {
@@ -2116,11 +2128,12 @@ function Ops({ onChanged }: { onChanged: () => void }) {
         ? `Booked ${d.trips} trip${d.trips === 1 ? '' : 's'}: ${money(d.grossIncomeCents)} gross − ${money(d.feesCents)} fees − ${money(d.wagesCents)} wages − ${money(d.rentCents)} rent = ${money(d.netCents)} net.`
         : 'Up to date — nothing new.'
       const inc = d.incidents > 0 ? ` ${d.incidents} trip${d.incidents === 1 ? '' : 's'} diverted — a sharper crew loses fewer.` : ''
+      const empty = d.emptyLegs > 0 ? ` ${d.emptyLegs} leg${d.emptyLegs === 1 ? '' : 's'} flew empty — a lower markup keeps clients shipping.` : ''
       const duty = d.dutyMaxed.length > 0 ? ` ${d.dutyMaxed.join(', ')} hit the crew duty limit — hire another pilot to fly ${d.dutyMaxed.length === 1 ? 'it' : 'them'} harder.` : ''
       const warn = d.grounded.length > 0
         ? ` · Grounded, not flying: ${d.grounded.join('; ')} — service them in the Hangar.`
         : ''
-      setMsg(base + inc + duty + warn)
+      setMsg(base + inc + empty + duty + warn)
     } catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
 
@@ -2133,14 +2146,20 @@ function Ops({ onChanged }: { onChanged: () => void }) {
           ? <div className="empty">No standing orders. Set one below to earn while you're away.</div>
           : (
             <table className="tbl">
-              <thead><tr><th>Pilot</th><th>Aircraft</th><th>Route</th><th className="r">Per trip</th><th className="r">Cycle</th><th></th></tr></thead>
+              <thead><tr><th>Pilot</th><th>Aircraft</th><th>Route</th><th className="r">Per trip</th><th className="r">Price</th><th className="r">Cycle</th><th></th></tr></thead>
               <tbody>
                 {orders.map(o => (
                   <tr key={o.id}>
                     <td>{o.staffName}</td>
                     <td className="num">{o.tail}</td>
                     <td><b>{o.origin}</b> ↔ <b>{o.dest}</b> <span className="muted">· {Math.round(o.distanceNm)} nm</span></td>
-                    <td className="r num pos">{money(o.rewardPerTripCents)}</td>
+                    <td className="r num pos">{money(o.rewardPerTripCents)}{o.priceMultiplierMilli > 1000 && <span className="fair-ref"> vs {money(o.fairRewardPerTripCents)}</span>}</td>
+                    <td className="r">
+                      <select className="markup-sel" value={o.priceMultiplierMilli} disabled={busy} onChange={e => reprice(o, Number(e.target.value))} title="Re-price this line — applies to future trips only">
+                        {MARKUP_OPTS.map(m => <option key={m} value={m}>{markupLabel(m)}</option>)}
+                      </select>
+                      <span className={`fill-hint${o.fillPct < 100 ? ' warn' : ''}`}>{o.fillPct}% fill</span>
+                    </td>
                     <td className="r num">{o.roundTripHours.toFixed(1)} h</td>
                     <td className="r"><button className="primary small" disabled={busy} onClick={() => cancel(o)}>Stop</button></td>
                   </tr>
@@ -2153,6 +2172,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
             <select value={oStaff} onChange={e => setOStaff(e.target.value)}><option value="">Pilot…</option>{staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
             <select value={oAircraft} onChange={e => setOAircraft(e.target.value)}><option value="">Aircraft…</option>{fleet.map(f => <option key={f.id} value={f.id}>{f.tail} — {f.locationIcao}</option>)}</select>
             <select value={oDest} onChange={e => setODest(e.target.value)}><option value="">Destination…</option>{dests.map(d => <option key={d.icao} value={d.icao}>{d.icao} · {d.name}</option>)}</select>
+            <select value={oMarkup} onChange={e => setOMarkup(Number(e.target.value))} title="Demand a premium over the fair rate — more per filled trip, but the client ships fewer">{MARKUP_OPTS.map(m => <option key={m} value={m}>{markupLabel(m)} · {fillFor(m)}% fill</option>)}</select>
             <button className="primary" disabled={busy} onClick={createOrder}>Set order</button>
           </div>
         )}

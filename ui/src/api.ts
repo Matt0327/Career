@@ -380,7 +380,10 @@ export interface StandingOrder {
   dest: string
   distanceNm: number
   roundTripHours: number
-  rewardPerTripCents: number
+  rewardPerTripCents: number // effective per FILLED trip at your markup
+  priceMultiplierMilli: number // Phase 7g — your markup over the fair rate (1000 = fair)
+  fillPct: number // Phase 7g — expected share of trips the client actually ships at this price
+  fairRewardPerTripCents: number // Phase 7g — the frozen fair rate the markup rides on
 }
 
 export interface ReconcileResult {
@@ -395,6 +398,7 @@ export interface ReconcileResult {
   incidents: number // Phase 7f — autonomous trips a crew botched (fewer with a higher-skill pilot)
   grounded: string[] // Phase 7e — tails that couldn't fly their autonomous work (grounded, needs service)
   dutyMaxed: string[] // Phase 7f — tails whose lone crew hit the daily duty limit (hire more crew)
+  emptyLegs: number // Phase 7g — legs that flew empty because a marked-up line priced out the client
 }
 
 export interface InsurancePolicy {
@@ -788,8 +792,10 @@ export const api = {
   staff: () => fetch('/api/staff').then(ok<Staff[]>),
   hire: (candidateSeed: number) => POST('/api/staff/hire', { candidateSeed }).then(ok),
   orders: () => fetch('/api/ops/orders').then(ok<StandingOrder[]>),
-  createOrder: (staffId: string, aircraftInstanceId: string, destIcao: string) =>
-    POST('/api/ops/orders', { staffId, aircraftInstanceId, destIcao }).then(ok),
+  createOrder: (staffId: string, aircraftInstanceId: string, destIcao: string, priceMultiplierMilli = 1000) =>
+    POST('/api/ops/orders', { staffId, aircraftInstanceId, destIcao, priceMultiplierMilli }).then(ok),
+  setOrderPrice: (id: string, priceMultiplierMilli: number) =>
+    POST(`/api/ops/orders/${id}/price`, { priceMultiplierMilli }).then(ok),
   cancelOrder: (id: string) => POST(`/api/ops/orders/${id}/cancel`).then(ok),
   reconcile: () => POST('/api/ops/reconcile').then(ok<ReconcileResult>),
   bases: () => fetch('/api/bases').then(ok<BaseView[]>),

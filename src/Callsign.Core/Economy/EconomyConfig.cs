@@ -282,6 +282,25 @@ public sealed record EconomyConfig
     /// arbitrage you leave alone heals; one you keep hammering stays suppressed while you work it.</summary>
     public TimeSpan MarketPressureHalfLife { get; init; } = TimeSpan.FromDays(2);
 
+    // --- Contract pricing (Phase 7g): mark up your recurring lines, at the cost of fill rate ---
+    /// <summary>The highest markup you can demand on a standing order, in thousandths (1500 = +50%). At or
+    /// below the fair rate the client fills every trip; above it, some legs fly empty.</summary>
+    public int MaxContractMarkupMilli { get; init; } = 1500;
+    /// <summary>How fast the per-trip fill rate falls as you mark up: fill = 1 − sensitivity·(markup−1). At
+    /// 0.6, the yield-maximising markup sits near +33% (higher pay per trip, but ~20% of legs run empty).</summary>
+    public double ContractDemandSensitivity { get; init; } = 0.6;
+    /// <summary>The fill rate never falls below this, however greedy the price — there's always some client.</summary>
+    public double ContractFillFloor { get; init; } = 0.25;
+
+    /// <summary>Per-trip probability the client actually ships at your chosen markup. 1.0 at or below the fair
+    /// rate; falls linearly above it (a premium leaves some legs empty), clamped to <see cref="ContractFillFloor"/>.</summary>
+    public double ContractFillProbability(int priceMultiplierMilli)
+    {
+        double markup = priceMultiplierMilli / 1000.0;
+        if (markup <= 1.0) return 1.0;
+        return Math.Clamp(1.0 - ContractDemandSensitivity * (markup - 1.0), ContractFillFloor, 1.0);
+    }
+
     // --- Loans (Phase 4a) ---
     /// <summary>Repayment horizon for a new loan (straight-line principal over this many days).</summary>
     public int LoanTermDays { get; init; } = 90;

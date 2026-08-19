@@ -16,7 +16,10 @@ public sealed class StandingOrder : ISyncable
     public string DestIcao { get; set; } = null!;
     public double DistanceNm { get; set; }
     public double RoundTripHours { get; set; }       // time for one there-and-back cycle
-    public long RewardPerTripCents { get; set; }      // frozen economy price for one delivered round trip
+    public long RewardPerTripCents { get; set; }      // frozen economy fair price for one delivered round trip
+    /// <summary>Your markup over the fair rate, in thousandths (1000 = fair, up to MaxContractMarkup). A
+    /// premium pays more per filled trip but the client fills fewer — some legs fly empty (Phase 7g).</summary>
+    public int PriceMultiplierMilli { get; set; } = 1000;
     public string Commodity { get; set; } = "General freight";
     public int WeightLbs { get; set; }
 

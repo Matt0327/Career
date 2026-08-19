@@ -189,6 +189,7 @@ public sealed class CallsignDbContext : DbContext
         order.Property(o => o.OriginIcao).IsRequired().HasMaxLength(12);
         order.Property(o => o.DestIcao).IsRequired().HasMaxLength(12);
         order.Property(o => o.Commodity).IsRequired().HasMaxLength(60);
+        order.Property(o => o.PriceMultiplierMilli).HasDefaultValue(1000); // existing lines backfill to the fair rate
         order.HasIndex(o => o.CompanyId);
         order.HasOne<Company>().WithMany().HasForeignKey(o => o.CompanyId).OnDelete(DeleteBehavior.Restrict);
         order.HasOne<Staff>().WithMany().HasForeignKey(o => o.StaffId).OnDelete(DeleteBehavior.Restrict);

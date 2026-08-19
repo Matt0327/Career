@@ -717,16 +717,22 @@ public static class CallsignWebApp
             return Results.Ok(new { id = s.Id, name = s.Name });
         });
 
-        app.MapGet("/api/ops/orders", async (CallsignDbContext db) =>
+        app.MapGet("/api/ops/orders", async (CallsignDbContext db, EconomyConfig cfg) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             var orders = await db.StandingOrders.Where(o => o.CompanyId == pilot.CompanyId && o.IsActive && !o.IsDeleted).ToListAsync();
             var staffNames = await db.Staff.Where(s => s.CompanyId == pilot.CompanyId).ToDictionaryAsync(s => s.Id, s => s.Name);
             var tails = await db.AircraftInstances.Where(a => a.CompanyId == pilot.CompanyId).ToDictionaryAsync(a => a.Id, a => a.Tail);
-            return Results.Ok(orders.Select(o => new StandingOrderDto(o.Id,
-                staffNames.GetValueOrDefault(o.StaffId, "?"), tails.GetValueOrDefault(o.AircraftInstanceId, "?"),
-                o.OriginIcao, o.DestIcao, o.DistanceNm, o.RoundTripHours, o.RewardPerTripCents)));
+            return Results.Ok(orders.Select(o =>
+            {
+                long effReward = (long)Math.Round(o.RewardPerTripCents * (o.PriceMultiplierMilli / 1000.0));
+                int fillPct = (int)Math.Round(cfg.ContractFillProbability(o.PriceMultiplierMilli) * 100);
+                return new StandingOrderDto(o.Id,
+                    staffNames.GetValueOrDefault(o.StaffId, "?"), tails.GetValueOrDefault(o.AircraftInstanceId, "?"),
+                    o.OriginIcao, o.DestIcao, o.DistanceNm, o.RoundTripHours, effReward,
+                    o.PriceMultiplierMilli, fillPct, o.RewardPerTripCents);
+            }));
         });
 
         app.MapPost("/api/ops/orders", async (StandingOrderRequest req, CallsignDbContext db, OperationsService ops) =>
@@ -735,8 +741,20 @@ public static class CallsignWebApp
             if (pilot is null) return Results.NotFound();
             try
             {
-                var o = await ops.CreateStandingOrderAsync(pilot.CompanyId, req.StaffId, req.AircraftInstanceId, req.DestIcao);
-                return Results.Ok(new { id = o.Id, roundTripHours = o.RoundTripHours, rewardPerTripCents = o.RewardPerTripCents });
+                var o = await ops.CreateStandingOrderAsync(pilot.CompanyId, req.StaffId, req.AircraftInstanceId, req.DestIcao, req.PriceMultiplierMilli ?? 1000);
+                return Results.Ok(new { id = o.Id, roundTripHours = o.RoundTripHours, rewardPerTripCents = o.RewardPerTripCents, priceMultiplierMilli = o.PriceMultiplierMilli });
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        app.MapPost("/api/ops/orders/{id:guid}/price", async (Guid id, OrderPriceRequest req, CallsignDbContext db, OperationsService ops) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                int markup = await ops.SetOrderPriceAsync(pilot.CompanyId, id, req.PriceMultiplierMilli);
+                return Results.Ok(new { id, priceMultiplierMilli = markup });
             }
             catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
@@ -754,7 +772,7 @@ public static class CallsignWebApp
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             var d = await ops.ReconcileAsync(pilot.CompanyId);
-            return Results.Ok(new ReconcileDto(d.Trips, d.GrossIncomeCents, d.FeesCents, d.WagesCents, d.RentCents, d.LoanCents, d.InsuranceCents, d.NetCents, d.Incidents, d.Grounded, d.DutyMaxed));
+            return Results.Ok(new ReconcileDto(d.Trips, d.GrossIncomeCents, d.FeesCents, d.WagesCents, d.RentCents, d.LoanCents, d.InsuranceCents, d.NetCents, d.Incidents, d.Grounded, d.DutyMaxed, d.EmptyLegs));
         });
 
         // --- Loans (Phase 4a) ---

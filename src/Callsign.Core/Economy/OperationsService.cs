@@ -10,7 +10,7 @@ namespace Callsign.Core.Economy;
 public sealed record StaffCandidate(int Seed, string Name, long WagePerDayCents, int SkillMilli);
 
 /// <summary>What a reconcile produced (for the reopen digest).</summary>
-public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed);
+public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed, int EmptyLegs = 0);
 
 /// <summary>
 /// Staff + standing orders (Phase 2d): hire pilots, set repeating autonomous routes, and reconcile the
@@ -77,7 +77,7 @@ public sealed class OperationsService
 
     /// <summary>Assign a pilot + an owned aircraft to a repeating route (its reward frozen at economy price).</summary>
     public async Task<StandingOrder> CreateStandingOrderAsync(
-        Guid companyId, Guid staffId, Guid aircraftId, string destIcao, CancellationToken ct = default)
+        Guid companyId, Guid staffId, Guid aircraftId, string destIcao, int priceMultiplierMilli = 1000, CancellationToken ct = default)
     {
         var staff = await _db.Staff.FirstOrDefaultAsync(s => s.Id == staffId && s.CompanyId == companyId && s.IsActive, ct)
                     ?? throw new InvalidOperationException("Pilot not found.");
@@ -105,14 +105,15 @@ public sealed class OperationsService
         double cruise = type?.CruiseKtas ?? 150;
         double rtHours = 2 * dist / Math.Max(60, cruise);
         int weight = Math.Min(type?.UsefulLoadLbs ?? 1_000, 1_000);
-        long reward = _cfg.CargoRewardCents(dist, weight); // economy-frozen, never player-set
+        long reward = _cfg.CargoRewardCents(dist, weight); // economy-frozen FAIR rate; your markup rides on top
+        int markup = Math.Clamp(priceMultiplierMilli, 1000, _cfg.MaxContractMarkupMilli);
 
         var now = _clock.UtcNow;
         var order = new StandingOrder
         {
             Id = Guid.NewGuid(), CompanyId = companyId, StaffId = staffId, AircraftInstanceId = aircraftId,
             OriginIcao = origin, DestIcao = destIcao, DistanceNm = dist, RoundTripHours = rtHours,
-            RewardPerTripCents = reward, Commodity = "General freight", WeightLbs = weight,
+            RewardPerTripCents = reward, PriceMultiplierMilli = markup, Commodity = "General freight", WeightLbs = weight,
             IsActive = true, StartedAt = now, LastReconciledAt = now, UpdatedAt = now,
         };
         _db.StandingOrders.Add(order);
@@ -120,6 +121,23 @@ public sealed class OperationsService
         aircraft.UpdatedAt = now;
         await _db.SaveChangesAsync(ct);
         return order;
+    }
+
+    /// <summary>
+    /// Re-price an active standing order. Reconciles first so trips already flown are booked at the OLD price
+    /// (the new markup only ever applies to future trips — no retroactive re-pricing). Returns the clamped
+    /// markup actually stored.
+    /// </summary>
+    public async Task<int> SetOrderPriceAsync(Guid companyId, Guid orderId, int priceMultiplierMilli, CancellationToken ct = default)
+    {
+        await ReconcileAsync(companyId, ct); // book pending trips at the current price before it changes
+        var order = await _db.StandingOrders.FirstOrDefaultAsync(o => o.Id == orderId && o.CompanyId == companyId && o.IsActive && !o.IsDeleted, ct)
+                    ?? throw new InvalidOperationException("Standing order not found.");
+        int markup = Math.Clamp(priceMultiplierMilli, 1000, _cfg.MaxContractMarkupMilli);
+        order.PriceMultiplierMilli = markup;
+        order.UpdatedAt = _clock.UtcNow;
+        await _db.SaveChangesAsync(ct);
+        return markup;
     }
 
     /// <summary>Cancel a standing order and free its aircraft.</summary>
@@ -146,6 +164,7 @@ public sealed class OperationsService
         int totalTrips = 0;
         long grossIncome = 0, totalFees = 0, totalWages = 0, totalRent = 0, totalLoan = 0, totalInsurance = 0;
         int totalIncidents = 0;            // trips a crew botched — skill is what keeps this down (Phase 7f)
+        int totalEmpty = 0;                // legs that flew empty because a marked-up line priced out the client (Phase 7g)
         var grounded = new List<string>(); // tails that couldn't fly their autonomous work — surfaced in the digest
         var dutyMaxed = new List<string>();// tails whose lone crew hit the duty limit — hire more crew to fly them harder
 
@@ -183,7 +202,7 @@ public sealed class OperationsService
                             + (dAir is not null && !baseIcaos.Contains(o.DestIcao) ? _cfg.LandingFeeCents(dAir.Kind) : 0);
             // The crew flies each trip: their skill sets how often a trip is botched (a diversion — half pay).
             var soCrew = await _db.Staff.FirstOrDefaultAsync(s => s.Id == o.StaffId, ct);
-            var soRoll = RollTrips(_cfg, o.Id, o.LastReconciledAt.UtcTicks, trips, soCrew?.SkillMilli ?? 50_000, o.RewardPerTripCents);
+            var soRoll = RollTrips(_cfg, o.Id, o.LastReconciledAt.UtcTicks, trips, soCrew?.SkillMilli ?? 50_000, o.RewardPerTripCents, o.PriceMultiplierMilli);
             long income = soRoll.Income;
             long fees = trips * feePerTrip;
             var stamp = o.LastReconciledAt.UtcTicks;
@@ -216,6 +235,7 @@ public sealed class OperationsService
             grossIncome += income;
             totalFees += fees;
             totalIncidents += soRoll.Incidents;
+            totalEmpty += soRoll.Empty;
             if (dutyCapped) dutyMaxed.Add(soAircraft?.Tail ?? $"{o.OriginIcao}↔{o.DestIcao}");
             SharpenCrew(soCrew, trips, now);
         }
@@ -350,7 +370,7 @@ public sealed class OperationsService
 
         await _db.SaveChangesAsync(ct);
         return new ReconcileDigest(totalTrips, grossIncome, totalFees, totalWages, totalRent, totalLoan, totalInsurance,
-            grossIncome - totalFees - totalWages - totalRent - totalLoan - totalInsurance, totalIncidents, grounded, dutyMaxed);
+            grossIncome - totalFees - totalWages - totalRent - totalLoan - totalInsurance, totalIncidents, grounded, dutyMaxed, totalEmpty);
     }
 
     /// <summary>
@@ -360,19 +380,36 @@ public sealed class OperationsService
     /// ace almost never botches a trip and a green pilot botches many; each incident then lands on a severity
     /// tier — mostly a minor scuff, sometimes a diversion (half pay), rarely a lost trip. Fatigue is later.
     /// </summary>
-    internal static (long Income, int Incidents, int ExtraWearMilli) RollTrips(
-        EconomyConfig cfg, Guid id, long stampTicks, int trips, int skillMilli, long rewardPerTrip)
+    // Decorrelates the demand (did-the-client-ship) roll from the incident roll so a marked-up line's empty
+    // legs never perturb which trips get botched. Any fixed odd constant does; the seed still folds in the
+    // order id + trip ordinal + watermark, so it stays deterministic and idempotent.
+    private const long FillSeedSalt = 0x5DEECE66D;
+
+    internal static (long Income, int Incidents, int ExtraWearMilli, int Empty) RollTrips(
+        EconomyConfig cfg, Guid id, long stampTicks, int trips, int skillMilli, long rewardPerTrip,
+        int priceMultiplierMilli = 1000)
     {
+        long effReward = (long)Math.Round(rewardPerTrip * (priceMultiplierMilli / 1000.0)); // your marked price
+        double pFill = cfg.ContractFillProbability(priceMultiplierMilli);
         double skillFrac = Math.Clamp(skillMilli / 100_000.0, 0, 1);
         double pIncident = cfg.BaseIncidentRatePct * Math.Pow(1 - skillFrac, cfg.IncidentSkillExponent);
         long income = 0;
-        int incidents = 0, wear = 0;
+        int incidents = 0, wear = 0, empty = 0;
         for (int i = 0; i < trips; i++)
         {
+            // Did the client ship at your price? Above the fair rate some legs run empty — the aircraft still
+            // flew (the caller bills its fuel, wear, fees and duty), it just earned nothing. A separate seed
+            // stream keeps this independent of the incident roll; at the fair rate pFill==1, so nothing changes.
+            if (pFill < 1.0)
+            {
+                var fillRng = new Random(StableSeed(id, i, stampTicks ^ FillSeedSalt));
+                if (fillRng.NextDouble() >= pFill) { empty++; continue; }
+            }
+
             var rng = new Random(StableSeed(id, i, stampTicks));
             if (rng.NextDouble() >= pIncident)
             {
-                income += rewardPerTrip; // clean trip
+                income += effReward; // clean trip
                 continue;
             }
             incidents++;
@@ -383,16 +420,16 @@ public sealed class OperationsService
             }
             else if (severity < cfg.IncidentMajorShare + cfg.IncidentDiversionShare)
             {
-                income += (long)Math.Round(rewardPerTrip * (1 - cfg.IncidentDiversionDockPct)); // diversion — half
+                income += (long)Math.Round(effReward * (1 - cfg.IncidentDiversionDockPct)); // diversion — half
                 wear += cfg.IncidentDiversionWearMilli;
             }
             else
             {
-                income += (long)Math.Round(rewardPerTrip * (1 - cfg.IncidentMinorDockPct)); // minor scuff
+                income += (long)Math.Round(effReward * (1 - cfg.IncidentMinorDockPct)); // minor scuff
                 wear += cfg.IncidentMinorWearMilli;
             }
         }
-        return (income, incidents, wear);
+        return (income, incidents, wear, empty);
     }
 
     // Experience sharpens a hired pilot: their skill drifts up with every trip flown, toward a ceiling

@@ -95,9 +95,11 @@ public record StaffDto(Guid Id, string Name, long WagePerDayCents, int SkillMill
 public record HireRequest(int CandidateSeed);
 public record StandingOrderDto(
     Guid Id, string StaffName, string Tail, string Origin, string Dest,
-    double DistanceNm, double RoundTripHours, long RewardPerTripCents);
-public record StandingOrderRequest(Guid StaffId, Guid AircraftInstanceId, string DestIcao);
-public record ReconcileDto(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed);
+    double DistanceNm, double RoundTripHours, long RewardPerTripCents,
+    int PriceMultiplierMilli, int FillPct, long FairRewardPerTripCents);
+public record StandingOrderRequest(Guid StaffId, Guid AircraftInstanceId, string DestIcao, int? PriceMultiplierMilli);
+public record OrderPriceRequest(int PriceMultiplierMilli);
+public record ReconcileDto(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed, int EmptyLegs);
 
 // --- Phase 4a: loans ---
 public record LoanOfferDto(int Tier, string Name, long MinPrincipalCents, long MaxPrincipalCents, int AprBps);

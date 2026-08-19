@@ -300,11 +300,140 @@ public class OperationsServiceTests
         var cfg = EconomyConfig.Default with { BaseIncidentRatePct = 1.0 };
         const int trips = 2_000;
         const long reward = 100_000;
-        var (income, incidents, wear) = OperationsService.RollTrips(cfg, Guid.NewGuid(), 12_345L, trips, 0, reward);
+        var (income, incidents, wear, empty) = OperationsService.RollTrips(cfg, Guid.NewGuid(), 12_345L, trips, 0, reward);
 
         Assert.Equal(trips, incidents);   // at a 100% rate every trip is an incident
         Assert.True(wear > 0);
+        Assert.Equal(0, empty);           // at the fair price the client fills every trip
         long full = (long)trips * reward;
         Assert.InRange(income, (long)(full * 0.66), (long)(full * 0.78)); // the tier mix, centred on ~0.72
+    }
+
+    [Fact]
+    public void RollTrips_Markup_IncidentRollFiresOnlyOnFilledTrips()
+    {
+        // The demand roll and the incident roll are independent streams, and an empty leg is skipped BEFORE the
+        // incident roll. So at a 100% incident rate every FILLED trip is an incident and every empty leg is not:
+        // incidents == filled == trips − empty. At the fair price nothing is empty (the original path); at a
+        // markup the incident count tracks the filled count exactly, proving empties never reach the incident roll.
+        var cfg = EconomyConfig.Default with { BaseIncidentRatePct = 1.0 };
+        const int trips = 2_000;
+        var id = Guid.NewGuid();
+
+        var fair = OperationsService.RollTrips(cfg, id, 999L, trips, 0, 100_000, 1000);
+        Assert.Equal(0, fair.Empty);
+        Assert.Equal(trips, fair.Incidents);                    // fair price fills every trip → every trip an incident
+
+        var marked = OperationsService.RollTrips(cfg, id, 999L, trips, 0, 100_000, 1500);
+        Assert.True(marked.Empty > 0);                          // the premium leaves legs empty
+        Assert.Equal(trips - marked.Empty, marked.Incidents);   // incident roll fired on exactly the filled legs
+    }
+
+    [Fact]
+    public void RollTrips_Markup_RaisesFilledPay_ButLeavesLegsEmpty()
+    {
+        // A premium price: filled trips pay more per trip, but a share of legs fly empty (no pay). No incidents
+        // (0% rate) so income is purely (filled trips × marked reward) and the empties are the demand shortfall.
+        var cfg = EconomyConfig.Default with { BaseIncidentRatePct = 0.0 };
+        const int trips = 2_000;
+        const long reward = 100_000;
+        var id = Guid.NewGuid();
+
+        var fair = OperationsService.RollTrips(cfg, id, 7L, trips, 60_000, reward, 1000);
+        var marked = OperationsService.RollTrips(cfg, id, 7L, trips, 60_000, reward, 1500); // +50% → ~70% fill
+
+        Assert.Equal(0, fair.Empty);
+        Assert.Equal(trips * reward, fair.Income);
+        Assert.InRange(marked.Empty, (int)(trips * 0.20), (int)(trips * 0.40));   // ~30% of legs run empty at +50%
+        int filled = trips - marked.Empty;
+        Assert.Equal(filled * (long)Math.Round(reward * 1.5), marked.Income);     // each filled trip pays the marked rate
+        Assert.True(marked.Income > fair.Income);                                  // at these knobs the premium still nets more
+    }
+
+    [Fact]
+    public async Task StandingOrderMarkup_ClampsAtCreate_AndRepriceClampsToo()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Guid companyId, aircraftId, aceId, orderId;
+        using (var db = tdb.NewContext())
+        {
+            var company = new Company { Id = Guid.NewGuid(), Name = "Co" };
+            db.Companies.Add(company);
+            db.Airports.AddRange(A("EHAM", 52.3086, 4.7639), A("EHRD", 51.9569, 4.4372));
+            var type = new AircraftType { Id = Guid.NewGuid(), Key = "PC12", CanonicalName = "Pilatus PC-12", Category = AircraftCategory.Turboprop, CruiseKtas = 270, UsefulLoadLbs = 1_000 };
+            db.AircraftTypes.Add(type);
+            db.AircraftInstances.Add(new AircraftInstance { Id = Guid.NewGuid(), TypeId = type.Id, CompanyId = company.Id, Tail = "CS-1", LocationIcao = "EHAM" });
+            db.Staff.Add(new Staff { Id = Guid.NewGuid(), CompanyId = company.Id, Name = "Ace", SkillMilli = 90_000, WagePerDayCents = 20_000, IsActive = true, HiredAt = clock.UtcNow, LastPaidAt = clock.UtcNow });
+            await db.SaveChangesAsync();
+            companyId = company.Id;
+            aircraftId = (await db.AircraftInstances.FirstAsync()).Id;
+            aceId = (await db.Staff.FirstAsync()).Id;
+        }
+
+        using (var db = tdb.NewContext())
+        {
+            var ops = new OperationsService(db, new LedgerService(db, clock), clock, Cfg);
+            var o = await ops.CreateStandingOrderAsync(companyId, aceId, aircraftId, "EHRD", 9_000); // absurd markup
+            orderId = o.Id;
+            Assert.Equal(Cfg.MaxContractMarkupMilli, o.PriceMultiplierMilli); // clamped to the cap
+        }
+
+        using (var db = tdb.NewContext())
+        {
+            var ops = new OperationsService(db, new LedgerService(db, clock), clock, Cfg);
+            int m = await ops.SetOrderPriceAsync(companyId, orderId, 500); // below fair → clamps up to fair
+            Assert.Equal(1000, m);
+            Assert.Equal(1000, (await db.StandingOrders.FindAsync(orderId))!.PriceMultiplierMilli);
+        }
+    }
+
+    [Fact]
+    public async Task Reprice_BooksPendingTripsAtOldPrice_NotRetroactively()
+    {
+        // Re-pricing must reconcile FIRST at the OLD rate, so trips already flown are never re-priced up (that
+        // would be free money). Compared against a plain reconcile over the same window: a reprice-to-+50% books
+        // the SAME payout as no reprice — because the pending trips settle at the fair rate before the markup lands.
+        var cfg = Cfg with { BaseIncidentRatePct = 0.0 }; // no incidents → income is exactly filled × price
+
+        async Task<long> RunAsync(bool reprice)
+        {
+            using var tdb = new TestDb();
+            var clock = new FakeClock();
+            Guid companyId, aircraftId, aceId, orderId;
+            using (var db = tdb.NewContext())
+            {
+                var company = new Company { Id = Guid.NewGuid(), Name = "Co" };
+                db.Companies.Add(company);
+                db.Airports.AddRange(A("EHAM", 52.3086, 4.7639), A("EHRD", 51.9569, 4.4372));
+                var type = new AircraftType { Id = Guid.NewGuid(), Key = "PC12", CanonicalName = "Pilatus PC-12", Category = AircraftCategory.Turboprop, CruiseKtas = 270, UsefulLoadLbs = 1_000 };
+                db.AircraftTypes.Add(type);
+                db.AircraftInstances.Add(new AircraftInstance { Id = Guid.NewGuid(), TypeId = type.Id, CompanyId = company.Id, Tail = "CS-1", LocationIcao = "EHAM" });
+                db.Staff.Add(new Staff { Id = Guid.NewGuid(), CompanyId = company.Id, Name = "Ace", SkillMilli = 90_000, WagePerDayCents = 0, IsActive = true, HiredAt = clock.UtcNow, LastPaidAt = clock.UtcNow });
+                await db.SaveChangesAsync();
+                companyId = company.Id;
+                aircraftId = (await db.AircraftInstances.FirstAsync()).Id;
+                aceId = (await db.Staff.FirstAsync()).Id;
+            }
+            using (var db = tdb.NewContext())
+                orderId = (await new OperationsService(db, new LedgerService(db, clock), clock, cfg)
+                    .CreateStandingOrderAsync(companyId, aceId, aircraftId, "EHRD")).Id; // starts at the fair rate (1000)
+
+            clock.UtcNow = clock.UtcNow.AddDays(3); // several trips accrue at the fair rate
+
+            using (var db = tdb.NewContext())
+            {
+                var ops = new OperationsService(db, new LedgerService(db, clock), clock, cfg);
+                if (reprice) await ops.SetOrderPriceAsync(companyId, orderId, 1500); // reconciles-first, THEN marks up
+                else await ops.ReconcileAsync(companyId);
+            }
+            using (var db = tdb.NewContext())
+                return await db.LedgerEntries.Where(e => e.Category == LedgerCategory.JobPayout).SumAsync(e => e.AmountCents);
+        }
+
+        long control = await RunAsync(reprice: false);
+        long repriced = await RunAsync(reprice: true);
+        Assert.True(control > 0);           // trips actually accrued and paid out
+        Assert.Equal(control, repriced);    // repricing booked the pending trips at the OLD fair rate, not +50%
     }
 }
