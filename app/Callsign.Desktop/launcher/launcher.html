@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Callsign</title>
+<style>
+  :root{
+    --bg:#0f1216; --panel:#161a20; --panel-2:#1c2129; --line:#262c36;
+    --ink:#eef2f7; --muted:#8a97a7; --faint:#5c6673;
+    --accent:#6d84ff; --accent-ink:#ffffff; --pos:#2fbf71; --warn:#e5a53a;
+    --sans:"Segoe UI",system-ui,-apple-system,sans-serif;
+    --mono:"Cascadia Code",ui-monospace,"SF Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    background:var(--bg); color:var(--ink); font:14px/1.5 var(--sans);
+    -webkit-font-smoothing:antialiased; user-select:none; overflow:hidden;
+    display:flex; flex-direction:column;
+  }
+  a{color:var(--accent); text-decoration:none}
+
+  /* ── custom title bar (frameless window) ── */
+  .titlebar{
+    height:38px; flex:none; display:flex; align-items:center; gap:10px; padding:0 6px 0 14px;
+    -webkit-app-region:drag; app-region:drag; background:transparent; z-index:5;
+  }
+  .tb-brand{font-weight:800; letter-spacing:.26em; font-size:12.5px; color:var(--ink)}
+  .tb-brand .dot{color:var(--accent)}
+  .tb-sp{flex:1}
+  .tb-btn{
+    -webkit-app-region:no-drag; app-region:no-drag;
+    width:40px; height:28px; border:none; background:transparent; color:var(--muted);
+    border-radius:7px; cursor:pointer; display:grid; place-items:center; font-size:14px;
+  }
+  .tb-btn:hover{background:var(--panel-2); color:var(--ink)}
+  .tb-btn.close:hover{background:#c0392b; color:#fff}
+
+  /* ── hero ── */
+  .hero{
+    position:relative; flex:1; min-height:0; overflow:hidden;
+    display:flex; flex-direction:column; justify-content:flex-end; padding:26px 30px;
+  }
+  .hero .bg{position:absolute; inset:0; background:#0c0f13 center/cover no-repeat; opacity:.55; transform:scale(1.03)}
+  .hero .scrim{position:absolute; inset:0;
+    background:
+      radial-gradient(120% 80% at 20% 0%, transparent, rgba(10,12,16,.55) 70%),
+      linear-gradient(180deg, rgba(12,15,19,.25) 0%, rgba(12,15,19,.72) 55%, var(--bg) 100%);
+  }
+  .hero .fg{position:relative; z-index:2; max-width:560px}
+  .wordmark{font-weight:800; letter-spacing:.20em; font-size:34px; margin:0 0 6px}
+  .wordmark .dot{color:var(--accent)}
+  .tagline{color:var(--muted); font-size:14.5px; margin:0 0 18px; letter-spacing:.01em}
+
+  /* ── news strip ── */
+  .news{position:relative; z-index:2; display:flex; gap:12px; overflow-x:auto; padding-bottom:2px}
+  .news::-webkit-scrollbar{height:0}
+  .card{
+    -webkit-app-region:no-drag;
+    flex:0 0 232px; background:color-mix(in srgb,var(--panel) 88%, transparent);
+    border:1px solid var(--line); border-radius:12px; padding:13px 14px; backdrop-filter:blur(6px);
+    transition:border-color .15s ease, transform .15s ease; cursor:default;
+  }
+  .card.link{cursor:pointer}
+  .card.link:hover{border-color:color-mix(in srgb,var(--accent) 55%, var(--line)); transform:translateY(-2px)}
+  .card .tag{display:inline-block; font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--accent); background:color-mix(in srgb,var(--accent) 15%, transparent); padding:2px 8px; border-radius:5px}
+  .card .tag.update{color:var(--pos); background:color-mix(in srgb,var(--pos) 15%, transparent)}
+  .card h3{font-size:14px; margin:9px 0 4px; line-height:1.3}
+  .card p{font-size:12.5px; color:var(--muted); margin:0; line-height:1.45;
+    display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden}
+  .card .date{font-size:11px; color:var(--faint); margin-top:9px}
+
+  /* ── action bar ── */
+  .bar{
+    flex:none; display:flex; align-items:center; gap:20px; padding:14px 30px 18px;
+    background:linear-gradient(180deg, transparent, rgba(0,0,0,.18)); border-top:1px solid var(--line);
+  }
+  .status{flex:1; min-width:0}
+  .status .line{display:flex; align-items:center; gap:9px; font-size:13px}
+  .status .spin{width:13px; height:13px; border-radius:50%; border:2px solid var(--line); border-top-color:var(--accent);
+    animation:spin .7s linear infinite; flex:none}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .status .ic{width:13px;height:13px;flex:none;border-radius:50%}
+  .status .ic.ok{background:var(--pos); box-shadow:0 0 0 3px color-mix(in srgb,var(--pos) 22%,transparent)}
+  .status .ic.err{background:#c0392b}
+  .status .txt{color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .status .ver{color:var(--faint); font-family:var(--mono); font-size:11.5px}
+  .track{margin-top:9px; height:6px; border-radius:999px; background:var(--panel-2); overflow:hidden; max-width:520px; opacity:0; transition:opacity .2s}
+  .track.show{opacity:1}
+  .fill{height:100%; width:0; border-radius:999px; background:linear-gradient(90deg,var(--accent),#8ea0ff); transition:width .25s ease}
+  .fill.indet{width:35%; animation:indet 1.1s ease-in-out infinite}
+  @keyframes indet{0%{margin-left:-35%}100%{margin-left:100%}}
+
+  .play{
+    -webkit-app-region:no-drag; flex:none;
+    min-width:186px; height:52px; padding:0 30px; border:none; border-radius:12px; cursor:pointer;
+    background:linear-gradient(180deg,#7b90ff,var(--accent)); color:var(--accent-ink);
+    font-size:16px; font-weight:750; letter-spacing:.06em; text-transform:uppercase;
+    box-shadow:0 8px 22px -8px color-mix(in srgb,var(--accent) 75%,transparent), inset 0 1px 0 rgba(255,255,255,.22);
+    transition:filter .15s ease, transform .06s ease;
+  }
+  .play:hover:not(:disabled){filter:brightness(1.07)}
+  .play:active:not(:disabled){transform:translateY(1px)}
+  .play:disabled{background:var(--panel-2); color:var(--faint); box-shadow:none; cursor:default; letter-spacing:.04em}
+</style>
+</head>
+<body>
+  <div class="titlebar" id="titlebar">
+    <span class="tb-brand">CALL<span class="dot">·</span>SIGN</span>
+    <span class="tb-sp"></span>
+    <button class="tb-btn" id="min" title="Minimize" aria-label="Minimize">&#x2013;</button>
+    <button class="tb-btn close" id="quit" title="Close" aria-label="Close">&#x2715;</button>
+  </div>
+
+  <div class="hero">
+    <div class="bg" id="bg"></div>
+    <div class="scrim"></div>
+    <div class="fg">
+      <h1 class="wordmark">CALL<span class="dot">·</span>SIGN</h1>
+      <p class="tagline">Your career, your callsign — the flight-sim company you actually run.</p>
+    </div>
+    <div class="news" id="news"><!-- news cards injected here --></div>
+  </div>
+
+  <div class="bar">
+    <div class="status">
+      <div class="line">
+        <span id="glyph" class="spin"></span>
+        <span class="txt" id="statusText">Starting…</span>
+        <span class="ver" id="ver"></span>
+      </div>
+      <div class="track" id="track"><div class="fill" id="fill"></div></div>
+    </div>
+    <button class="play" id="play" disabled>Checking…</button>
+  </div>
+
+<script>
+  const post = (m) => { try { window.chrome.webview.postMessage(m); } catch (e) {} };
+  const $ = (id) => document.getElementById(id);
+  let ready = false;
+
+  $('min').onclick = () => post('minimize');
+  $('quit').onclick = () => post('quit');
+  $('play').onclick = () => { if (ready) post('play'); };
+
+  // Frameless drag: grabbing the title bar (but not its buttons) moves the host window (handled in C#).
+  $('titlebar').addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || e.target.closest('.tb-btn')) return;
+    post('drag');
+  });
+
+  function setGlyph(kind){ // 'spin' | 'ok' | 'err'
+    const g = $('glyph');
+    g.className = kind === 'spin' ? 'spin' : ('ic ' + kind);
+  }
+  function setProgress(pct){ // number 0..100, or -1 for indeterminate, or null to hide
+    const track = $('track'), fill = $('fill');
+    if (pct === null || pct === undefined){ track.classList.remove('show'); fill.classList.remove('indet'); return; }
+    track.classList.add('show');
+    if (pct < 0){ fill.classList.add('indet'); fill.style.width = ''; }
+    else { fill.classList.remove('indet'); fill.style.width = Math.max(0, Math.min(100, pct)) + '%'; }
+  }
+  function play(label){ const b = $('play'); ready = true; b.disabled = false; b.textContent = label || 'Play'; }
+  function busy(label){ const b = $('play'); ready = false; b.disabled = true; b.textContent = label || 'Working…'; }
+
+  // ── messages from the host (C#) ──
+  window.chrome && window.chrome.webview && window.chrome.webview.addEventListener('message', (ev) => {
+    const m = ev.data || {};
+    if (m.type === 'init'){
+      if (m.version) $('ver').textContent = 'v' + m.version;
+      if (m.bg) $('bg').style.backgroundImage = `url("${m.bg}")`;
+      loadNews(m.newsUrl);
+    } else if (m.type === 'status'){
+      $('statusText').textContent = m.text || '';
+      if (m.phase === 'checking' || m.phase === 'downloading' || m.phase === 'starting'){ setGlyph('spin'); busy(m.play || 'Working…'); }
+      else if (m.phase === 'ready'){ setGlyph('ok'); play(m.play || 'Play'); }
+      else if (m.phase === 'error'){ setGlyph('err'); play(m.play || 'Play anyway'); }
+      setProgress(m.pct === undefined ? null : m.pct);
+    } else if (m.type === 'notes'){
+      prependNote(m.title, m.body);
+    }
+  });
+
+  // ── news ──
+  // Escape for HTML — including quotes, since some values are injected into double-quoted attributes.
+  // News can come from an untrusted remote feed, so this must be airtight.
+  function esc(s){ const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML.replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+  function fmtDate(s){ if(!s) return ''; const d = new Date(s); return isNaN(d) ? '' : d.toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}); }
+  function cardHtml(n){
+    const cls = 'card' + (n.url ? ' link' : '');
+    const tag = n.tag ? `<span class="tag ${esc(n.tagKind||'')}">${esc(n.tag)}</span>` : '';
+    const date = n.date ? `<div class="date">${esc(fmtDate(n.date))}</div>` : '';
+    return `<div class="${cls}" ${n.url ? `data-url="${esc(n.url)}"` : ''}>${tag}<h3>${esc(n.title||'')}</h3><p>${esc(n.body||'')}</p>${date}</div>`;
+  }
+  function renderNews(items){
+    const host = $('news');
+    if (!items || !items.length){
+      host.innerHTML = cardHtml({tag:'Welcome', title:'Welcome, Captain', body:'Callsign turns your Microsoft Flight Simulator flights into a real career — contracts, a fleet, crew, bases and a living economy. Fly the leg; we run the company.'})
+        + cardHtml({tag:'Tip', title:'Start on the Jobs board', body:'Accept a contract, fly it in the sim, and settle it — your first payout, reputation and XP land the moment you park.'});
+      return;
+    }
+    host.innerHTML = items.map(cardHtml).join('');
+    host.querySelectorAll('.card.link').forEach(c => c.onclick = () => post({cmd:'open', url:c.dataset.url}));
+  }
+  function prependNote(title, body){
+    if (!title && !body) return;
+    const host = $('news');
+    host.insertAdjacentHTML('afterbegin', cardHtml({tag:'Update', tagKind:'update', title:title||'What’s new', body:body||''}));
+  }
+  async function loadNews(url){
+    // Try a live feed first (if the host provided one), then fall back to the bundled default.
+    const tries = [url, 'news.json'].filter(Boolean);
+    for (const u of tries){
+      try{
+        const r = await fetch(u, {cache:'no-store'});
+        if (!r.ok) continue;
+        const data = await r.json();
+        const items = Array.isArray(data) ? data : (data.items || []);
+        if (items.length){ renderNews(items); return; }
+      }catch(e){ /* try the next source */ }
+    }
+    renderNews(null); // graceful welcome default
+  }
+
+  // If the host is slow to send 'init', still show something.
+  setTimeout(() => { if (!$('news').children.length) renderNews(null); }, 1500);
+</script>
+</body>
+</html>

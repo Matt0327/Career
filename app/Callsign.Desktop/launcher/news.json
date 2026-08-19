@@ -1,0 +1,22 @@
+{
+  "items": [
+    {
+      "tag": "Welcome",
+      "title": "Welcome to Callsign",
+      "body": "Turn your Microsoft Flight Simulator flights into a real career — contracts, a fleet, crew, bases and a living economy. Fly the leg; Callsign runs the company around it.",
+      "date": "2026-08-20"
+    },
+    {
+      "tag": "New",
+      "title": "The economy has teeth now",
+      "body": "Your own trading moves market prices, contracts and routes are player-priced, loans are rated to your credit, and bases can house a maintenance shop and a fuel farm. Every number you touch pushes back.",
+      "date": "2026-08-20"
+    },
+    {
+      "tag": "Tip",
+      "title": "Start on the Jobs board",
+      "body": "Accept a contract, fly it in the sim, and settle it — your first payout, reputation and XP land the moment you park. Grades reward a clean, stabilized approach.",
+      "date": "2026-08-20"
+    }
+  ]
+}

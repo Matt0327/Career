@@ -28,4 +28,11 @@
   <ItemGroup Condition="Exists('..\..\ui\dist')">
     <Content Include="..\..\ui\dist\**\*" LinkBase="wwwroot" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <!-- Bundle the launcher page + its assets (served from a virtual host by LauncherForm), and the app icon. -->
+  <ItemGroup>
+    <Content Include="launcher\**\*" LinkBase="launcher" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="splash.png" Link="launcher\splash.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="callsign.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
