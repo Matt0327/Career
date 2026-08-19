@@ -2139,7 +2139,9 @@ function Ops({ onChanged }: { onChanged: () => void }) {
       const warn = d.grounded.length > 0
         ? ` · Grounded, not flying: ${d.grounded.join('; ')} — service them in the Hangar.`
         : ''
-      setMsg(base + inc + empty + duty + warn)
+      const owed = d.loanWarnings.length > 0 ? ` · ⚠ Can't cover loans (${d.loanWarnings.join('; ')}) — earn or pay down before they default.` : ''
+      const def = d.defaults.length > 0 ? ` · ✖ Defaulted: ${d.defaults.join('; ')}.` : ''
+      setMsg(base + inc + empty + duty + warn + owed + def)
     } catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
 

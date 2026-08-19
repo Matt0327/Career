@@ -56,7 +56,11 @@ public sealed class LoanService
             .ToListAsync(ct);
         int paidOff = paidSpans.Count(l => (l.PaymentLastBilledAt - l.TakenAt).TotalDays >= _cfg.CreditSeasoningDays);
         int defaulted = await _db.Loans.CountAsync(l => l.CompanyId == companyId && l.Status == LoanStatus.Defaulted && !l.IsDeleted, ct);
-        long outstanding = await _db.Loans.Where(l => l.CompanyId == companyId && l.Status == LoanStatus.Active && !l.IsDeleted)
+        // Charged-off (defaulted) balances still weigh on leverage, exactly as they do on net worth — so a
+        // default is monotonically worse for credit (the −default penalty PLUS the leverage it never sheds),
+        // never a way to shed leverage and nudge the score up.
+        long outstanding = await _db.Loans.Where(l => l.CompanyId == companyId && !l.IsDeleted
+                && (l.Status == LoanStatus.Active || l.Status == LoanStatus.Defaulted))
                                           .SumAsync(l => l.OutstandingCents, ct);
         int score = _cfg.CreditScore(paidOff, defaulted, outstanding, company.CashCents);
         return new CreditAssessment(score, LoanCatalog.CreditGrade(score), _cfg.CreditAprDeltaBps(score));

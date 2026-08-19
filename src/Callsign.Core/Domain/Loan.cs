@@ -20,6 +20,9 @@ public sealed class Loan : ISyncable
     public long OutstandingCents { get; set; }      // principal still owed
     public DateTimeOffset TakenAt { get; set; }
     public DateTimeOffset PaymentLastBilledAt { get; set; } // reconcile watermark
+    /// <summary>When the company first couldn't service this loan; null while in good standing. Once set,
+    /// the loan is in forbearance and defaults if it stays underwater past the grace window (Phase 7g).</summary>
+    public DateTimeOffset? DelinquentSinceAt { get; set; }
     public LoanStatus Status { get; set; } = LoanStatus.Active;
 
     // Sync hooks (dormant until the Phase-4 shared-world ADR).

@@ -399,6 +399,8 @@ export interface ReconcileResult {
   grounded: string[] // Phase 7e — tails that couldn't fly their autonomous work (grounded, needs service)
   dutyMaxed: string[] // Phase 7f — tails whose lone crew hit the daily duty limit (hire more crew)
   emptyLegs: number // Phase 7g — legs that flew empty because a marked-up line priced out the client
+  loanWarnings: string[] // Phase 7g — loans in forbearance, warned before they default (Law 4)
+  defaults: string[] // Phase 7g — loans that defaulted this pass (charged off, credit wrecked)
 }
 
 export interface InsurancePolicy {

@@ -67,7 +67,10 @@ public sealed class FinanceService
         var lots = await _db.InventoryLots.Where(l => l.CompanyId == companyId && l.Quantity > 0 && !l.IsDeleted).ToListAsync(ct);
         long inventory = lots.Sum(l => l.UnitCostCents * (long)l.Quantity);
 
-        long loans = await _db.Loans.Where(l => l.CompanyId == companyId && l.Status == LoanStatus.Active && !l.IsDeleted)
+        // Active debt AND charged-off (defaulted) balances both weigh on the books — defaulting stops the
+        // payments but the written-off debt still counts against net worth, so a default is never a windfall.
+        long loans = await _db.Loans.Where(l => l.CompanyId == companyId && !l.IsDeleted
+                && (l.Status == LoanStatus.Active || l.Status == LoanStatus.Defaulted))
             .SumAsync(l => l.OutstandingCents, ct);
 
         return new NetWorthBreakdown(cash, aircraft, inventory, loans, cash + aircraft + inventory - loans);

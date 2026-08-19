@@ -351,6 +351,14 @@ public sealed record EconomyConfig
     public int EffectiveAprBps(int baseAprBps, int score)
         => Math.Max(CreditAprFloorBps, baseAprBps + CreditAprDeltaBps(score));
 
+    // --- Loan default (Phase 7g): the safety valve when a company can't service its debt ---
+    /// <summary>Cash below which a company is treated as unable to service its loans this period, tipping it
+    /// into forbearance. At 0, any negative balance after all of the period's income and costs counts.</summary>
+    public long LoanDelinquencyCashFloorCents { get; init; } = 0;
+    /// <summary>How long a loan can sit in forbearance (the company underwater) before it defaults — the grace
+    /// window the player is warned across every reconcile before the write-off executes (Law 4).</summary>
+    public int LoanDefaultGraceDays { get; init; } = 30;
+
     // --- Balance sheet (Phase 4b) ---
     /// <summary>Resale haircut: a pristine airframe is worth this fraction of its market price as an asset.</summary>
     public double AircraftResaleFactor { get; init; } = 0.70;

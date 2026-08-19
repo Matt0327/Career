@@ -10,7 +10,7 @@ namespace Callsign.Core.Economy;
 public sealed record StaffCandidate(int Seed, string Name, long WagePerDayCents, int SkillMilli);
 
 /// <summary>What a reconcile produced (for the reopen digest).</summary>
-public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed, int EmptyLegs = 0);
+public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed, int EmptyLegs = 0, IReadOnlyList<string>? LoanWarnings = null, IReadOnlyList<string>? Defaults = null);
 
 /// <summary>
 /// Staff + standing orders (Phase 2d): hire pilots, set repeating autonomous routes, and reconcile the
@@ -183,6 +183,8 @@ public sealed class OperationsService
         int totalEmpty = 0;                // legs that flew empty because a marked-up line priced out the client (Phase 7g)
         var grounded = new List<string>(); // tails that couldn't fly their autonomous work — surfaced in the digest
         var dutyMaxed = new List<string>();// tails whose lone crew hit the duty limit — hire more crew to fly them harder
+        var loanWarnings = new List<string>(); // loans in forbearance — pay down before the grace runs out (Phase 7g)
+        var defaults = new List<string>();  // loans that defaulted this pass — a charged-off, credit-wrecking event
 
         // Airports where we own a base — landings there are fee-free.
         var baseIcaos = (await _db.Bases.Where(b => b.CompanyId == companyId && b.IsActive && !b.IsDeleted)
@@ -291,32 +293,6 @@ public sealed class OperationsService
             totalRent += charge;
         }
 
-        // Loans (Phase 4a): bill accrued interest + straight-line principal over whole elapsed days.
-        foreach (var loan in await _db.Loans.Where(l => l.CompanyId == companyId && l.Status == LoanStatus.Active && !l.IsDeleted).ToListAsync(ct))
-        {
-            int days = (int)Math.Floor((now - loan.PaymentLastBilledAt).TotalDays);
-            if (days <= 0)
-                continue;
-            var (interest, principal) = LoanCatalog.Amortize(loan.OutstandingCents, loan.PrincipalCents, loan.AprBps, loan.TermDays, days);
-            var stamp = loan.PaymentLastBilledAt.UtcTicks;
-            var lp = new List<LedgerPosting>();
-            if (interest > 0)
-                lp.Add(new(LedgerCategory.LoanInterest, -(interest / 100m), $"Loan interest — tier {loan.Tier}",
-                    LedgerRefType.Loan, loan.Id.ToString(), DedupeKey: $"loan-int:{loan.Id}:{stamp}"));
-            if (principal > 0)
-                lp.Add(new(LedgerCategory.LoanPayment, -(principal / 100m), $"Loan repayment — tier {loan.Tier}",
-                    LedgerRefType.Loan, loan.Id.ToString(), DedupeKey: $"loan-pay:{loan.Id}:{stamp}"));
-            if (lp.Count > 0)
-                await _ledger.StageBatchAsync(companyId, lp, ct);
-
-            loan.OutstandingCents = Math.Max(0, loan.OutstandingCents - principal);
-            loan.PaymentLastBilledAt = loan.PaymentLastBilledAt.AddDays(days); // advance by whole billed days only
-            if (loan.OutstandingCents == 0)
-                loan.Status = LoanStatus.PaidOff;
-            loan.UpdatedAt = now;
-            totalLoan += interest + principal;
-        }
-
         // Routes (Phase 4d): base-to-base scheduled trips — fee-free (both ends are your bases).
         foreach (var route in await _db.Routes.Where(r => r.CompanyId == companyId && r.Active && !r.IsDeleted).ToListAsync(ct))
         {
@@ -385,9 +361,63 @@ public sealed class OperationsService
             totalInsurance += premium;
         }
 
+        // Loans (Phase 4a) + default safety valve (Phase 7g): billed LAST, so the solvency check sees all of
+        // this period's income and other costs. A company that can't cover a payment goes into forbearance
+        // (billing pauses so the hole doesn't deepen) and is WARNED; if it stays underwater past the grace
+        // window the loan defaults — billing stops for good, the charged-off balance stays on the books (still
+        // counted in net worth) and the black mark wrecks its credit. Law 4: warn before the disaster executes.
+        var borrower = await _db.Companies.FirstAsync(c => c.Id == companyId, ct); // tracked; cash reflects the postings so far
+        // Oldest debt first, so when cash covers some-but-not-all loans the cascade (which one forbears/defaults)
+        // is deterministic and fair, not left to the provider's row order.
+        foreach (var loan in await _db.Loans.Where(l => l.CompanyId == companyId && l.Status == LoanStatus.Active && !l.IsDeleted).OrderBy(l => l.TakenAt).ToListAsync(ct))
+        {
+            int days = (int)Math.Floor((now - loan.PaymentLastBilledAt).TotalDays);
+            if (days <= 0)
+                continue;
+
+            if (borrower.CashCents < _cfg.LoanDelinquencyCashFloorCents) // can't service the debt this period
+            {
+                loan.DelinquentSinceAt ??= now; // first miss — start the grace clock
+                if ((now - loan.DelinquentSinceAt.Value).TotalDays >= _cfg.LoanDefaultGraceDays)
+                {
+                    loan.Status = LoanStatus.Defaulted; // grace elapsed while still underwater → written off
+                    defaults.Add($"tier {loan.Tier} — {loan.OutstandingCents / 100m:C0} charged off, your credit is wrecked");
+                }
+                else
+                {
+                    int left = _cfg.LoanDefaultGraceDays - (int)(now - loan.DelinquentSinceAt.Value).TotalDays;
+                    loanWarnings.Add($"tier {loan.Tier} — {left}d to default");
+                }
+                loan.PaymentLastBilledAt = now; // forbearance: skip this payment, and don't retro-bill the gap later
+                loan.UpdatedAt = now;
+                continue;
+            }
+
+            loan.DelinquentSinceAt = null; // solvent — back in good standing
+            var (interest, principal) = LoanCatalog.Amortize(loan.OutstandingCents, loan.PrincipalCents, loan.AprBps, loan.TermDays, days);
+            var stamp = loan.PaymentLastBilledAt.UtcTicks;
+            var lp = new List<LedgerPosting>();
+            if (interest > 0)
+                lp.Add(new(LedgerCategory.LoanInterest, -(interest / 100m), $"Loan interest — tier {loan.Tier}",
+                    LedgerRefType.Loan, loan.Id.ToString(), DedupeKey: $"loan-int:{loan.Id}:{stamp}"));
+            if (principal > 0)
+                lp.Add(new(LedgerCategory.LoanPayment, -(principal / 100m), $"Loan repayment — tier {loan.Tier}",
+                    LedgerRefType.Loan, loan.Id.ToString(), DedupeKey: $"loan-pay:{loan.Id}:{stamp}"));
+            if (lp.Count > 0)
+                await _ledger.StageBatchAsync(companyId, lp, ct);
+
+            loan.OutstandingCents = Math.Max(0, loan.OutstandingCents - principal);
+            loan.PaymentLastBilledAt = loan.PaymentLastBilledAt.AddDays(days); // advance by whole billed days only
+            if (loan.OutstandingCents == 0)
+                loan.Status = LoanStatus.PaidOff;
+            loan.UpdatedAt = now;
+            totalLoan += interest + principal;
+        }
+
         await _db.SaveChangesAsync(ct);
         return new ReconcileDigest(totalTrips, grossIncome, totalFees, totalWages, totalRent, totalLoan, totalInsurance,
-            grossIncome - totalFees - totalWages - totalRent - totalLoan - totalInsurance, totalIncidents, grounded, dutyMaxed, totalEmpty);
+            grossIncome - totalFees - totalWages - totalRent - totalLoan - totalInsurance, totalIncidents, grounded, dutyMaxed, totalEmpty,
+            loanWarnings, defaults);
     }
 
     /// <summary>
