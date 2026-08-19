@@ -343,4 +343,128 @@ public class AircraftDealerServiceTests
             Assert.Equal(10_000_000 - c1, (await db.Companies.FindAsync(companyId))!.CashCents); // billed once
         }
     }
+
+    // --- Used-aircraft market (Phase 7g) ---
+
+    [Fact]
+    public async Task UsedMarket_IsDeterministic_AndPricedBelowNew()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var type = C172();
+        await SeedCompanyWithCashAsync(tdb, clock, 0, type);
+        using var db = tdb.NewContext();
+        var dealer = new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg);
+
+        var a = await dealer.GetUsedMarketAsync(1234);
+        var b = await dealer.GetUsedMarketAsync(1234);
+        Assert.Equal(Cfg.UsedMarketCount, a.Count);
+        Assert.Equal(a, b); // same seed → the same slate (record value-equality)
+        Assert.All(a, l =>
+        {
+            Assert.True(l.PriceCents < l.NewPriceCents);      // always cheaper than new
+            Assert.InRange(l.ConditionMilli, 50_000, 95_000); // worn, but airworthy
+            Assert.InRange(l.AirframeHours, 200, 3_000);
+        });
+    }
+
+    [Fact]
+    public async Task BuyUsed_CreatesWornInstance_AtUsedPrice_DebitsLedger()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var type = C172();
+        var companyId = await SeedCompanyWithCashAsync(tdb, clock, 1_000_000_000, type); // $10M
+
+        UsedListing listing;
+        using (var db = tdb.NewContext())
+            listing = (await new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg).GetUsedMarketAsync(77))[0];
+
+        Guid boughtId;
+        using (var db = tdb.NewContext())
+            boughtId = (await new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg)
+                .BuyUsedAsync(companyId, listing.TypeId, listing.Seed, "EHAM")).Id;
+
+        using (var db = tdb.NewContext())
+        {
+            var inst = await db.AircraftInstances.FindAsync(boughtId);
+            Assert.Equal(OwnershipKind.Owned, inst!.Ownership);
+            Assert.Equal(listing.ConditionMilli, inst.HullConditionMilli);   // arrives worn, as listed
+            Assert.Equal(listing.ConditionMilli, inst.EngineConditionMilli);
+            Assert.Equal(listing.AirframeHours, inst.AirframeHours);
+            Assert.True(inst.HullConditionMilli < 100_000);                  // not pristine
+            Assert.Equal(listing.PriceCents, inst.PurchasePriceCents);
+
+            var company = await db.Companies.FindAsync(companyId);
+            Assert.Equal(1_000_000_000 - listing.PriceCents, company!.CashCents);
+            var ledgerSum = await db.LedgerEntries.Where(e => e.AccountId == companyId).SumAsync(e => e.AmountCents);
+            Assert.Equal(company.CashCents, ledgerSum); // the core invariant
+            Assert.Contains(await db.LedgerEntries.ToListAsync(),
+                e => e.Category == LedgerCategory.AircraftPurchase && e.AmountCents == -listing.PriceCents && e.AircraftInstanceId == boughtId);
+        }
+    }
+
+    [Fact]
+    public async Task BuyUsed_SameIdempotencyKey_BuysOnce()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var type = C172();
+        var companyId = await SeedCompanyWithCashAsync(tdb, clock, 1_000_000_000, type);
+
+        UsedListing l;
+        using (var db = tdb.NewContext())
+            l = (await new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg).GetUsedMarketAsync(9))[0];
+
+        Guid first, second;
+        using (var db = tdb.NewContext())
+            first = (await new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg).BuyUsedAsync(companyId, l.TypeId, l.Seed, "EHAM", "used-1")).Id;
+        using (var db = tdb.NewContext())
+            second = (await new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg).BuyUsedAsync(companyId, l.TypeId, l.Seed, "EHAM", "used-1")).Id;
+
+        Assert.Equal(first, second); // retry replays the same airframe
+        using (var db = tdb.NewContext())
+        {
+            Assert.Equal(1, await db.AircraftInstances.CountAsync(a => a.CompanyId == companyId));
+            Assert.Equal(1, await db.LedgerEntries.CountAsync(e => e.Category == LedgerCategory.AircraftPurchase));
+        }
+    }
+
+    [Fact]
+    public async Task BuyUsed_Maintain_Resell_IsAlwaysALoss_NoFlipPump()
+    {
+        // Regression guard (found by adversarial review): the flip is worst for the LOWEST-condition listing —
+        // cheapest to buy, most condition to restore. Buying it, restoring to 100% via a flat-fee service, then
+        // reselling must STILL lose: the used floor sits above the post-restore resale value, for any aircraft.
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var type = C172();
+        var companyId = await SeedCompanyWithCashAsync(tdb, clock, 1_000_000_000, type);
+
+        UsedListing worst;
+        using (var db = tdb.NewContext())
+        {
+            var dealer = new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg);
+            var all = new List<UsedListing>();
+            for (int seed = 0; seed < 30; seed++)
+                all.AddRange(await dealer.GetUsedMarketAsync(seed));
+            worst = all.OrderBy(l => l.ConditionMilli).First(); // the most exploitable listing
+        }
+
+        long cashStart;
+        using (var db = tdb.NewContext())
+            cashStart = (await db.Companies.FindAsync(companyId))!.CashCents;
+
+        Guid id;
+        using (var db = tdb.NewContext())
+            id = (await new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg)
+                .BuyUsedAsync(companyId, worst.TypeId, worst.Seed, "EHAM")).Id;
+        using (var db = tdb.NewContext())
+            await new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg).MaintainAsync(companyId, id); // restore to 100%
+        using (var db = tdb.NewContext())
+            await new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg).SellAsync(companyId, id);
+
+        using (var db = tdb.NewContext())
+            Assert.True((await db.Companies.FindAsync(companyId))!.CashCents < cashStart); // buy + maintain + sell nets a loss
+    }
 }

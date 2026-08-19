@@ -631,6 +631,28 @@ public static class CallsignWebApp
             }
         });
 
+        // Used-aircraft market (Phase 7g): pre-owned airframes, cheaper but flown.
+        app.MapGet("/api/aircraft/used", async (CallsignDbContext db, AircraftDealerService dealer) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var listings = await dealer.GetUsedMarketAsync(pilot.CompanyId.GetHashCode());
+            return Results.Ok(listings.Select(l => new UsedListingDto(l.Seed, l.TypeId, l.TypeName, l.Category, l.AirframeHours, l.ConditionMilli, l.PriceCents, l.NewPriceCents)));
+        });
+
+        app.MapPost("/api/aircraft/buy-used", async (BuyUsedRequest req, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, AircraftDealerService dealer) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                var inst = await dealer.BuyUsedAsync(pilot.CompanyId, req.TypeId, req.Seed, pilot.CurrentIcao, idem);
+                return Results.Ok(new { id = inst.Id, tail = inst.Tail });
+            }
+            catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "Cash changed at the same time — try again." }); }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
         // Per-airframe drill-down: full flight log, attributed ledger, and lifetime economics.
         app.MapGet("/api/aircraft/{id:guid}/history", async (Guid id, CallsignDbContext db, AircraftDealerService dealer) =>
         {

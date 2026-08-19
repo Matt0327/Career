@@ -266,6 +266,18 @@ public sealed record EconomyConfig
         >= 3 => 11_000, 2 => 5_500, 1 => 2_500, _ => 0,                    // $110 / $55 / $25 a day
     };
 
+    // --- Used-aircraft market (Phase 7g): buy pre-owned airframes cheaper, at the cost of hours + condition ---
+    public int UsedMarketCount { get; init; } = 6;                            // listings on the used lot at a time
+    /// <summary>Cheapest a used airframe goes, as a fraction of new (at the lowest listed condition, 50%).
+    /// INVARIANT: this must stay ABOVE <see cref="AircraftResaleFactor"/> (0.70) — otherwise you could buy a
+    /// worn bird cheap, restore its condition via a flat-fee service, and resell it at full-condition resale
+    /// for a risk-free profit that scales with the aircraft's value. Kept at 0.74 (a comfortable margin).</summary>
+    public double UsedMarketFloorFactor { get; init; } = 0.64;
+    public double UsedMarketCeilFactor { get; init; } = 0.84;                // a near-pristine used bird tops out here
+    /// <summary>What a used airframe costs as a fraction of new, scaled by its condition (0..100000 milli).</summary>
+    public double UsedPriceFactor(int conditionMilli)
+        => UsedMarketFloorFactor + Math.Clamp(conditionMilli / 100_000.0, 0, 1) * (UsedMarketCeilFactor - UsedMarketFloorFactor);
+
     // --- Trade (Phase 2g): buy low here, sell high there ---
     /// <summary>How far a good's price swings above/below its catalog base across airports (±fraction).</summary>
     public double TradePriceSwing { get; init; } = 0.35;

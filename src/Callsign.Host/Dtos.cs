@@ -88,6 +88,8 @@ public record CheckFlightAttemptRequest(string Class, FlightResultDto Flight);
 public record CheckFlightResultDto(bool Passed, string Class, string ClassName, int Stars, long FeeCents, double TouchdownFpm);
 
 public record BuyAircraftRequest(Guid TypeId);
+public record UsedListingDto(int Seed, Guid TypeId, string TypeName, string Category, double AirframeHours, int ConditionMilli, long PriceCents, long NewPriceCents);
+public record BuyUsedRequest(Guid TypeId, int Seed);
 
 // --- Phase 2d: staff + standing orders ---
 public record StaffCandidateDto(int Seed, string Name, long WagePerDayCents, int SkillMilli);

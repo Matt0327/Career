@@ -12,6 +12,11 @@ public sealed record AircraftOffer(AircraftType Type, AircraftPriceQuote Quote, 
 /// <summary>An owned airframe joined to its type, for the hangar view.</summary>
 public sealed record OwnedAircraft(AircraftInstance Instance, AircraftType Type);
 
+/// <summary>A pre-owned airframe on the used lot (Phase 7g): a real type, worn to some hours + condition,
+/// priced below new. Regenerated deterministically from its seed, so the price is trusted at buy time.</summary>
+public sealed record UsedListing(int Seed, Guid TypeId, string TypeName, string Category,
+    double AirframeHours, int ConditionMilli, long PriceCents, long NewPriceCents);
+
 /// <summary>
 /// Buying and owning aircraft (Phase 2a). Every purchase debits the company through the ledger —
 /// the airframe row and the money move in one transaction — so cash always reconciles.
@@ -41,6 +46,87 @@ public sealed class AircraftDealerService
             .Select(t => new AircraftOffer(t, AircraftPricing.Quote(_cfg, t), onDisk.Contains(t.Id)))
             .OrderBy(o => o.Quote.TotalCents)
             .ToList();
+    }
+
+    /// <summary>A deterministic slate of used airframes for a seed — cheaper than new, but flown and worn.</summary>
+    public async Task<IReadOnlyList<UsedListing>> GetUsedMarketAsync(int seed, CancellationToken ct = default)
+    {
+        var types = await _db.AircraftTypes.OrderBy(t => t.Key).ToListAsync(ct);
+        if (types.Count == 0)
+            return Array.Empty<UsedListing>();
+        var rng = new Random(seed);
+        var list = new List<UsedListing>(_cfg.UsedMarketCount);
+        for (int i = 0; i < _cfg.UsedMarketCount; i++)
+            list.Add(MakeUsedListing(types[rng.Next(types.Count)], rng.Next()));
+        return list;
+    }
+
+    // One used airframe from a seed: worn hours + condition, priced off the current new value by condition.
+    private UsedListing MakeUsedListing(AircraftType type, int seed)
+    {
+        var r = new Random(seed);
+        double hours = 200 + r.Next(2_801);   // 200..3000 airframe hours flown by the last owner
+        int cond = 50_000 + r.Next(45_001);   // 50%..95% condition — worn, but airworthy
+        long newPrice = MarketValueCents(type);
+        long price = (long)Math.Round(newPrice * _cfg.UsedPriceFactor(cond));
+        return new UsedListing(seed, type.Id, type.CanonicalName, type.Category.ToString(), hours, cond, price, newPrice);
+    }
+
+    /// <summary>
+    /// Buy a used airframe identified by (typeId, seed): the listing is regenerated server-side so the price
+    /// and wear are trusted. It arrives at the listing's hours + condition (dealer-prepped: freshly inspected),
+    /// cheaper than new but closer to needing service and worth less on resale. Idempotent via the key.
+    /// </summary>
+    public async Task<AircraftInstance> BuyUsedAsync(
+        Guid companyId, Guid typeId, int seed, string atIcao, string? idempotencyKey = null, CancellationToken ct = default)
+    {
+        string? dedupe = idempotencyKey is null ? null : $"buy-used:{idempotencyKey}";
+        async Task<AircraftInstance?> PriorAsync()
+        {
+            if (dedupe is null) return null;
+            var e = await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct);
+            return e?.AircraftInstanceId is Guid id ? await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == id, ct) : null;
+        }
+        if (await PriorAsync() is { } replay) return replay;
+
+        var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId, ct)
+                      ?? throw new InvalidOperationException($"Company {companyId} not found.");
+        var type = await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == typeId, ct)
+                   ?? throw new InvalidOperationException($"Aircraft type {typeId} not found.");
+
+        var listing = MakeUsedListing(type, seed); // regenerate → trusted price + wear
+        if (company.CashCents < listing.PriceCents)
+            throw new InvalidOperationException(
+                $"Not enough cash for the used {type.CanonicalName}: it costs {listing.PriceCents / 100m:C0}, you have {company.Cash:C0}.");
+
+        var now = _clock.UtcNow;
+        var instance = new AircraftInstance
+        {
+            Id = Guid.NewGuid(), TypeId = typeId, CompanyId = companyId, Tail = NewTail(),
+            Ownership = OwnershipKind.Owned, Availability = AircraftAvailability.Available, LocationIcao = atIcao,
+            HullConditionMilli = listing.ConditionMilli, EngineConditionMilli = listing.ConditionMilli,
+            AirframeHours = listing.AirframeHours, MaintenanceHoursWatermark = listing.AirframeHours,
+            Last100hHoursWatermark = listing.AirframeHours, LastAnnualAt = now, // dealer-prepped: freshly inspected
+            PurchasePriceCents = listing.PriceCents, AcquiredAt = now, UpdatedAt = now,
+        };
+        _db.AircraftInstances.Add(instance);
+        await _ledger.StageBatchAsync(companyId, new[]
+        {
+            new LedgerPosting(LedgerCategory.AircraftPurchase, -(listing.PriceCents / 100m),
+                $"Bought used {type.CanonicalName} ({instance.Tail}) — {listing.AirframeHours:F0} h, {listing.ConditionMilli / 1000}% condition",
+                AircraftInstanceId: instance.Id, DedupeKey: dedupe ?? $"buy-used:{instance.Id}"),
+        }, ct);
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException) when (dedupe is not null)
+        {
+            _db.ChangeTracker.Clear();
+            if (await PriorAsync() is { } raced) return raced;
+            throw;
+        }
+        return instance;
     }
 
     /// <summary>The company's owned airframes.</summary>

@@ -4,7 +4,7 @@ import {
   type Achievement, type AircraftHistory, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type CheckFlightDone, type CloudSaveMeta, type CloudStatus, type Diverted,
   type FinancesData, type FinanceDetail, type AttributionLine, type CashPoint, type StatementRow, type FlightLog, type FlightDetail, type FlightTotals, type Insurance, type Inventory, type Job, type LeaderboardRow, type LedgerEntry, type LiveEvent, type Loan, type LoanOffer, type Loans,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
-  type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type VersionInfo, type WsEvent,
+  type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type UsedListing, type VersionInfo, type WsEvent,
 } from './api'
 import { loadPrefs, savePrefs, type Prefs, type Theme } from './prefs'
 import * as L from 'leaflet'
@@ -1876,6 +1876,7 @@ type FleetSort = 'value' | 'hours' | 'condition' | 'earned' | 'name'
 function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
   const [owned, setOwned] = useState<OwnedAircraft[] | null>(null)
   const [offers, setOffers] = useState<AircraftOffer[] | null>(null)
+  const [used, setUsed] = useState<UsedListing[]>([])
   const [bases, setBases] = useState<BaseView[]>([])
   const [selId, setSelId] = useState<string | null>(null)
   const [history, setHistory] = useState<AircraftHistory | null>(null)
@@ -1889,6 +1890,7 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
       const h = await api.hangar()
       setOwned(h)
       setOffers(await api.market())
+      setUsed(await api.usedMarket())
       setBases(await api.bases())
       setSelId(prev => (prev && h.some(a => a.id === prev)) ? prev : (h[0]?.id ?? null))
     } catch (e) { setMsg(cleanErr(e)) }
@@ -1907,6 +1909,11 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
   const buy = async (o: AircraftOffer) => {
     setBusy(true); setMsg(null)
     try { await api.buyAircraft(o.typeId); await load(); onChanged(); setMsg(`Bought a ${o.name} — it's in your hangar.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+  const buyUsedListing = async (l: UsedListing) => {
+    setBusy(true); setMsg(null)
+    try { await api.buyUsed(l.typeId, l.seed); await load(); onChanged(); setMsg(`Bought a used ${l.typeName} (${Math.round(l.airframeHours)} h, ${Math.round(l.conditionMilli / 1000)}% condition) — it's in your hangar.`) }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
   const maintain = async (a: OwnedAircraft) => {
@@ -2041,6 +2048,34 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
             </div>
           )}
       </section>
+
+      {used.length > 0 && (
+        <section className="card">
+          <div className="row-head"><h2>Used market</h2><span className="hint">Pre-owned — cheaper, but flown</span></div>
+          <div className="jobs">
+            {used.map(l => {
+              const afford = state.cashCents >= l.priceCents
+              const off = Math.round((1 - l.priceCents / l.newPriceCents) * 100)
+              return (
+                <div className="card job" key={l.seed}>
+                  <AircraftImage typeId={l.typeId} category={l.category} />
+                  <div className="job-top"><div className="leg"><b>{l.typeName}</b></div><div className="tag">−{off}% vs new</div></div>
+                  <div className="commodity">{spaced(l.category)}</div>
+                  <div className="job-meta">
+                    <Meta label="Hours" value={`${Math.round(l.airframeHours).toLocaleString()} h`} />
+                    <Meta label="Condition" value={`${Math.round(l.conditionMilli / 1000)}%`} />
+                  </div>
+                  <div className="price num">{money(l.priceCents)} <span className="fair-ref">new {money(l.newPriceCents)}</span></div>
+                  <div className="job-foot">
+                    <span className="hint">{afford ? '' : 'over budget'}</span>
+                    <button className="primary" disabled={busy || !afford} onClick={() => buyUsedListing(l)}>Buy used</button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
     </div>
   )
 }

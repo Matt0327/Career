@@ -182,6 +182,17 @@ export interface AircraftOffer {
   factors: PriceFactor[]
 }
 
+export interface UsedListing {
+  seed: number
+  typeId: string
+  typeName: string
+  category: string
+  airframeHours: number
+  conditionMilli: number
+  priceCents: number
+  newPriceCents: number
+}
+
 export interface OwnedAircraft {
   id: string
   typeId: string
@@ -801,6 +812,8 @@ export const api = {
   quals: () => fetch('/api/quals').then(ok<QualClass[]>),
   beginCheckFlight: (cls: string) => POST('/api/checkflights/begin', { class: cls }).then(ok),
   buyAircraft: (typeId: string) => POST_IDEM('/api/aircraft/buy', { typeId }).then(ok),
+  usedMarket: () => fetch('/api/aircraft/used').then(ok<UsedListing[]>),
+  buyUsed: (typeId: string, seed: number) => POST_IDEM('/api/aircraft/buy-used', { typeId, seed }).then(ok),
   maintain: (id: string) => POST_IDEM(`/api/aircraft/${id}/maintain`).then(ok),
   inspect: (id: string) => POST_IDEM(`/api/aircraft/${id}/inspect`).then(ok),
   aircraftHistory: (id: string) => fetch(`/api/aircraft/${id}/history`).then(ok<AircraftHistory>),
