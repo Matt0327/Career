@@ -290,4 +290,21 @@ public class OperationsServiceTests
             Assert.NotNull(await ops.CreateStandingOrderAsync(companyId, aceId, aircraftId, "EHRD"));
         }
     }
+
+    [Fact]
+    public void RollTrips_IncidentsLandOnSeverityTiers_NotAllTheSame()
+    {
+        // Force every trip to be an incident (100% base rate, 0 skill) so income reflects the tier mix:
+        // ~65% minor (×0.9 pay) + ~27% diversion (×0.5) + ~8% major (×0) ≈ 0.72 of the full fee — proving
+        // incidents are NOT all identical diversions (which would give 0.5) nor all minor (0.9).
+        var cfg = EconomyConfig.Default with { BaseIncidentRatePct = 1.0 };
+        const int trips = 2_000;
+        const long reward = 100_000;
+        var (income, incidents, wear) = OperationsService.RollTrips(cfg, Guid.NewGuid(), 12_345L, trips, 0, reward);
+
+        Assert.Equal(trips, incidents);   // at a 100% rate every trip is an incident
+        Assert.True(wear > 0);
+        long full = (long)trips * reward;
+        Assert.InRange(income, (long)(full * 0.66), (long)(full * 0.78)); // the tier mix, centred on ~0.72
+    }
 }

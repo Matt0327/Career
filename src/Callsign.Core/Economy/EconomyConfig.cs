@@ -195,8 +195,14 @@ public sealed record EconomyConfig
     // --- Crew skill on autonomous trips (Phase 7f): a green pilot has more incidents than an ace ---
     public double BaseIncidentRatePct { get; init; } = 0.06;      // incident chance per trip at 0% skill
     public double IncidentSkillExponent { get; init; } = 2.0;     // p = base·(1-skill)^exp — skill bites hard
-    public double IncidentPayDockPct { get; init; } = 0.50;       // an incident (a diversion) delivers half
-    public int IncidentExtraWearMilli { get; init; } = 800;       // and knocks the airframe about a bit
+    // An incident lands on a severity tier: mostly minor, sometimes a diversion, rarely a lost trip.
+    public double IncidentMajorShare { get; init; } = 0.08;       // of incidents — a lost trip (no pay, heavy wear)
+    public double IncidentDiversionShare { get; init; } = 0.27;   // of incidents — a diversion (half pay); rest are minor
+    public double IncidentMinorDockPct { get; init; } = 0.10;     // a minor scuff shaves a little
+    public double IncidentDiversionDockPct { get; init; } = 0.50; // a diversion delivers half
+    public int IncidentMinorWearMilli { get; init; } = 300;
+    public int IncidentDiversionWearMilli { get; init; } = 800;
+    public int IncidentMajorWearMilli { get; init; } = 2_500;
     public double MaxDutyHoursPerDay { get; init; } = 8;          // FTL: one crew flies ~8 of 24 h — own crew depth to run a tail harder
     public int CrewProficiencyGainMilliPerTrip { get; init; } = 40;  // a hired pilot sharpens ~0.04%/trip flown — hire green cheap, they improve
     public int CrewSkillCeilingMilli { get; init; } = 95_000;        // experience tops out at 95% (nobody is perfect)

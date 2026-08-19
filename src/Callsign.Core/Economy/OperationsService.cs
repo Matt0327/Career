@@ -183,7 +183,7 @@ public sealed class OperationsService
                             + (dAir is not null && !baseIcaos.Contains(o.DestIcao) ? _cfg.LandingFeeCents(dAir.Kind) : 0);
             // The crew flies each trip: their skill sets how often a trip is botched (a diversion — half pay).
             var soCrew = await _db.Staff.FirstOrDefaultAsync(s => s.Id == o.StaffId, ct);
-            var soRoll = RollTrips(o.Id, o.LastReconciledAt.UtcTicks, trips, soCrew?.SkillMilli ?? 50_000, o.RewardPerTripCents);
+            var soRoll = RollTrips(_cfg, o.Id, o.LastReconciledAt.UtcTicks, trips, soCrew?.SkillMilli ?? 50_000, o.RewardPerTripCents);
             long income = soRoll.Income;
             long fees = trips * feePerTrip;
             var stamp = o.LastReconciledAt.UtcTicks;
@@ -300,7 +300,7 @@ public sealed class OperationsService
                 continue; // duty not yet accrued — the crew rests
 
             var rtCrew = await _db.Staff.FirstOrDefaultAsync(s => s.Id == route.StaffId, ct);
-            var rtRoll = RollTrips(route.Id, route.LastReconciledAt.UtcTicks, trips, rtCrew?.SkillMilli ?? 50_000, route.RewardPerTripCents);
+            var rtRoll = RollTrips(_cfg, route.Id, route.LastReconciledAt.UtcTicks, trips, rtCrew?.SkillMilli ?? 50_000, route.RewardPerTripCents);
             long income = rtRoll.Income;
             await _ledger.StageBatchAsync(companyId, new[]
             {
@@ -353,28 +353,40 @@ public sealed class OperationsService
     /// <summary>
     /// Fly a batch of autonomous trips, letting the crew's skill decide how many go wrong. Each trip rolls a
     /// deterministic incident (seeded from the order id + trip ordinal + the reconcile watermark, so a retry
-    /// reproduces the SAME result and the ledger stays idempotent). A botched trip is a diversion — half the
-    /// fee and a little extra wear. p(incident) = base·(1−skill)^exp, so an ace almost never botches one and a
-    /// green pilot botches many. Fatigue and richer incident tiers come in later 7f slices.
+    /// reproduces the SAME result and the ledger stays idempotent). p(incident) = base·(1−skill)^exp, so an
+    /// ace almost never botches a trip and a green pilot botches many; each incident then lands on a severity
+    /// tier — mostly a minor scuff, sometimes a diversion (half pay), rarely a lost trip. Fatigue is later.
     /// </summary>
-    private (long Income, int Incidents, int ExtraWearMilli) RollTrips(Guid id, long stampTicks, int trips, int skillMilli, long rewardPerTrip)
+    internal static (long Income, int Incidents, int ExtraWearMilli) RollTrips(
+        EconomyConfig cfg, Guid id, long stampTicks, int trips, int skillMilli, long rewardPerTrip)
     {
         double skillFrac = Math.Clamp(skillMilli / 100_000.0, 0, 1);
-        double pIncident = _cfg.BaseIncidentRatePct * Math.Pow(1 - skillFrac, _cfg.IncidentSkillExponent);
+        double pIncident = cfg.BaseIncidentRatePct * Math.Pow(1 - skillFrac, cfg.IncidentSkillExponent);
         long income = 0;
         int incidents = 0, wear = 0;
         for (int i = 0; i < trips; i++)
         {
             var rng = new Random(StableSeed(id, i, stampTicks));
-            if (rng.NextDouble() < pIncident)
+            if (rng.NextDouble() >= pIncident)
             {
-                income += (long)Math.Round(rewardPerTrip * (1 - _cfg.IncidentPayDockPct));
-                wear += _cfg.IncidentExtraWearMilli;
-                incidents++;
+                income += rewardPerTrip; // clean trip
+                continue;
+            }
+            incidents++;
+            double severity = rng.NextDouble(); // which kind of incident
+            if (severity < cfg.IncidentMajorShare)
+            {
+                wear += cfg.IncidentMajorWearMilli; // major — the trip is lost, no pay
+            }
+            else if (severity < cfg.IncidentMajorShare + cfg.IncidentDiversionShare)
+            {
+                income += (long)Math.Round(rewardPerTrip * (1 - cfg.IncidentDiversionDockPct)); // diversion — half
+                wear += cfg.IncidentDiversionWearMilli;
             }
             else
             {
-                income += rewardPerTrip;
+                income += (long)Math.Round(rewardPerTrip * (1 - cfg.IncidentMinorDockPct)); // minor scuff
+                wear += cfg.IncidentMinorWearMilli;
             }
         }
         return (income, incidents, wear);
