@@ -78,7 +78,7 @@ public class AirlineServiceTests
     }
 
     [Fact]
-    public async Task Standing_FreshCompany_IsStartup()
+    public async Task Standing_FreshCompany_IsContractOperator()
     {
         using var tdb = new TestDb();
         using var db = tdb.NewContext();
@@ -87,13 +87,16 @@ public class AirlineServiceTests
 
         var standing = await Svc(db).GetStandingAsync(company.Id, pilot.Id);
 
-        Assert.Equal(0, standing.Tier);
-        Assert.Equal("Startup", standing.TierName);
-        Assert.Equal(40, standing.NextTierScore);
+        Assert.Equal(0, standing.Stage);
+        Assert.Equal("Contract Operator", standing.StageName);
+        Assert.Equal(5, standing.Stages.Count);
+        Assert.True(standing.Stages[0].Reached);
+        Assert.False(standing.Stages[1].Reached);
+        Assert.Equal("Charter Operator", standing.NextMove!.StageName); // the climb points at the next rung, never a wall
     }
 
     [Fact]
-    public async Task Standing_RisesWithReputationAndScale()
+    public async Task Standing_Score_RisesWithReputationAndScale()
     {
         using var tdb = new TestDb();
         using var db = tdb.NewContext();
@@ -106,10 +109,52 @@ public class AirlineServiceTests
 
         var standing = await Svc(db).GetStandingAsync(company.Id, pilot.Id);
 
-        Assert.Equal(104, standing.Score);          // 80 + 24
-        Assert.Equal("National", standing.TierName); // >= 100
+        Assert.Equal(104, standing.Score);          // 80 + 24 — the informational operating score is unchanged (11a math intact)
         Assert.Contains(standing.Contributions, c => c.Label == "Pilot reputation" && c.Points == 80);
         Assert.DoesNotContain(standing.Contributions, c => c.Points == 0); // zero levers are hidden
+        // But raw score no longer sets the STAGE: a Trainee with no fleet/rep/net-worth is still Contract Operator (11b AND-gate).
+        Assert.Equal(0, standing.Stage);
+        Assert.Equal("Contract Operator", standing.StageName);
+    }
+
+    [Fact]
+    public async Task Standing_ReachesRegional_WithFullOperation()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Guid companyId, pilotId;
+        using (var db = tdb.NewContext())
+        {
+            var (company, pilot) = Seed(db);
+            pilot.Rank = PilotRank.Captain;               // Regional needs Captain
+            company.OperatingReputationMilli = 30_000;    // ...and 25.0 operating reputation
+            var type = new AircraftType { Id = Guid.NewGuid(), Key = "C172", CanonicalName = "C172", Category = AircraftCategory.LightSingle, UsefulLoadLbs = 900 };
+            db.AircraftTypes.Add(type);
+            var tails = new List<AircraftInstance>();
+            for (int i = 0; i < 4; i++)                   // ...4 owned tails
+            {
+                var inst = new AircraftInstance { Id = Guid.NewGuid(), TypeId = type.Id, CompanyId = company.Id, Tail = $"CS-{i}", Ownership = OwnershipKind.Owned, Availability = AircraftAvailability.Available, LocationIcao = "EHAM" };
+                tails.Add(inst);
+                db.AircraftInstances.Add(inst);
+            }
+            var crew = new Staff { Id = Guid.NewGuid(), CompanyId = company.Id, Name = "Crew", SkillMilli = 60_000, WagePerDayCents = 10_000, IsActive = true, HiredAt = clock.UtcNow, LastPaidAt = clock.UtcNow };
+            db.Staff.Add(crew);
+            db.Bases.Add(new Base { Id = Guid.NewGuid(), CompanyId = company.Id, AirportIcao = "EHAM", IsHome = true, IsActive = true });
+            db.Bases.Add(new Base { Id = Guid.NewGuid(), CompanyId = company.Id, AirportIcao = "EHRD", IsActive = true }); // ...2 bases
+            for (int i = 0; i < 3; i++)                   // ...3 routes (FKs point at real tails + crew)
+                db.Routes.Add(new Route { Id = Guid.NewGuid(), CompanyId = company.Id, Name = $"Line {i}", OriginIcao = "EHAM", DestIcao = "EHRD", AircraftInstanceId = tails[i].Id, StaffId = crew.Id });
+            await db.SaveChangesAsync();
+            await new LedgerService(db, clock).PostAsync(company.Id, LedgerCategory.StartingBalance, 700_000m, "seed"); // ...net worth well over $600k
+            companyId = company.Id; pilotId = pilot.Id;
+        }
+
+        using var db2 = tdb.NewContext();
+        var standing = await Svc(db2).GetStandingAsync(companyId, pilotId);
+
+        Assert.Equal(2, standing.Stage);
+        Assert.Equal("Regional", standing.StageName);
+        Assert.True(standing.Stages[2].Reached);
+        Assert.False(standing.Stages[3].Reached); // Captain < Senior Captain holds it at Regional (National not yet reached)
     }
 
     [Fact]

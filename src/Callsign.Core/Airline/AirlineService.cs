@@ -16,8 +16,14 @@ public sealed record AirlineIdentity(string Name, string TailCode, string Accent
 
 public sealed record StandingContribution(string Label, int Points);
 
-/// <summary>A computed "reputation at scale": a tier + score derived on read, never stored.</summary>
-public sealed record AirlineStanding(int Tier, string TierName, int Score, int? NextTierScore, IReadOnlyList<StandingContribution> Contributions);
+/// <summary>A computed "reputation at scale", derived on read, never stored (Phase 11b deepened it into the
+/// career-stage journey). <see cref="Stage"/>/<see cref="StageName"/> are the named rung you stand on (the top
+/// of the fully-met run); <see cref="Score"/> + <see cref="Contributions"/> are the informational operating
+/// score (11a's math, unchanged); <see cref="Stages"/> is the whole 5-rung ladder with per-requirement
+/// met/current/target; <see cref="NextMove"/> is the single binding next step (null at Flag Carrier).</summary>
+public sealed record AirlineStanding(
+    int Stage, string StageName, int Score, IReadOnlyList<StandingContribution> Contributions,
+    IReadOnlyList<CareerStage> Stages, NextMove? NextMove);
 
 /// <summary>
 /// Airline identity (Phase 5c): the company's name, operator tail code, accent colour and emblem — set by
@@ -27,8 +33,6 @@ public sealed record AirlineStanding(int Tier, string TierName, int Score, int? 
 /// </summary>
 public sealed class AirlineService
 {
-    private static readonly string[] TierNames = { "Startup", "Regional", "National", "International", "Flag Carrier" };
-    private static readonly int[] TierFloors = { 0, 40, 100, 200, 400 };
     private static readonly string[] Palette =
         { "#4f46e5", "#0e938d", "#c0362c", "#b8860b", "#2f6f4f", "#7a3ea8", "#c05621", "#1565c0" };
 
@@ -108,13 +112,12 @@ public sealed class AirlineService
         };
         var score = contributions.Sum(c => c.Points);
 
-        var tier = 0;
-        for (var i = 0; i < TierFloors.Length; i++)
-            if (score >= TierFloors[i]) tier = i;
-        int? nextFloor = tier + 1 < TierFloors.Length ? TierFloors[tier + 1] : null;
+        // Phase 11b — the stage journey, over the SAME snapshot m already read (no new query). The score above is
+        // now informational; the named rung comes from the multi-requirement ladder, subsuming the old tier floors.
+        var (stage, stages, move) = CareerLadder.Evaluate(m);
 
-        return new AirlineStanding(tier, TierNames[tier], score, nextFloor,
-            contributions.Where(c => c.Points > 0).ToList());
+        return new AirlineStanding(stage, stages[stage].Name, score,
+            contributions.Where(c => c.Points > 0).ToList(), stages, move);
     }
 
     // First letter of up to three words, else the first letters of a single word — always 2–3 letters.

@@ -233,7 +233,12 @@ public record CampaignDto(
 // --- Phase 5c: airline identity + standing ---
 public record AirlineIdentityDto(string Name, string TailCode, string AccentColorHex, string EmblemKey, bool Customised);
 public record StandingContributionDto(string Label, int Points);
-public record AirlineStandingDto(int Tier, string TierName, int Score, int? NextTierScore, IReadOnlyList<StandingContributionDto> Contributions);
+// Phase 11b — the career-stage journey (deepened standing).
+public record StageRequirementDto(string Label, string Metric, long Current, long Target, string Display, bool Met, bool Primary);
+public record StageUnlockDto(string Text, bool Live);
+public record CareerStageDto(int Index, string Name, string Tagline, bool Reached, IReadOnlyList<StageRequirementDto> Requirements, IReadOnlyList<StageUnlockDto> Unlocks);
+public record NextMoveDto(int StageIndex, string StageName, int MetCount, int TotalCount, int ProgressPct, string Metric, string Label, string Display);
+public record AirlineStandingDto(int Stage, string StageName, int Score, IReadOnlyList<StandingContributionDto> Contributions, IReadOnlyList<CareerStageDto> Stages, NextMoveDto? NextMove);
 // --- Phase 11a: the airline's operating reputation, with a two-source ("your flying / your crew") split and a log ---
 public record AirlineRepEventDto(int DeltaMilli, int BalanceMilli, string Source, string Reason, DateTimeOffset At);
 public record AirlineReputationDto(int OperatingReputationMilli, int RecentPlayerDeltaMilli, int RecentCrewDeltaMilli, IReadOnlyList<AirlineRepEventDto> Recent);

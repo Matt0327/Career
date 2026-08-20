@@ -818,12 +818,19 @@ export interface AirlineIdentity {
 
 export interface StandingContribution { label: string; points: number }
 
+// Phase 11b — the career-stage journey (deepened standing).
+export interface StageRequirement { label: string; metric: string; current: number; target: number; display: string; met: boolean; primary: boolean }
+export interface StageUnlock { text: string; live: boolean }
+export interface CareerStage { index: number; name: string; tagline: string; reached: boolean; requirements: StageRequirement[]; unlocks: StageUnlock[] }
+export interface NextMove { stageIndex: number; stageName: string; metCount: number; totalCount: number; progressPct: number; metric: string; label: string; display: string }
+
 export interface AirlineStanding {
-  tier: number
-  tierName: string
+  stage: number
+  stageName: string
   score: number
-  nextTierScore: number | null
   contributions: StandingContribution[]
+  stages: CareerStage[]
+  nextMove: NextMove | null
 }
 
 // Phase 11a — the airline's operating reputation, with a two-source ("your flying / your crew") split + a log.

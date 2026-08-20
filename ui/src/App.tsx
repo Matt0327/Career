@@ -603,7 +603,7 @@ function AirlineHero({ state, airline, wsOpen, link, tele, live }: {
   const id = airline?.identity
   const st = airline?.standing
   const color = id?.accentColorHex || '#6d84ff'
-  const pct = st && st.nextTierScore ? Math.min(100, (st.score / st.nextTierScore) * 100) : 100
+  const pct = st?.nextMove ? st.nextMove.progressPct : 100
   const badge = linkBadge(wsOpen, link)
   return (
     <section className="hero">
@@ -637,9 +637,9 @@ function AirlineHero({ state, airline, wsOpen, link, tele, live }: {
         </div>
         {st && (
           <div className="hero-standing">
-            <span className="tier-badge" style={{ background: `color-mix(in srgb, ${color} 18%, transparent)`, color }}>{st.tierName}</span>
+            <span className="tier-badge" style={{ background: `color-mix(in srgb, ${color} 18%, transparent)`, color }}>{st.stageName}</span>
             <div className="standing-bar"><div style={{ width: `${pct}%`, background: color }} /></div>
-            <div className="standing-scale num">{st.score}{st.nextTierScore ? ` / ${st.nextTierScore}` : ''} pts</div>
+            <div className="standing-scale num">{st.nextMove ? `${st.nextMove.metCount} of ${st.nextMove.totalCount} for ${st.nextMove.stageName}` : 'Flag Carrier — top of the ladder'}</div>
           </div>
         )}
       </div>
@@ -904,13 +904,13 @@ function FinanceSnapshot({ fin, go }: { fin: FinancesData; go: (t: Tab) => void 
   )
 }
 
-// The airline-standing score broken into its point contributions (the hero shows only the total).
+// The operating-score broken into its point contributions (the hero shows only the total + the stage).
 function StandingBreakdown({ standing, color }: { standing: AirlineData['standing']; color: string }) {
   if (standing.contributions.length === 0) return null
   const max = Math.max(1, ...standing.contributions.map(c => c.points))
   return (
     <section className="card">
-      <div className="row-head"><h2>Standing</h2><span className="hint">{standing.tierName} · {standing.score}{standing.nextTierScore ? ` / ${standing.nextTierScore}` : ''} pts</span></div>
+      <div className="row-head"><h2>Operating score</h2><span className="hint">{standing.stageName} · {standing.score} pts</span></div>
       <div className="bars">
         {standing.contributions.map(c => (
           <div className="barrow" key={c.label}>
@@ -3837,7 +3837,9 @@ function Airline({ onSaved }: { onSaved: () => void }) {
 
   if (!data) return <div className="empty">Loading…</div>
   const st = data.standing
-  const pct = st.nextTierScore ? Math.min(100, (st.score / st.nextTierScore) * 100) : 100
+  const nm = st.nextMove
+  const pct = nm ? nm.progressPct : 100
+  const nextStage = nm ? st.stages[nm.stageIndex] : null
 
   return (
     <div className="grid">
@@ -3867,9 +3869,42 @@ function Airline({ onSaved }: { onSaved: () => void }) {
       </section>
 
       <section className="card">
-        <div className="row-head"><h2>Airline standing</h2><span className="tier-badge" style={{ background: `color-mix(in srgb, ${color} 16%, transparent)`, color }}>{st.tierName}</span></div>
-        <div className="rank-bar"><div className="rank-fill" style={{ width: `${pct}%`, background: color }} /></div>
-        <div className="rank-scale"><span className="num">{st.score} pts</span><span className="num">{st.nextTierScore ? `next tier at ${st.nextTierScore}` : 'top tier'}</span></div>
+        <div className="row-head"><h2>Career ladder</h2><span className="tier-badge" style={{ background: `color-mix(in srgb, ${color} 16%, transparent)`, color }}>{st.stageName}</span></div>
+
+        {/* The whole climb at a glance — Contract Operator to Flag Carrier */}
+        <div className="stage-rail">
+          {st.stages.map(s => (
+            <span key={s.index}
+              className={`stage-chip ${s.index === st.stage ? 'current' : s.reached ? 'reached' : 'future'}`}
+              style={s.reached ? { background: `color-mix(in srgb, ${color} 22%, transparent)`, color } : undefined}>
+              {s.name}</span>
+          ))}
+        </div>
+
+        {nm && nextStage ? (<>
+          <div className="rank-bar"><div className="rank-fill" style={{ width: `${pct}%`, background: color }} /></div>
+          <div className="rank-scale"><span className="num">{nm.metCount} of {nm.totalCount} for {nm.stageName}</span></div>
+          <p className="next-move" style={{ color }}>Your next move: {nm.label}</p>
+
+          <ul className="req-list">
+            {nextStage.requirements.map(r => (
+              <li key={r.metric} className={`${r.met ? 'met' : ''} ${r.metric === nm.metric ? 'binding' : ''}`}>
+                <span className="req-tick">{r.met ? '✓' : '○'}</span>
+                <span className="req-label">{r.label}</span>
+                <span className="req-val num">{r.display}</span>
+              </li>))}
+          </ul>
+
+          <div className="unlock-list">
+            {nextStage.unlocks.map((u, i) => (
+              <p key={i} className={`unlock ${u.live ? 'live' : 'horizon'}`}>
+                <span className="unlock-tag">{u.live ? 'Open now' : 'On the horizon'}</span> {u.text}</p>))}
+          </div>
+        </>) : (
+          <p className="next-move" style={{ color }}>Top of the ladder — you fly the flag.
+            {st.stages[4].unlocks.filter(u => u.live).map((u, i) => <span key={i}> {u.text}</span>)}</p>
+        )}
+
         {st.contributions.length > 0 && (
           <table className="tbl" style={{ marginTop: 14 }}>
             <tbody>{st.contributions.map(c => (
@@ -3877,7 +3912,7 @@ function Airline({ onSaved }: { onSaved: () => void }) {
             ))}</tbody>
           </table>
         )}
-        <p className="hint">Standing reads your whole operation — reputation, fleet, network, wealth, and campaigns — into a tier. Computed live, never stored.</p>
+        <p className="hint">Your operating score — what your whole operation adds up to. Computed live, never stored.</p>
       </section>
 
       <AirlineReputationCard rep={data.reputation} color={color} />

@@ -1583,8 +1583,12 @@ public static class CallsignWebApp
                 recent.Select(e => new AirlineRepEventDto(e.DeltaMilli, e.BalanceMilli, e.Source.ToString(), e.Reason, e.At)).ToList());
             return Results.Ok(new AirlineDto(
                 new AirlineIdentityDto(id.Name, id.TailCode, id.AccentColorHex, id.EmblemKey, id.Customised),
-                new AirlineStandingDto(st.Tier, st.TierName, st.Score, st.NextTierScore,
-                    st.Contributions.Select(c => new StandingContributionDto(c.Label, c.Points)).ToList()),
+                new AirlineStandingDto(st.Stage, st.StageName, st.Score,
+                    st.Contributions.Select(c => new StandingContributionDto(c.Label, c.Points)).ToList(),
+                    st.Stages.Select(s => new CareerStageDto(s.Index, s.Name, s.Tagline, s.Reached,
+                        s.Requirements.Select(r => new StageRequirementDto(r.Label, r.Metric, r.Current, r.Target, r.Display, r.Met, r.Primary)).ToList(),
+                        s.Unlocks.Select(u => new StageUnlockDto(u.Text, u.Live)).ToList())).ToList(),
+                    st.NextMove is { } nm ? new NextMoveDto(nm.StageIndex, nm.StageName, nm.MetCount, nm.TotalCount, nm.ProgressPct, nm.Metric, nm.Label, nm.Display) : null),
                 reputation,
                 AirlineEmblems.All));
         });

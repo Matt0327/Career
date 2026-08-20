@@ -626,6 +626,28 @@ input { font: inherit; }
 .airep-neg{color:var(--neg)}
 .airep-coach{font-size:13px;line-height:1.5;color:color-mix(in srgb,#3fa9bf 72%,var(--ink))} /* the Fun Dial: coach a fall, never a red penalty */
 
+/* Phase 11b — the career-stage ladder (the whole climb, the next rung's checklist, honest unlocks) */
+.stage-rail{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 14px}
+.stage-chip{font-size:11px;font-weight:600;letter-spacing:0.01em;border-radius:999px;padding:3px 10px;border:1px solid var(--line);color:var(--faint);white-space:nowrap}
+.stage-chip.reached{border-color:transparent} /* tint set inline in the accent colour */
+.stage-chip.current{outline:2px solid currentColor;outline-offset:1px;font-weight:700}
+.stage-chip.future{opacity:0.55}
+.next-move{font-size:14px;font-weight:600;line-height:1.5;margin:10px 0 4px}
+.req-list{list-style:none;margin:12px 0 0;padding:0;display:flex;flex-direction:column;gap:1px}
+.req-list li{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:7px;font-size:13px}
+.req-list li.binding{background:color-mix(in srgb,var(--accent) 8%,transparent);box-shadow:inset 3px 0 0 var(--accent)}
+.req-list li.met{opacity:0.6}
+.req-tick{width:16px;text-align:center;font-weight:700;color:var(--faint)}
+.req-list li.met .req-tick{color:var(--pos)}
+.req-label{flex:1;color:var(--ink)}
+.req-val{color:var(--muted);font-variant-numeric:tabular-nums}
+.unlock-list{margin-top:14px;display:flex;flex-direction:column;gap:8px}
+.unlock{font-size:12.5px;line-height:1.5;margin:0;color:color-mix(in srgb,var(--ink) 82%,transparent)}
+.unlock-tag{display:inline-block;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;border-radius:5px;padding:1px 6px;margin-right:6px;vertical-align:1px}
+.unlock.live .unlock-tag{background:color-mix(in srgb,var(--pos) 18%,transparent);color:var(--pos)}
+.unlock.horizon{color:var(--muted)}
+.unlock.horizon .unlock-tag{background:transparent;border:1px solid var(--line);color:var(--faint)}
+
 /* Phase 9f — the aircraft catalogs (rent/lease) collapse so the hangar leads with YOUR fleet, not 71 offer cards */
 details.card.shop{padding-bottom:0}
 details.card.shop[open]{padding-bottom:14px}
