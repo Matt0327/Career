@@ -16,7 +16,7 @@ public class FlightTrackerTests
         double windKts = 0, double windDir = 0, double heading = 0, double visSm = 10,
         double tdNormalFps = 0, double tdLateralFps = 0,
         double totalWt = 0, double maxGross = 0, double cg = 0, double cgFwd = 0, double cgAft = 0,
-        double engDmg = 0, double xtrack = 0)
+        double engDmg = 0, double xtrack = 0, double ice = 0)
         => new()
         {
             Sequence = sec,
@@ -50,6 +50,7 @@ public class FlightTrackerTests
             CgAftLimit = cgAft,
             EngineDamagePercent = engDmg,
             ApproachCrossTrackFt = xtrack,
+            StructuralIcePct = ice,
         };
 
     private static FlightTracker FlyStandardLeg()
@@ -374,6 +375,58 @@ public class FlightTrackerTests
         Assert.Single(t.Events, e => e.Message.Contains("centreline"));
         Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Coaching && e.Message.Contains("centreline"));
         Assert.Equal(100, t.Result!.ApproachScore); // still on profile for the score (the Fun Dial: coach before it costs)
+    }
+
+    // ── Phase 10d: structural icing ───────────────────────────────────────────────────────────────
+
+    // A completed leg with `ice`% on `heavyFrames` consecutive airborne samples, then clear air to landing.
+    private static FlightTracker IceLeg(double ice, int heavyFrames)
+    {
+        var t = new FlightTracker();
+        t.Observe(Snap(0, 0, 0, 0, onGround: true));
+        t.Observe(Snap(10, 50, 70, 500, onGround: false));                                 // liftoff
+        for (int i = 0; i < heavyFrames; i++)
+            t.Observe(Snap(100 + i * 10, 8000, 150, 0, onGround: false, ice: ice));         // cruise in the ice
+        t.Observe(Snap(600, 30, 60, -120, onGround: false));                               // clear air, final
+        t.Observe(Snap(601, 0, 55, 0, onGround: true));                                     // touchdown
+        t.Observe(Snap(660, 0, 0, 0, onGround: true));                                      // shutdown → Complete()
+        return t;
+    }
+
+    [Fact]
+    public void Icing_SustainedHeavy_CoachesThenWarns_AndDocksTheEnrouteScore()
+    {
+        var t = IceLeg(60, heavyFrames: 3);
+        Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Coaching && e.Message.Contains("Ice building"));
+        Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Warning && e.Message.Contains("Heavy icing"));
+        Assert.True(t.Result!.ViolationPoints > 0);
+        Assert.True(t.Result!.EnrouteScore < 100);
+    }
+
+    [Fact]
+    public void Icing_ABriefHeavyBlip_Coaches_ButDoesNotYetWarn()
+    {
+        var t = IceLeg(60, heavyFrames: 1); // heavy on ONE sample only — not sustained
+        Assert.Contains(t.Events, e => e.Message.Contains("Ice building"));
+        Assert.DoesNotContain(t.Events, e => e.Message.Contains("Heavy icing"));
+        Assert.Equal(0, t.Result!.ViolationPoints);
+    }
+
+    [Fact]
+    public void Icing_LightIce_Coaches_WithNoPenalty()
+    {
+        var t = IceLeg(15, heavyFrames: 3); // present, but below the heavy threshold
+        Assert.Contains(t.Events, e => e.Message.Contains("Ice building"));
+        Assert.DoesNotContain(t.Events, e => e.Message.Contains("Heavy icing"));
+        Assert.Equal(0, t.Result!.ViolationPoints);
+    }
+
+    [Fact]
+    public void Icing_ClearAir_IsSilent()
+    {
+        var t = IceLeg(0, heavyFrames: 3);
+        Assert.DoesNotContain(t.Events, e => e.Message.Contains("ce building") || e.Message.Contains("cing"));
+        Assert.Equal(0, t.Result!.ViolationPoints);
     }
 
     [Fact]

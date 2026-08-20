@@ -64,6 +64,8 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
         public double EngineDamagePercent;
         // Phase 10b approach precision — order here MUST match the AddToDataDefinition call order below.
         public double ApproachCrossTrackMeters;
+        // Phase 10d structural icing — order here MUST match the AddToDataDefinition call order below.
+        public double StructuralIcePct;
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
         public string Title;
     }
@@ -265,6 +267,10 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
         // 0 when no approach/GPS leg is active → the tracker treats it as on-centreline (L10). Converted to feet below.
         sc.AddToDataDefinition(Definitions.AircraftData, "GPS WP CROSS TRK", "meters",
             SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        // Phase 10d — structural airframe ice. Explicit "percent" (0..100); 0 in clear air or on an aircraft
+        // that doesn't model ice → the tracker does nothing (L10).
+        sc.AddToDataDefinition(Definitions.AircraftData, "STRUCTURAL ICE PCT", "percent",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
         sc.AddToDataDefinition(Definitions.AircraftData, "TITLE", null,
             SIMCONNECT_DATATYPE.STRING256, 0f, unused);
         sc.RegisterDataDefineStruct<AircraftData>(Definitions.AircraftData);
@@ -316,6 +322,7 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
             CgAftLimit = d.CgAftLimit,
             EngineDamagePercent = d.EngineDamagePercent,
             ApproachCrossTrackFt = d.ApproachCrossTrackMeters * 3.28084, // meters → feet
+            StructuralIcePct = d.StructuralIcePct,
         });
     }
 

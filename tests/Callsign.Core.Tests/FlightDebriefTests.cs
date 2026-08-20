@@ -85,6 +85,11 @@ public class FlightDebriefTests
             n => n.Dimension == "Approach" && n.Tone == DebriefTone.Coaching);
 
     [Fact]
+    public void HeavyIcingWarning_SurfacesAsAnIcingConsequence()
+        => Assert.Contains(FlightDebrief.Build(Flight(overall: 60, violations: 15, events: ("Warning", "Heavy icing — 60% ice degrading lift and adding weight. De-ice or leave the layer."))).ToImprove,
+            n => n.Dimension == "Icing" && n.Tone == DebriefTone.Consequence);
+
+    [Fact]
     public void EngineStressCoaching_IsSurfaced()
         => Assert.Contains(FlightDebrief.Build(Flight(events: ("Coaching", "Engine stress registering — ease the power and watch your temps"))).ToImprove,
             n => n.Dimension == "Engine" && n.Tone == DebriefTone.Coaching);

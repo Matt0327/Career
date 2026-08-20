@@ -128,6 +128,7 @@ public static class FlightDebrief
         if (m.Contains("CG")) return "Balance";
         if (m.Contains("Side-load")) return "Landing";
         if (m.Contains("centreline") || m.Contains("glidepath")) return "Approach";
+        if (m.Contains("ice", StringComparison.OrdinalIgnoreCase) || m.Contains("icing", StringComparison.OrdinalIgnoreCase)) return "Icing";
         if (m.Contains("Engine stress")) return "Engine";
         if (m.Contains("Taxi")) return "Taxi";
         if (m.Contains("Slew") || m.Contains("Time acceleration")) return "Integrity";
@@ -147,6 +148,7 @@ public static class FlightDebrief
         if (m.Contains("CG")) return "The centre of gravity was near or past a limit. Recheck the load sheet — an out-of-CG airplane handles poorly and can be unrecoverable.";
         if (m.Contains("Side-load")) return "You touched down with drift on. De-crab just before the wheels touch — rudder to align, aileron into the wind.";
         if (m.Contains("centreline") || m.Contains("glidepath")) return "Fly the needles — small, early corrections keep you on the localizer and glidepath; chasing them late destabilises the whole approach.";
+        if (m.Contains("ice", StringComparison.OrdinalIgnoreCase)) return "Ice robs lift and piles on weight fast. Get the anti-ice/de-ice on early, and if it keeps building, climb or descend out of the icing layer — don't ride it out.";
         if (m.Contains("Engine stress")) return "The engine took real stress this leg. Ease the power and mind your temps and RPM — abuse shortens its life and shows up at maintenance.";
         if (m.Contains("Taxi")) return "You taxied fast. Keep it to a brisk walking pace on the ground.";
         if (m.Contains("Slew") || m.Contains("Time acceleration")) return "That voided the score. Fly the leg in real time without slewing for the full grade and bonus.";

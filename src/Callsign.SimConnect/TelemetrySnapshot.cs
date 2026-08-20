@@ -120,4 +120,10 @@ public sealed record TelemetrySnapshot
     // approach lowers the precision. Read, never commanded (L7).
     /// <summary>Cross-track deviation from the approach centreline, feet (+ = right; 0 = on / not reported).</summary>
     public double ApproachCrossTrackFt { get; init; }
+
+    // --- Structural icing (Phase 10d): the sim's own airframe-ice accumulation, percent (0 = clean). Default 0
+    // → no ice reported (a clear day, or an aircraft that doesn't model ice) means nothing happens (L10). The
+    // tracker coaches at the first sign and only lets SUSTAINED heavy ice bite the score. Read, never commanded (L7).
+    /// <summary>Structural (airframe) ice accumulation as the simulator models it, percent (0 = clean).</summary>
+    public double StructuralIcePct { get; init; }
 }

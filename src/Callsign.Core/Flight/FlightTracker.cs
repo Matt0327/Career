@@ -30,6 +30,11 @@ public sealed class FlightTracker
     // drift, and the approach score only takes it as "off profile" past the harder limit. Lenient at ship (L3).
     private const double CoachApproachCrossTrackFt = 250; // drifting this far off the centreline → a coaching nudge
     private const double MaxApproachCrossTrackFt = 400;   // past this = the approach sample is off-profile (docks the score)
+    // Structural icing (Phase 10d), on the Fun Dial: the first sign of ice coaches; only SUSTAINED heavy ice
+    // (ignored across two samples) is a scored, warned consequence that feeds the enroute score.
+    private const double CoachIcePct = 8;   // ice building on the airframe → a friendly nudge
+    private const double HeavyIcePct = 40;  // heavy ice; sustained = a real hazard
+    private const int PtsIce = 15;          // the scored enroute penalty for ignored heavy icing
     private const double OverBankDeg = 60;        // an enroute over-bank exceedance
     private const double OverGHigh = 2.5, OverGLow = -1.0;
     private const int PtsOverspeed = 15, PtsStall = 20, PtsOverBank = 10, PtsOverG = 15;
@@ -89,6 +94,7 @@ public sealed class FlightTracker
     private bool _overspeedWarned, _stallWarned, _bankWarned, _gWarned;
     private bool _bankCoached, _gCoached; // Phase 9 (L9): fire the friendly nudge at most once each
     private bool _localizerCoached;       // Phase 10b: nudge once when drifting off the approach centreline
+    private bool _iceCoached, _iceWarned, _iceHeavyPrev; // Phase 10d: icing state (coach once, warn once, confirm sustained)
     private bool _scoreValid = true; // flight-integrity monitoring (Phase 7c anti-cheat)
     // Phase 9e — engine damage from the sim's own model: baseline at first sight, monotonic max; the leg's
     // accrued damage (max − baseline) is priced into engine wear at settlement. _engDmgPrev holds the previous
@@ -204,6 +210,7 @@ public sealed class FlightTracker
         PushRecentVs(t.VerticalSpeedFpm);
         AssessApproach(t);
         CheckViolations(t);
+        CheckIcing(t);
         CheckIntegrity(t);
     }
 
@@ -348,6 +355,33 @@ public sealed class FlightTracker
             _gCoached = true;
             _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Coaching, $"Load {t.GForce:F1} g — smooth it out"));
         }
+    }
+
+    // Structural icing (Phase 10d), on the Fun Dial (L9): the sim's own airframe-ice reading. The first sign of
+    // ice earns a friendly nudge (tier-1); only HEAVY ice that PERSISTS — confirmed across two samples, i.e. the
+    // pilot rode it out instead of de-icing/leaving the layer — is a scored, warned consequence (the coaching
+    // came first, L4). Default 0 (clear air, or an aircraft that doesn't model ice) → nothing happens (L10).
+    private void CheckIcing(TelemetrySnapshot t)
+    {
+        double ice = t.StructuralIcePct;
+        if (ice <= 0) { _iceHeavyPrev = false; return; }
+        if (ice >= CoachIcePct && !_iceCoached)
+        {
+            _iceCoached = true;
+            _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Coaching,
+                $"Ice building — {ice:F0}% on the airframe. Anti-ice on, or get out of the icing layer."));
+        }
+        if (ice >= HeavyIcePct)
+        {
+            if (_iceHeavyPrev && !_iceWarned) // a second consecutive heavy sample → sustained, ignored ice
+            {
+                _iceWarned = true; _violationPoints += PtsIce;
+                _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Warning,
+                    $"Heavy icing — {ice:F0}% ice degrading lift and adding weight. De-ice or leave the layer."));
+            }
+            _iceHeavyPrev = true;
+        }
+        else _iceHeavyPrev = false;
     }
 
     // Weight & balance at takeoff (Phase 9d), on the Fun Dial (L9). Both checks run ONLY when the sim reports
