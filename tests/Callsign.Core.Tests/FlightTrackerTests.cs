@@ -110,6 +110,46 @@ public class FlightTrackerTests
         Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Warning && e.Message.Contains("Taxi speed"));
     }
 
+    // ── The Fun Dial (Phase 9, law L9): coach the small stuff, never penalise it ──────────────────
+
+    private static FlightTracker LegWith(double bank = 0, double g = 1.0)
+    {
+        var t = new FlightTracker();
+        t.Observe(Snap(0, 0, 0, 0, onGround: true));                                 // parked
+        t.Observe(Snap(10, 50, 70, 500, onGround: false));                          // takeoff
+        t.Observe(Snap(30, 3000, 120, 0, onGround: false, bank: bank, g: g));       // the moment under test
+        t.Observe(Snap(60, 30, 60, -120, onGround: false));                         // clean short final
+        t.Observe(Snap(61, 0, 55, 0, onGround: true));                              // touchdown
+        t.Observe(Snap(120, 0, 0, 0, onGround: true));                              // shutdown → Result ready
+        return t;
+    }
+
+    [Fact]
+    public void FunDial_SteepishBank_Coaches_WithNoPenalty()
+    {
+        var t = LegWith(bank: 42); // in the 35–60° coaching band, short of the exceedance
+        Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Coaching && e.Message.Contains("Bank"));
+        Assert.DoesNotContain(t.Events, e => e.Severity == FlightEventSeverity.Warning && e.Message.Contains("Steep bank"));
+        Assert.Equal(0, t.Result!.ViolationPoints); // a nudge is never a straf (L9)
+    }
+
+    [Fact]
+    public void FunDial_FirmG_Coaches_WithNoPenalty()
+    {
+        var t = LegWith(g: 2.0); // firm (1.8–2.5), short of the over-g exceedance
+        Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Coaching && e.Message.Contains("Load"));
+        Assert.DoesNotContain(t.Events, e => e.Severity == FlightEventSeverity.Warning && e.Message.Contains("High load"));
+        Assert.Equal(0, t.Result!.ViolationPoints);
+    }
+
+    [Fact]
+    public void SteepBank_OverTheGate_IsStillAScoredViolation_NotJustCoaching()
+    {
+        var t = LegWith(bank: 68); // past the 60° exceedance — the real limit still bites
+        Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Warning && e.Message.Contains("Steep bank"));
+        Assert.True(t.Result!.ViolationPoints > 0);
+    }
+
     [Fact]
     public void LandingGrade_UsesWorstOfLastThree_NotACherryPickedSoftFrame()
     {

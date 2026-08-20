@@ -595,6 +595,8 @@ input { font: inherit; }
 .flog-row.warn .flog-mark{background:#d99a1c}
 .flog-row.bad .flog-mark{background:var(--neg)}
 .flog-row.info .flog-mark{background:var(--accent)}
+.flog-row.coach .flog-mark{background:#3fa9bf} /* Phase 9 — the Fun Dial: a calm, friendly coaching nudge */
+.flog-row.coach .flog-text{color:color-mix(in srgb,#3fa9bf 72%,var(--ink))}
 .flog-text{color:var(--ink)}
 .flog-row.warn .flog-text{color:color-mix(in srgb,#d99a1c 85%,var(--ink))}
 .flog-row.bad .flog-text{color:color-mix(in srgb,var(--neg) 80%,var(--ink))}

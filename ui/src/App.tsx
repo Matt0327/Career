@@ -1445,11 +1445,12 @@ function FlightMap({ tele, leg }: { tele: Telemetry | null; leg?: Assignment | n
   return <div className="satmap flightmap" ref={host} role="img" aria-label="Live flight map" />
 }
 
-type LogSev = 'info' | 'ok' | 'warn' | 'bad'
+type LogSev = 'info' | 'ok' | 'warn' | 'bad' | 'coach'
 
-// Map a server FlightEventSeverity (Info/Success/Warning) to a log tone (Phase 7a).
+// Map a server FlightEventSeverity to a log tone (Phase 7a). Coaching (Phase 9, the Fun Dial) gets its own
+// calm tone — a friendly nudge, deliberately not the alarming warn colour.
 function evSev(severity: string): LogSev {
-  return severity === 'Success' ? 'ok' : severity === 'Warning' ? 'warn' : 'info'
+  return severity === 'Success' ? 'ok' : severity === 'Warning' ? 'warn' : severity === 'Coaching' ? 'coach' : 'info'
 }
 
 // A 0..100 flight score to a colour tone (Phase 7b).

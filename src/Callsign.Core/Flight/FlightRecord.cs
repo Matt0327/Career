@@ -1,10 +1,13 @@
 namespace Callsign.Core.Flight;
 
-/// <summary>Severity of a scored flight event, for the live event log.</summary>
+/// <summary>Severity of a flight event, for the live event log.</summary>
 public enum FlightEventSeverity
 {
     Info,
     Success,
+    /// <summary>A friendly, UNSCORED nudge (Phase 9 — the Fun Dial, law L9): a minor deviation below the
+    /// violation thresholds. Coaches the pilot without any score or economic effect — warn, don't punish.</summary>
+    Coaching,
     Warning,
 }
 

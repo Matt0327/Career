@@ -29,6 +29,11 @@ public sealed class FlightTracker
     private const double OverBankDeg = 60;        // an enroute over-bank exceedance
     private const double OverGHigh = 2.5, OverGLow = -1.0;
     private const int PtsOverspeed = 15, PtsStall = 20, PtsOverBank = 10, PtsOverG = 15;
+    // The Fun Dial (Phase 9, law L9): a coaching BAND below each violation threshold. A minor deviation here
+    // earns a friendly, UNSCORED nudge in the log — never a penalty. It only becomes a scored exceedance if it
+    // crosses the harder limit above.
+    private const double CoachBankDeg = 35;              // steep-ish, but not an exceedance
+    private const double CoachGHigh = 1.8, CoachGLow = -0.3; // firm, but not an exceedance
 
     // Phase 8 — tough conditions earn a landing back some grade: a firm touchdown in a 25 kt crosswind or
     // low visibility is a better piece of flying than the same numbers in calm, clear air.
@@ -66,6 +71,7 @@ public sealed class FlightTracker
     private int _approachPass, _approachTotal;
     private int _violationPoints;
     private bool _overspeedWarned, _stallWarned, _bankWarned, _gWarned;
+    private bool _bankCoached, _gCoached; // Phase 9 (L9): fire the friendly nudge at most once each
     private bool _scoreValid = true; // flight-integrity monitoring (Phase 7c anti-cheat)
 
     public FlightPhase Phase { get; private set; } = FlightPhase.Parked;
@@ -231,10 +237,22 @@ public sealed class FlightTracker
             _bankWarned = true; _violationPoints += PtsOverBank;
             _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Warning, $"Steep bank {bank:F0}°"));
         }
+        // The Fun Dial (L9): a steep-ish bank that's short of the exceedance gets a nudge, not a penalty.
+        else if (bank > CoachBankDeg && !_bankCoached && !_bankWarned)
+        {
+            _bankCoached = true;
+            _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Coaching, $"Bank {bank:F0}° — ease it back"));
+        }
+
         if ((t.GForce > OverGHigh || t.GForce < OverGLow) && !_gWarned)
         {
             _gWarned = true; _violationPoints += PtsOverG;
             _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Warning, $"High load {t.GForce:F1} g"));
+        }
+        else if ((t.GForce > CoachGHigh || t.GForce < CoachGLow) && !_gCoached && !_gWarned)
+        {
+            _gCoached = true;
+            _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Coaching, $"Load {t.GForce:F1} g — smooth it out"));
         }
     }
 
