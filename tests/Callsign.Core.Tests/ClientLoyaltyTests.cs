@@ -218,6 +218,77 @@ public class ClientLoyaltyTests
         Assert.DoesNotContain(r.Breakdown.Lines, l => l.Label.Contains("Loyal client"));
     }
 
+    // ── loyalty decay + the clients surface (Phase 8d-2) ─────────────────────────────────────────
+
+    [Fact]
+    public void DecayedLoyalty_HalvesEachHalfLife_TowardZero()
+    {
+        var cfg = EconomyConfig.Default;
+        Assert.Equal(80_000, cfg.DecayedLoyaltyMilli(80_000, TimeSpan.Zero));                 // just served — no decay
+        Assert.Equal(40_000, cfg.DecayedLoyaltyMilli(80_000, cfg.ClientLoyaltyHalfLife));     // one half-life halves it
+        Assert.True(cfg.DecayedLoyaltyMilli(80_000, TimeSpan.FromDays(120)) < cfg.DecayedLoyaltyMilli(80_000, TimeSpan.FromDays(30)));
+        Assert.Equal(0, cfg.DecayedLoyaltyMilli(0, TimeSpan.FromDays(30)));                   // nothing to decay
+    }
+
+    [Fact]
+    public async Task NeglectedClient_LoyaltyDecays_PremiumFades_AndReanchors()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock { UtcNow = T0 };
+        var cfg = EconomyConfig.Default;
+        Guid asg;
+        using (var db = tdb.NewContext())
+        {
+            var s = await SeedAsync(db);
+            // A once-loyal client we haven't flown for in 60 days (two half-lives).
+            db.Clients.Add(new Client
+            {
+                Id = Guid.NewGuid(), CompanyId = s.CompanyId, ClientKey = "EHAM#1", Name = "Delta Cargo Partners",
+                HomeIcao = "EHAM", LoyaltyMilli = 80_000, JobsCompleted = 20,
+                FirstSeenAt = T0.AddDays(-120), LastJobAt = T0.AddDays(-60), UpdatedAt = T0.AddDays(-60),
+            });
+            await db.SaveChangesAsync();
+            asg = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, s.PilotId)).Id;
+        }
+
+        SettlementResult r;
+        using (var db = tdb.NewContext()) r = await Settlement(db, clock).SettleAsync(asg, Flown(-80));
+
+        int decayed = cfg.DecayedLoyaltyMilli(80_000, TimeSpan.FromDays(60));
+        Assert.True(decayed < cfg.ClientLoyaltyBonusThresholdMilli);                       // cooled below the premium bar
+        Assert.DoesNotContain(r.Breakdown.Lines, l => l.Label.Contains("Loyal client"));   // so no premium this time
+        using (var db = tdb.NewContext())
+        {
+            var client = await db.Clients.SingleAsync();
+            Assert.Equal(decayed + cfg.ClientLoyaltyFullMilli, client.LoyaltyMilli);       // this delivery re-anchors on the decayed value
+        }
+    }
+
+    [Fact]
+    public async Task GetClients_ReturnsDecayedStanding_SortedByCurrentLoyalty()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock { UtcNow = T0 };
+        Guid companyId;
+        using (var db = tdb.NewContext())
+        {
+            var company = new Company { Id = Guid.NewGuid(), Name = "Co" };
+            companyId = company.Id;
+            db.Companies.Add(company);
+            db.Clients.Add(new Client { Id = Guid.NewGuid(), CompanyId = companyId, ClientKey = "X#0", Name = "Recent Co", HomeIcao = "EHAM", LoyaltyMilli = 50_000, JobsCompleted = 5, FirstSeenAt = T0.AddDays(-10), LastJobAt = T0, UpdatedAt = T0 });
+            db.Clients.Add(new Client { Id = Guid.NewGuid(), CompanyId = companyId, ClientKey = "X#1", Name = "Stale Co", HomeIcao = "EHRD", LoyaltyMilli = 90_000, JobsCompleted = 12, FirstSeenAt = T0.AddDays(-200), LastJobAt = T0.AddDays(-90), UpdatedAt = T0.AddDays(-90) });
+            await db.SaveChangesAsync();
+        }
+
+        using var db2 = tdb.NewContext();
+        var list = await new ClientService(db2, clock, EconomyConfig.Default).GetClientsAsync(companyId);
+        Assert.Equal(2, list.Count);
+        // Stale (90k, 90 days = 3 half-lives -> ~11k) now ranks below Recent (50k, no decay).
+        Assert.Equal("Recent Co", list[0].Name);
+        Assert.Equal(50_000, list[0].LoyaltyMilli);
+        Assert.True(list[1].LoyaltyMilli < 20_000);
+    }
+
     // ── the board assigns a client to every offer ───────────────────────────────────────────────
 
     [Fact]

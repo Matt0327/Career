@@ -611,6 +611,17 @@ export interface WorldState {
   economyRewardPct: number // signed % the cycle adds to fresh job pay (e.g. +12, -8)
 }
 
+// A named client relationship (Phase 8d) at its current, decayed standing.
+export interface Client {
+  name: string
+  homeIcao: string
+  loyaltyMilli: number // 0..100000, decayed to now (a neglected client cools)
+  jobsCompleted: number
+  jobsFailed: number
+  lastJobAt?: string | null
+  firstSeenAt: string
+}
+
 // An operating certificate's standing (Phase 8e) — held/valid + the standards bar to earn it.
 export interface CertificateStatus {
   kind: string
@@ -890,6 +901,7 @@ export const api = {
   upgradeFuelFarm: (id: string) => POST_IDEM(`/api/bases/${id}/upgrade-fuel-farm`).then(ok<{ fuelFarmLevel: number }>),
   world: () => fetch('/api/world').then(ok<WorldState>),
   weather: (icao?: string) => fetch('/api/weather' + (icao ? `?icao=${encodeURIComponent(icao)}` : '')).then(ok<Weather>),
+  clients: () => fetch('/api/clients').then(ok<Client[]>),
   certificates: () => fetch('/api/certificates').then(ok<CertificateStatus[]>),
   applyCertificate: (kind: string) => POST_IDEM(`/api/certificates/${encodeURIComponent(kind)}/apply`).then(ok<{ kind: string; issuedAt: string; expiresAt: string }>),
   tradeMarket: () => fetch('/api/trade/market').then(ok<MarketQuote[]>),

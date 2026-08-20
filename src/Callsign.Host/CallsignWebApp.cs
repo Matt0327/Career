@@ -94,6 +94,7 @@ public static class CallsignWebApp
         builder.Services.AddScoped<InsuranceService>();
         builder.Services.AddScoped<RouteService>();
         builder.Services.AddScoped<CertificateService>();
+        builder.Services.AddScoped<ClientService>();
         builder.Services.AddScoped<ProgressMetricsService>();
         builder.Services.AddScoped<AchievementService>();
         builder.Services.AddScoped<CampaignService>();
@@ -398,9 +399,11 @@ public static class CallsignWebApp
             // Your standing with the clients behind these offers (Phase 8d) — so the board can show the repeat
             // premium a loyal client will pay, turning "whose job to fly" into a real choice.
             var clientKeys = jobs.Where(j => j.ClientKey != null).Select(j => j.ClientKey!).Distinct().ToList();
-            var loyalty = await db.Clients
-                .Where(c => c.CompanyId == pilot.CompanyId && clientKeys.Contains(c.ClientKey))
-                .ToDictionaryAsync(c => c.ClientKey, c => c.LoyaltyMilli);
+            // Loyalty is decayed to now (Phase 8d-2) so the board shows the client's CURRENT standing — a bond
+            // you've let cool pays a smaller premium than the peak it once reached.
+            var loyalty = (await db.Clients
+                .Where(c => c.CompanyId == pilot.CompanyId && clientKeys.Contains(c.ClientKey)).ToListAsync())
+                .ToDictionary(c => c.ClientKey, c => cfg.DecayedLoyaltyMilli(c.LoyaltyMilli, clock.UtcNow - (c.LastJobAt ?? c.UpdatedAt)));
             return Results.Ok(jobs.Select(j =>
             {
                 // Shown on the board, but locked with the reason (rank — 3b, or reputation — 3e/3f).
@@ -1098,6 +1101,14 @@ public static class CallsignWebApp
             var w = world.WeatherAt(airport.Latitude, airport.Longitude, clock.UtcNow);
             return Results.Ok(new WeatherDto(airport.Ident, airport.Name, w.WindDirDeg, w.WindKts, w.GustKts,
                 w.VisibilitySm, w.CeilingFt, w.TempC, w.Condition, w.Summary));
+        });
+
+        // --- Clients (Phase 8d-2): your named relationships and where each stands now (loyalty decayed) ---
+        app.MapGet("/api/clients", async (CallsignDbContext db, ClientService clients) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            return Results.Ok(await clients.GetClientsAsync(pilot.CompanyId));
         });
 
         // --- Operating certificates (Phase 8e): earn/renew the licences that gate premium categories ---

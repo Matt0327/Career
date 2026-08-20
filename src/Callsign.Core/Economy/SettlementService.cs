@@ -72,10 +72,14 @@ public sealed class SettlementService
                 _db.Clients.Add(client);
             }
         }
+        // Loyalty cools while you don't fly for a client (Phase 8d-2): decay the stored figure to now before
+        // reading it, so a neglected client's premium has faded and this delivery re-anchors the bond.
+        int loyaltyNow = client is null ? 0
+            : _cfg.DecayedLoyaltyMilli(client.LoyaltyMilli, now - (client.LastJobAt ?? client.UpdatedAt));
         // The premium rides on the EARNED base (a failed/partial delivery earns a smaller tip too), computed
         // from pre-delivery loyalty so it rewards the history, not this leg.
         long loyaltyBonus = client is not null && baseCents > 0
-            ? (long)Math.Round(baseCents * (decimal)_cfg.ClientLoyaltyBonusPct(client.LoyaltyMilli), MidpointRounding.AwayFromZero)
+            ? (long)Math.Round(baseCents * (decimal)_cfg.ClientLoyaltyBonusPct(loyaltyNow), MidpointRounding.AwayFromZero)
             : 0;
 
         // The landing lever (Phase 7c): a tracker-flown leg is graded on its whole-flight score — landing
@@ -263,8 +267,10 @@ public sealed class SettlementService
         // has already been paid from the pre-delivery loyalty.
         if (client is not null)
         {
+            // Apply this delivery's move to the DECAYED loyalty (re-anchoring at now), so neglect between jobs
+            // genuinely erodes the bond rather than being frozen at its old peak.
             int loyaltyDelta = _cfg.ClientLoyaltyDeltaMilli(outcome.Grade, flight.Scored, flight.Scored ? flight.OverallScore : 0);
-            client.LoyaltyMilli = Math.Clamp(client.LoyaltyMilli + loyaltyDelta, 0, EconomyConfig.LoyaltyMax);
+            client.LoyaltyMilli = Math.Clamp(loyaltyNow + loyaltyDelta, 0, EconomyConfig.LoyaltyMax);
             if (outcome.Grade == MissionGrade.Failed) client.JobsFailed++;
             else client.JobsCompleted++;
             client.LastJobAt = now;

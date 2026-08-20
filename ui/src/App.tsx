@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import {
   api, money,
-  type Achievement, type AircraftHistory, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type CertificateStatus, type CheckFlightDone, type CloudSaveMeta, type CloudStatus, type Diverted,
+  type Achievement, type AircraftHistory, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type CertificateStatus, type Client, type CheckFlightDone, type CloudSaveMeta, type CloudStatus, type Diverted,
   type FinancesData, type FinanceDetail, type AttributionLine, type CashPoint, type StatementRow, type FlightLog, type FlightDetail, type FlightTotals, type Insurance, type Inventory, type Job, type LeaderboardRow, type LedgerEntry, type LiveEvent, type Loan, type LoanOffer, type Loans,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
   type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type UsedListing, type VersionInfo, type Weather, type WorldState, type WsEvent,
@@ -10,7 +10,7 @@ import { loadPrefs, savePrefs, type Prefs, type Theme } from './prefs'
 import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
-type Tab = 'dashboard' | 'airline' | 'jobs' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'finances' | 'campaigns' | 'awards' | 'community' | 'logbook' | 'settings'
+type Tab = 'dashboard' | 'airline' | 'jobs' | 'clients' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'finances' | 'campaigns' | 'awards' | 'community' | 'logbook' | 'settings'
 
 export function App() {
   const [state, setState] = useState<State | null | undefined>(undefined) // undefined = still loading
@@ -48,6 +48,7 @@ export function App() {
         {tab === 'dashboard' && <Dashboard state={state} airline={airline} go={setTab} />}
         {tab === 'airline' && <Airline onSaved={() => { void reload(); loadAirline() }} />}
         {tab === 'jobs' && <Jobs state={state} onChanged={reload} />}
+        {tab === 'clients' && <Clients />}
         {tab === 'flight' && <Flight state={state} onSettled={reload} />}
         {tab === 'hangar' && <Hangar state={state} onChanged={reload} />}
         {tab === 'ops' && <Ops onChanged={reload} />}
@@ -97,6 +98,7 @@ const TABS: { id: Tab; label: string; sub: string }[] = [
   { id: 'dashboard', label: 'Dashboard', sub: 'Your operation at a glance' },
   { id: 'airline', label: 'Airline', sub: 'Identity & standing' },
   { id: 'jobs', label: 'Jobs', sub: 'Find and accept work' },
+  { id: 'clients', label: 'Clients', sub: 'Who you fly for' },
   { id: 'flight', label: 'Flight', sub: 'Fly your objectives' },
   { id: 'hangar', label: 'Hangar', sub: 'Your fleet & the market' },
   { id: 'ops', label: 'Staff', sub: 'Crew, standing orders & routes' },
@@ -1124,6 +1126,48 @@ function loyaltyTier(milli: number): { label: string; on: boolean } {
   if (pct >= 50) return { label: 'Loyal', on: true }
   if (pct >= 25) return { label: 'Regular', on: true }
   return { label: 'New client', on: false }
+}
+
+// The Clients tab (Phase 8d-2): the face of the client system — who you fly for and where each bond stands.
+function Clients() {
+  const [clients, setClients] = useState<Client[] | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  useEffect(() => { api.clients().then(setClients).catch(e => setErr(cleanErr(e))) }, [])
+
+  if (err) return <div className="empty">{err}</div>
+  if (!clients) return <div className="empty">Loading…</div>
+  if (clients.length === 0) return (
+    <div className="card">
+      <h2>Clients</h2>
+      <p className="hint">You haven't built any client relationships yet. Every job on the board is offered by a client — complete their work well and their loyalty grows, paying a repeat premium on future jobs. Fail them and they cool off.</p>
+    </div>
+  )
+  return (
+    <div className="card">
+      <div className="row-head"><h2>Your clients</h2><span className="muted">{clients.length} relationship{clients.length === 1 ? '' : 's'}</span></div>
+      <p className="hint">Serve a client well and they pay a repeat premium on their jobs; neglect them and the bond cools. Loyalty shown is current — it decays while you don't fly for them.</p>
+      <div className="clients-tablewrap">
+        <table className="tbl clients-table">
+          <thead><tr><th>Client</th><th>Home</th><th>Standing</th><th className="r">Delivered</th><th className="r">Failed</th><th className="r">Last job</th></tr></thead>
+          <tbody>
+            {clients.map(c => {
+              const tier = loyaltyTier(c.loyaltyMilli)
+              return (
+                <tr key={c.name + c.homeIcao}>
+                  <td><b>{c.name}</b></td>
+                  <td><span className="loc">{c.homeIcao}</span></td>
+                  <td><span className={`loyal-tag${tier.on ? ' on' : ''}`}>{tier.label}</span> <span className="num muted"> {Math.round(c.loyaltyMilli / 1000)}%</span></td>
+                  <td className="r num pos">{c.jobsCompleted}</td>
+                  <td className="r num">{c.jobsFailed > 0 ? <span className="neg">{c.jobsFailed}</span> : '—'}</td>
+                  <td className="r muted">{c.lastJobAt ? new Date(c.lastJobAt).toLocaleDateString() : '—'}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
 }
 
 function JobDetail({ job, busy, onAccept }: { job: Job; busy: boolean; onAccept: (id: string) => void }) {

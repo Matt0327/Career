@@ -344,6 +344,20 @@ public sealed record EconomyConfig
     public int ClientLoyaltyBonusThresholdMilli { get; init; } = 25_000;
     /// <summary>The repeat premium a fully-loyal client pays on top of the earned base reward (fraction).</summary>
     public double ClientLoyaltyBonusMaxPct { get; init; } = 0.12;
+    /// <summary>How fast a client you stop flying for cools (Phase 8d-2): loyalty halves each half-life of
+    /// neglect, decaying toward zero, so the premium is a relationship you MAINTAIN, not a one-time unlock.</summary>
+    public TimeSpan ClientLoyaltyHalfLife { get; init; } = TimeSpan.FromDays(30);
+
+    /// <summary>A client's loyalty after <paramref name="elapsed"/> of neglect — exponential decay toward zero,
+    /// half gone each <see cref="ClientLoyaltyHalfLife"/>. Pure and deterministic, so it's applied on read (never
+    /// persisted between deliveries), exactly like the market's pressure decay.</summary>
+    public int DecayedLoyaltyMilli(int storedMilli, TimeSpan elapsed)
+    {
+        if (storedMilli <= 0 || elapsed <= TimeSpan.Zero) return Math.Max(0, storedMilli);
+        double hl = Math.Max(1, ClientLoyaltyHalfLife.Ticks);
+        double factor = Math.Pow(0.5, elapsed.Ticks / hl);
+        return (int)Math.Round(storedMilli * factor);
+    }
 
     /// <summary>How much a delivery moves this client's loyalty. A full delivery builds it (a sharper flight
     /// builds a little more); a partial dings it; a failure sours it hard. Manual/legacy legs (unscored) use
