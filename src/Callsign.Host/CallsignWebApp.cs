@@ -28,6 +28,16 @@ public static class CallsignWebApp
 {
     public static WebApplication Build(string[] args)
     {
+        // Money is USD. The app runs under InvariantGlobalization (no ICU), whose currency symbol is "¤", so a
+        // ":C0" in a service error message would read "¤400,000". Clone the invariant culture, give it a "$"
+        // symbol, and make it the process default — every currency format then renders as dollars, with no ICU
+        // dependency and without touching each call site. (The UI formats its own money in JS.)
+        var money = (System.Globalization.CultureInfo)System.Globalization.CultureInfo.InvariantCulture.Clone();
+        money.NumberFormat.CurrencySymbol = "$";
+        money.NumberFormat.CurrencyNegativePattern = 1; // -$1,234 rather than ($1,234)
+        System.Globalization.CultureInfo.DefaultThreadCurrentCulture = money;
+        System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = money;
+
         var builder = WebApplication.CreateBuilder(args);
 
         // --- Database: one SQLite file (path overridable via config "Db:Path" / env Db__Path) ---
