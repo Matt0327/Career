@@ -4,7 +4,7 @@ import {
   type Achievement, type AircraftHistory, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type CheckFlightDone, type CloudSaveMeta, type CloudStatus, type Diverted,
   type FinancesData, type FinanceDetail, type AttributionLine, type CashPoint, type StatementRow, type FlightLog, type FlightDetail, type FlightTotals, type Insurance, type Inventory, type Job, type LeaderboardRow, type LedgerEntry, type LiveEvent, type Loan, type LoanOffer, type Loans,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
-  type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type UsedListing, type VersionInfo, type Weather, type WsEvent,
+  type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type UsedListing, type VersionInfo, type Weather, type WorldState, type WsEvent,
 } from './api'
 import { loadPrefs, savePrefs, type Prefs, type Theme } from './prefs'
 import * as L from 'leaflet'
@@ -135,11 +135,15 @@ const roughWx = (c: string) => c === 'Storm' || c === 'Fog' || c === 'Snow'
 function ContextHeader({ state, tab }: { state: State; tab: Tab }) {
   const meta = TABS.find(t => t.id === tab)
   const [wx, setWx] = useState<Weather | null>(null)
+  const [world, setWorld] = useState<WorldState | null>(null)
   useEffect(() => {
     let live = true
-    const load = () => api.weather().then(w => { if (live) setWx(w) }).catch(() => { if (live) setWx(null) })
+    const load = () => {
+      api.weather().then(w => { if (live) setWx(w) }).catch(() => { if (live) setWx(null) })
+      api.world().then(w => { if (live) setWorld(w) }).catch(() => { if (live) setWorld(null) })
+    }
     load()
-    const t = setInterval(load, 5 * 60_000) // weather holds for a window; refresh occasionally as time advances
+    const t = setInterval(load, 5 * 60_000) // weather + calendar hold for a window; refresh as time advances
     return () => { live = false; clearInterval(t) }
   }, [state.currentIcao])
   return (
@@ -150,6 +154,7 @@ function ContextHeader({ state, tab }: { state: State; tab: Tab }) {
       </div>
       <div className="ctx">
         <span className="chip"><span className="dot" /> <b className="loc">{state.currentIcao}</b></span>
+        {world && <span className="chip" title={`${world.dayOfWeek}, ${world.dateIso} · ${world.season}`}>{world.season} · <span className="muted">day</span> <span className="num">{world.careerDays.toLocaleString()}</span></span>}
         {wx && <span className={`chip wx${roughWx(wx.condition) ? ' rough' : ''}`} title={`${wx.name}: ${wx.summary} · gust ${wx.gustKts} kt · ceiling ${wx.ceilingFt.toLocaleString()} ft`}>
           {wx.condition} · <span className="num">{wx.windKts}</span> kt · <span className="num">{wx.tempC}</span>°C
         </span>}

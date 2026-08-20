@@ -596,6 +596,13 @@ export interface MarketQuote {
   pressurePct: number // Phase 7g — how far YOUR trading moved this price (+ bid up, − softened), decays to 0
 }
 
+export interface WorldState {
+  dateIso: string
+  dayOfWeek: string
+  season: string // Spring | Summer | Autumn | Winter (hemisphere-correct)
+  careerDays: number // whole days the company has operated
+}
+
 export interface Weather {
   icao: string
   name: string
@@ -848,6 +855,7 @@ export const api = {
   openBase: (airportIcao: string) => POST_IDEM('/api/bases/open', { airportIcao }).then(ok),
   upgradeShop: (id: string) => POST_IDEM(`/api/bases/${id}/upgrade-shop`).then(ok<{ maintenanceLevel: number }>),
   upgradeFuelFarm: (id: string) => POST_IDEM(`/api/bases/${id}/upgrade-fuel-farm`).then(ok<{ fuelFarmLevel: number }>),
+  world: () => fetch('/api/world').then(ok<WorldState>),
   weather: (icao?: string) => fetch('/api/weather' + (icao ? `?icao=${encodeURIComponent(icao)}` : '')).then(ok<Weather>),
   tradeMarket: () => fetch('/api/trade/market').then(ok<MarketQuote[]>),
   inventory: () => fetch('/api/trade/inventory').then(ok<Inventory[]>),
