@@ -16,7 +16,7 @@ public class FlightTrackerTests
         double windKts = 0, double windDir = 0, double heading = 0, double visSm = 10,
         double tdNormalFps = 0, double tdLateralFps = 0,
         double totalWt = 0, double maxGross = 0, double cg = 0, double cgFwd = 0, double cgAft = 0,
-        double engDmg = 0)
+        double engDmg = 0, double xtrack = 0)
         => new()
         {
             Sequence = sec,
@@ -49,6 +49,7 @@ public class FlightTrackerTests
             CgFwdLimit = cgFwd,
             CgAftLimit = cgAft,
             EngineDamagePercent = engDmg,
+            ApproachCrossTrackFt = xtrack,
         };
 
     private static FlightTracker FlyStandardLeg()
@@ -316,6 +317,40 @@ public class FlightTrackerTests
         t.Observe(Snap(660, 0, 0, 0, onGround: true, engDmg: 0));          // shutdown → Complete()
         Assert.Equal(0.0, t.Result!.EngineDamagePctAccrued);
         Assert.DoesNotContain(t.Events, e => e.Message.Contains("Engine stress"));
+    }
+
+    // ── Phase 10b: approach precision (centreline tracking) ────────────────────────────────────────
+
+    // A leg with `count` below-gate approach samples at a fixed cross-track, ending in a touchdown.
+    private static FlightTracker ApproachLeg(double xtrack, int count = 5)
+    {
+        var t = new FlightTracker();
+        t.Observe(Snap(0, 0, 0, 0, onGround: true));                 // parked
+        t.Observe(Snap(10, 50, 70, 500, onGround: false));           // takeoff
+        t.Observe(Snap(60, 3000, 120, 0, onGround: false));          // cruise (above the gate)
+        for (int i = 0; i < count; i++)                              // below-gate final, descending, off by `xtrack`
+            t.Observe(Snap(600 + i * 5, 800 - i * 100, 90, -500, onGround: false, agl: 800 - i * 100, xtrack: xtrack));
+        t.Observe(Snap(700, 0, 50, 0, onGround: true));              // touchdown
+        t.Observe(Snap(760, 0, 0, 0, onGround: true));               // shutdown → Complete()
+        return t;
+    }
+
+    [Fact]
+    public void ApproachPrecision_OnCentreline_ScoresFull_OffCentreline_Docks()
+    {
+        var on = ApproachLeg(0);       // on the centreline (and the default 0 → isolation: unchanged)
+        var off = ApproachLeg(800);    // well past the 400 ft limit
+        Assert.Equal(100, on.Result!.ApproachScore);
+        Assert.True(off.Result!.ApproachScore < on.Result!.ApproachScore);
+    }
+
+    [Fact]
+    public void ApproachPrecision_DriftIntoTheCoachBand_CoachesOnce_WithoutDockingTheScore()
+    {
+        var t = ApproachLeg(300); // 250 < 300 < 400 → a nudge, but inside the score limit
+        Assert.Single(t.Events, e => e.Message.Contains("centreline"));
+        Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Coaching && e.Message.Contains("centreline"));
+        Assert.Equal(100, t.Result!.ApproachScore); // still on profile for the score (the Fun Dial: coach before it costs)
     }
 
     [Fact]

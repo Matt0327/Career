@@ -62,6 +62,8 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
         public double CgAftLimit;
         // Phase 9e engine damage — order here MUST match the AddToDataDefinition call order below.
         public double EngineDamagePercent;
+        // Phase 10b approach precision — order here MUST match the AddToDataDefinition call order below.
+        public double ApproachCrossTrackMeters;
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
         public string Title;
     }
@@ -259,6 +261,10 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
         // refinement). Explicit "percent" unit so the reading is 0..100, never an SDK default trap (L10).
         sc.AddToDataDefinition(Definitions.AircraftData, "GENERAL ENG DAMAGE PERCENT:1", "percent",
             SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        // Phase 10b — cross-track from the active approach centreline. Explicit "meters" (the SDK default);
+        // 0 when no approach/GPS leg is active → the tracker treats it as on-centreline (L10). Converted to feet below.
+        sc.AddToDataDefinition(Definitions.AircraftData, "GPS WP CROSS TRK", "meters",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
         sc.AddToDataDefinition(Definitions.AircraftData, "TITLE", null,
             SIMCONNECT_DATATYPE.STRING256, 0f, unused);
         sc.RegisterDataDefineStruct<AircraftData>(Definitions.AircraftData);
@@ -309,6 +315,7 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
             CgFwdLimit = d.CgFwdLimit,
             CgAftLimit = d.CgAftLimit,
             EngineDamagePercent = d.EngineDamagePercent,
+            ApproachCrossTrackFt = d.ApproachCrossTrackMeters * 3.28084, // meters → feet
         });
     }
 

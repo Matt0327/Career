@@ -113,4 +113,11 @@ public sealed record TelemetrySnapshot
     // never commanded (L7); folded monotonically, so it can only ever add authoritative wear, never soften it.
     /// <summary>Cumulative engine damage as the simulator models it, percent (0 = pristine).</summary>
     public double EngineDamagePercent { get; init; }
+
+    // --- Approach precision (Phase 10b): the aircraft's cross-track deviation from the active approach's
+    // centreline, feet (+ = right of centreline). Default 0 = on the centreline, so a visual approach with no
+    // active nav (nothing reported) is never penalised (L10) — only a flown-off-centreline instrument/GPS
+    // approach lowers the precision. Read, never commanded (L7).
+    /// <summary>Cross-track deviation from the approach centreline, feet (+ = right; 0 = on / not reported).</summary>
+    public double ApproachCrossTrackFt { get; init; }
 }

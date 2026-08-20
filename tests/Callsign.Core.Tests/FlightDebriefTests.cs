@@ -80,6 +80,11 @@ public class FlightDebriefTests
     }
 
     [Fact]
+    public void ApproachDriftCoaching_SurfacesAsAnApproachNote()
+        => Assert.Contains(FlightDebrief.Build(Flight(events: ("Coaching", "Drifting right of the centreline — small, early corrections back onto the approach"))).ToImprove,
+            n => n.Dimension == "Approach" && n.Tone == DebriefTone.Coaching);
+
+    [Fact]
     public void EngineStressCoaching_IsSurfaced()
         => Assert.Contains(FlightDebrief.Build(Flight(events: ("Coaching", "Engine stress registering — ease the power and watch your temps"))).ToImprove,
             n => n.Dimension == "Engine" && n.Tone == DebriefTone.Coaching);

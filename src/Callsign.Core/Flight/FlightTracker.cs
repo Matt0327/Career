@@ -26,6 +26,10 @@ public sealed class FlightTracker
     private const double MaxDescentFpm = -1000;  // steeper than this below the gate = unstable
     private const double MaxBankDeg = 10;         // more bank than this below the gate = unstable
     private const int StableApproachMinScore = 70;
+    // Approach precision (Phase 10b): centreline tracking below the gate. On the Fun Dial — a gentle nudge as you
+    // drift, and the approach score only takes it as "off profile" past the harder limit. Lenient at ship (L3).
+    private const double CoachApproachCrossTrackFt = 250; // drifting this far off the centreline → a coaching nudge
+    private const double MaxApproachCrossTrackFt = 400;   // past this = the approach sample is off-profile (docks the score)
     private const double OverBankDeg = 60;        // an enroute over-bank exceedance
     private const double OverGHigh = 2.5, OverGLow = -1.0;
     private const int PtsOverspeed = 15, PtsStall = 20, PtsOverBank = 10, PtsOverG = 15;
@@ -81,6 +85,7 @@ public sealed class FlightTracker
     private int _violationPoints;
     private bool _overspeedWarned, _stallWarned, _bankWarned, _gWarned;
     private bool _bankCoached, _gCoached; // Phase 9 (L9): fire the friendly nudge at most once each
+    private bool _localizerCoached;       // Phase 10b: nudge once when drifting off the approach centreline
     private bool _scoreValid = true; // flight-integrity monitoring (Phase 7c anti-cheat)
     // Phase 9e — engine damage from the sim's own model: baseline at first sight, monotonic max; the leg's
     // accrued damage (max − baseline) is priced into engine wear at settlement. _engDmgPrev holds the previous
@@ -278,11 +283,26 @@ public sealed class FlightTracker
         if (agl >= GateAglFt)
             return;
         _approachTotal++;
+        // Precision (Phase 10b): a sample off the centreline past the hard limit is "off profile", folding
+        // centreline tracking into the existing approach score. Default 0 (no active nav / visual) is on the
+        // centreline, so a visual approach is never docked for it (L10).
+        double xtrack = Math.Abs(t.ApproachCrossTrackFt);
+        bool onCentreline = xtrack <= MaxApproachCrossTrackFt;
         bool ok = t.VerticalSpeedFpm >= MaxDescentFpm
                && Math.Abs(t.BankDeg) <= MaxBankDeg
+               && onCentreline
                && !t.StallWarning && !t.OverspeedWarning;
         if (ok)
             _approachPass++;
+
+        // A friendly nudge as you start to drift — BEFORE it costs the score (the Fun Dial, L9).
+        if (xtrack > CoachApproachCrossTrackFt && !_localizerCoached)
+        {
+            _localizerCoached = true;
+            string side = t.ApproachCrossTrackFt > 0 ? "right of" : "left of";
+            _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Coaching,
+                $"Drifting {side} the centreline — small, early corrections back onto the approach"));
+        }
     }
 
     // Enroute exceedances — each fires once, on first breach, as a scored event (Phase 7a streams and
