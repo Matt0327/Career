@@ -30,6 +30,15 @@ public class WeatherDemandTests
     }
 
     [Fact]
+    public void WeatherScrubsTrip_FogAndGaleScrub_ClearAndSnowFly()
+    {
+        Assert.True(Cfg.WeatherScrubsTrip(0.4, 3));    // fog — too little visibility
+        Assert.True(Cfg.WeatherScrubsTrip(10, 40));    // gale — too much wind
+        Assert.False(Cfg.WeatherScrubsTrip(10, 5));    // clear and calm — flies
+        Assert.False(Cfg.WeatherScrubsTrip(1.5, 10));  // snow (1.5 sm) is reduced but flyable
+    }
+
+    [Fact]
     public void Quote_WeatherFactor_ScalesTheMid_AndReportsThePct()
     {
         var clock = new FakeClock();

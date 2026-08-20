@@ -2,6 +2,7 @@ using Callsign.Core.Data;
 using Callsign.Core.Domain;
 using Callsign.Core.Economy;
 using Callsign.Core.Time;
+using Callsign.Core.World;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
@@ -103,6 +104,70 @@ public class RouteServiceTests
         {
             var r = await Routes(db, clock).CreateRouteAsync(companyId, "VIP line", "EHAM", "EHRD", aircraftId, staffId, MissionType.Vip);
             Assert.Equal(MissionType.Vip, r.Mission);
+        }
+    }
+
+    // Find an origin cell + instant whose synthetic weather scrubs an autonomous trip (deterministic → stable).
+    private static (double lat, DateTimeOffset t) FoulScrubCell(WorldOracle world, EconomyConfig cfg)
+    {
+        var baseT = new DateTimeOffset(2026, 1, 5, 0, 0, 0, TimeSpan.Zero);
+        for (int h = 0; h < 600; h++)
+            for (double lat = 20; lat < 68; lat += 2.5)
+            {
+                var w = world.WeatherAt(lat, 5.0, baseT.AddHours(h));
+                if (cfg.WeatherScrubsTrip(w.VisibilitySm, w.WindKts)) return (lat, baseT.AddHours(h));
+            }
+        throw new Xunit.Sdk.XunitException("no foul-weather scrub cell found in the scan range");
+    }
+
+    private static Route FoulRoute(Guid companyId, Guid aircraftId, Guid staffId, DateTimeOffset from)
+        => new()
+        {
+            Id = Guid.NewGuid(), CompanyId = companyId, Name = "Foul line", OriginIcao = "FOUL", DestIcao = "EHRD",
+            Mission = MissionType.Cargo, DistanceNm = 100, RoundTripHours = 24, RewardPerTripCents = 200_000, PriceMultiplierMilli = 1000,
+            AircraftInstanceId = aircraftId, StaffId = staffId, Active = true,
+            StartedAt = from, LastReconciledAt = from, UpdatedAt = from,
+        };
+
+    [Fact]
+    public async Task Reconcile_WeathersOutTheTrip_WhenTheOriginIsFoul_ButFliesWhenGeographyIsUnknown()
+    {
+        // Phase 8f-2: the same route flies when its origin has no weather data, and is scrubbed (no income,
+        // surfaced) when the origin field's synthetic weather is foul — proving the scrub, isolated from luck.
+        var world = new WorldOracle(EconomyConfig.Default);
+        var (lat, foulT) = FoulScrubCell(world, EconomyConfig.Default);
+        var reconcileAt = foulT.AddHours(72); // 3 days: one duty-capped trip accrues, departing in the foul window
+
+        // (a) origin airport ABSENT -> no scrub -> the trip flies and pays.
+        using (var tdb = new TestDb())
+        {
+            var clock = new FakeClock { UtcNow = foulT };
+            var (companyId, aircraftId, staffId) = await SeedAsync(tdb, clock);
+            using (var db = tdb.NewContext()) { db.Routes.Add(FoulRoute(companyId, aircraftId, staffId, foulT)); await db.SaveChangesAsync(); }
+            clock.UtcNow = reconcileAt;
+            using var db2 = tdb.NewContext();
+            var digest = await Ops(db2, clock).ReconcileAsync(companyId);
+            Assert.True(digest.Trips > 0);
+            Assert.Equal(0, digest.WeatheredOut);
+        }
+
+        // (b) origin airport at the FOUL cell -> the trip is weathered out.
+        using (var tdb = new TestDb())
+        {
+            var clock = new FakeClock { UtcNow = foulT };
+            var (companyId, aircraftId, staffId) = await SeedAsync(tdb, clock);
+            using (var db = tdb.NewContext())
+            {
+                db.Airports.Add(new Airport { Ident = "FOUL", IcaoCode = "FOUL", Name = "Foul Field", Latitude = lat, Longitude = 5.0, Kind = AirportKind.MediumAirport });
+                db.Routes.Add(FoulRoute(companyId, aircraftId, staffId, foulT));
+                await db.SaveChangesAsync();
+            }
+            clock.UtcNow = reconcileAt;
+            using var db2 = tdb.NewContext();
+            var digest = await Ops(db2, clock).ReconcileAsync(companyId);
+            Assert.True(digest.WeatheredOut > 0);
+            Assert.Equal(0, digest.Trips);            // the lone accrued trip was scrubbed
+            Assert.Equal(0, digest.GrossIncomeCents); // no income for a scrubbed trip
         }
     }
 

@@ -2244,7 +2244,8 @@ function Ops({ onChanged }: { onChanged: () => void }) {
       const owed = d.loanWarnings.length > 0 ? ` · ⚠ Can't cover loans (${d.loanWarnings.join('; ')}) — earn or pay down before they default.` : ''
       const def = d.defaults.length > 0 ? ` · ✖ Defaulted: ${d.defaults.join('; ')}.` : ''
       const cert = d.certLapsed.length > 0 ? ` · ⚠ Held (certificate lapsed): ${d.certLapsed.join('; ')} — renew in the Airline tab to resume.` : ''
-      setMsg(base + inc + empty + duty + warn + owed + def + cert)
+      const wx = d.weatheredOut > 0 ? ` · ${d.weatheredOut} trip${d.weatheredOut === 1 ? '' : 's'} weathered out at the origin.` : ''
+      setMsg(base + inc + empty + duty + warn + owed + def + cert + wx)
     } catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
 

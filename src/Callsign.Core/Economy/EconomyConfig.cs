@@ -302,6 +302,19 @@ public sealed record EconomyConfig
     /// visibility falls toward zero.</summary>
     public double WeatherDemandClearVisSm { get; init; } = 6.0;
 
+    // --- Weather → autonomous scrubs (Phase 8f-2): foul weather grounds an autonomous trip ---
+    /// <summary>Below this visibility (sm) at the origin, an autonomous trip is weathered out — scrubbed for
+    /// that slot (no income, no wear), though the time still passes. Fog (0.4 sm) trips it; rain/snow don't.</summary>
+    public double WeatherScrubVisSm { get; init; } = 1.0;
+    /// <summary>At or above this wind (kt) at the origin, an autonomous trip is scrubbed — beyond safe limits
+    /// for an unattended departure.</summary>
+    public int WeatherScrubWindKts { get; init; } = 35;
+
+    /// <summary>Whether the origin weather scrubs an autonomous trip (Phase 8f-2): too little visibility or too
+    /// much wind to launch. A pure threshold, so the scrub is deterministic in (place, time).</summary>
+    public bool WeatherScrubsTrip(double visibilitySm, int windKts)
+        => visibilitySm < WeatherScrubVisSm || windKts >= WeatherScrubWindKts;
+
     /// <summary>The local-demand price factor from the weather (Phase 8f): 1.0 in clear air, ramping to
     /// 1 + <see cref="WeatherDemandSwing"/> as visibility falls to zero. A pure function of visibility, so a
     /// caller with no weather data (factor left at 1.0) prices the market unchanged.</summary>
