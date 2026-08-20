@@ -287,7 +287,8 @@ public sealed class SettlementService
             int loyaltyDelta = _cfg.ClientLoyaltyDeltaMilli(outcome.Grade, flight.Scored, flight.Scored ? flight.OverallScore : 0)
                 // A passenger client also remembers the RIDE (Phase 10c): a smooth flight builds the bond a
                 // little more, a rough one sheds some — beyond the delivery grade the base delta already reflects.
-                + (a.Type.CarriesPassengers() && flight.Scored ? _cfg.ComfortLoyaltyDeltaMilli(flight.ComfortScore) : 0);
+                // Gated on ScoreValid to match the comfort TIP: a cheated leg forfeits the comfort loyalty too.
+                + (a.Type.CarriesPassengers() && flight.Scored && flight.ScoreValid ? _cfg.ComfortLoyaltyDeltaMilli(flight.ComfortScore) : 0);
             client.LoyaltyMilli = Math.Clamp(loyaltyNow + loyaltyDelta, 0, EconomyConfig.LoyaltyMax);
             if (outcome.Grade == MissionGrade.Failed) client.JobsFailed++;
             else client.JobsCompleted++;
