@@ -34,6 +34,7 @@ public sealed class CallsignDbContext : DbContext
     public DbSet<Route> Routes => Set<Route>();
     public DbSet<AchievementAward> AchievementAwards => Set<AchievementAward>();
     public DbSet<CampaignProgress> CampaignProgress => Set<CampaignProgress>();
+    public DbSet<Client> Clients => Set<Client>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -137,6 +138,8 @@ public sealed class CallsignDbContext : DbContext
         job.Property(j => j.OriginIcao).IsRequired().HasMaxLength(12);
         job.Property(j => j.DestIcao).IsRequired().HasMaxLength(12);
         job.Property(j => j.Commodity).IsRequired().HasMaxLength(60);
+        job.Property(j => j.ClientKey).HasMaxLength(40);
+        job.Property(j => j.ClientName).HasMaxLength(80);
         job.HasIndex(j => new { j.OriginIcao, j.ExpiresAt });
 
         // --- Accepted jobs (frozen quote) and settled flights ---
@@ -147,6 +150,8 @@ public sealed class CallsignDbContext : DbContext
         assignment.Property(x => x.OriginIcao).IsRequired().HasMaxLength(12);
         assignment.Property(x => x.DestIcao).IsRequired().HasMaxLength(12);
         assignment.Property(x => x.Commodity).IsRequired().HasMaxLength(60);
+        assignment.Property(x => x.ClientKey).HasMaxLength(40);
+        assignment.Property(x => x.ClientName).HasMaxLength(80);
         assignment.HasIndex(x => x.AccountId);
         assignment.HasIndex(x => x.JobId);
 
@@ -216,6 +221,15 @@ public sealed class CallsignDbContext : DbContext
         pressure.Property(p => p.Good).IsRequired().HasMaxLength(40);
         pressure.HasIndex(p => new { p.CompanyId, p.Icao, p.Good }).IsUnique(); // one accumulator per market cell
         pressure.HasOne<Company>().WithMany().HasForeignKey(p => p.CompanyId).OnDelete(DeleteBehavior.Restrict);
+
+        // --- Clients (Phase 8d): named demand-side relationships with per-company loyalty ---
+        var client = model.Entity<Client>();
+        client.HasKey(c => c.Id);
+        client.Property(c => c.ClientKey).IsRequired().HasMaxLength(40);
+        client.Property(c => c.Name).IsRequired().HasMaxLength(80);
+        client.Property(c => c.HomeIcao).IsRequired().HasMaxLength(12);
+        client.HasIndex(c => new { c.CompanyId, c.ClientKey }).IsUnique(); // one loyalty row per client per company
+        client.HasOne<Company>().WithMany().HasForeignKey(c => c.CompanyId).OnDelete(DeleteBehavior.Restrict);
 
         // --- Pilot licence classes (Phase 3c) ---
         var qual = model.Entity<PilotQualification>();

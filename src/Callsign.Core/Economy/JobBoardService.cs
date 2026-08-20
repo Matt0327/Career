@@ -50,8 +50,12 @@ public sealed class JobBoardService
         // The macro economy (Phase 8c) swings what clients pay: a boom lifts every offer, a bust discounts it.
         // Frozen onto the job at posting, so accepting locks the rate in — settlement reads it unchanged.
         double demand = _world.EconomyPhaseAt(now).DemandMult;
-        foreach (var g in generated)
+        for (int i = 0; i < generated.Count; i++)
         {
+            var g = generated[i];
+            // Whose job this is (Phase 8d): a client drawn deterministically from the origin's roster, so the
+            // stable key maps back to their persisted loyalty when the leg settles.
+            var client = ClientRoster.Pick(originIcao, origin.Name, i);
             _db.Jobs.Add(new Job
             {
                 Id = Guid.NewGuid(),
@@ -65,6 +69,8 @@ public sealed class JobBoardService
                 RewardCents = (long)Math.Round(g.RewardCents * demand),
                 Xp = g.Xp,
                 RequiredRank = g.RequiredRank,
+                ClientKey = client.Key,
+                ClientName = client.Name,
                 GeneratedAt = now,
                 ExpiresAt = now.AddHours(_cfg.JobOfferHours),
                 LoadByAt = now.AddHours(_cfg.JobOfferHours),

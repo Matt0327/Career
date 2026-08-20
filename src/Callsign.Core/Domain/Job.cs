@@ -21,6 +21,11 @@ public sealed class Job
     public int Xp { get; set; }
     public PilotRank RequiredRank { get; set; }
 
+    /// <summary>The client offering this job (Phase 8d) — a stable per-company key + display name from the
+    /// origin's deterministic roster. Null on legacy/route-sourced jobs, which stay anonymous.</summary>
+    public string? ClientKey { get; set; }
+    public string? ClientName { get; set; }
+
     /// <summary>Non-null when the job came from a base route (Phase 4); null for freelance.</summary>
     public Guid? SourceRouteId { get; set; }
 

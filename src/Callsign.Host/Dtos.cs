@@ -16,7 +16,9 @@ public record JobDto(
     string RequiredRank, bool Locked, string? LockReason, DateTimeOffset ExpiresAt,
     // Geography + arrival detail — the map, bearing, and "can I land there / what will it cost" readouts.
     double OriginLat, double OriginLon, double DestLat, double DestLon,
-    string DestKind, int? DestLongestRunwayFt, long ExpectedLandingFeeCents);
+    string DestKind, int? DestLongestRunwayFt, long ExpectedLandingFeeCents,
+    // The client behind the offer (Phase 8d) + your standing with them and the repeat premium it earns.
+    string? ClientName, int ClientLoyaltyMilli, long ExpectedLoyaltyBonusCents);
 
 public record AssignmentDto(
     Guid Id, string Type, string Origin, string Dest, string DestName, string Commodity, int WeightLbs, int Pax,

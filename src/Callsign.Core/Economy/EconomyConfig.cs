@@ -297,6 +297,41 @@ public sealed record EconomyConfig
     /// mean, a boom this much more. Fixed costs (wages, rent, loans) don't move, so a bust squeezes margins.</summary>
     public double EconomyCycleAmplitude { get; init; } = 0.22;
 
+    // --- Client loyalty (Phase 8d): serve a client well and they pay you a repeat premium; burn them and they cool ---
+    public const int LoyaltyMax = 100_000;
+    /// <summary>Loyalty gained from a clean, full delivery (before the score kicker below).</summary>
+    public int ClientLoyaltyFullMilli { get; init; } = 2_500;
+    /// <summary>Loyalty lost when a delivery only partly succeeds (damaged freight, an unhappy ride).</summary>
+    public int ClientLoyaltyPartialMilli { get; init; } = -1_200;
+    /// <summary>Loyalty lost when a delivery fails outright — a burned client cools fast.</summary>
+    public int ClientLoyaltyFailedMilli { get; init; } = -6_000;
+    /// <summary>Below this loyalty a client pays no premium; above it the repeat premium ramps up.</summary>
+    public int ClientLoyaltyBonusThresholdMilli { get; init; } = 25_000;
+    /// <summary>The repeat premium a fully-loyal client pays on top of the earned base reward (fraction).</summary>
+    public double ClientLoyaltyBonusMaxPct { get; init; } = 0.12;
+
+    /// <summary>How much a delivery moves this client's loyalty. A full delivery builds it (a sharper flight
+    /// builds a little more); a partial dings it; a failure sours it hard. Manual/legacy legs (unscored) use
+    /// the flat full gain.</summary>
+    public int ClientLoyaltyDeltaMilli(MissionGrade grade, bool scored, int score) => grade switch
+    {
+        MissionGrade.Failed => ClientLoyaltyFailedMilli,
+        MissionGrade.Partial => ClientLoyaltyPartialMilli,
+        _ => scored
+            ? (int)Math.Round(ClientLoyaltyFullMilli * (0.6 + 0.4 * Math.Clamp(score, 0, 100) / 100.0))
+            : ClientLoyaltyFullMilli,
+    };
+
+    /// <summary>The repeat premium (fraction of the earned base) a client at <paramref name="loyaltyMilli"/>
+    /// pays — 0 below the threshold, ramping linearly to <see cref="ClientLoyaltyBonusMaxPct"/> at full loyalty.</summary>
+    public double ClientLoyaltyBonusPct(int loyaltyMilli)
+    {
+        if (loyaltyMilli <= ClientLoyaltyBonusThresholdMilli) return 0;
+        double span = Math.Max(1, LoyaltyMax - ClientLoyaltyBonusThresholdMilli);
+        double t = Math.Min(1.0, (loyaltyMilli - ClientLoyaltyBonusThresholdMilli) / span);
+        return t * ClientLoyaltyBonusMaxPct;
+    }
+
     // --- Trade (Phase 2g): buy low here, sell high there ---
     /// <summary>How far a good's price swings above/below its catalog base across airports (±fraction).</summary>
     public double TradePriceSwing { get; init; } = 0.35;

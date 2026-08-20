@@ -54,6 +54,30 @@ public sealed class SettlementService
             ? 0
             : (long)Math.Round((decimal)grossBase * outcome.QualityMilli / 100_000m, MidpointRounding.AwayFromZero);
 
+        // Client relationship (Phase 8d): this job came from a named client whose loyalty we've been building.
+        // Load their row (or start one), and read loyalty as it stands BEFORE this delivery — a loyal client
+        // pays a repeat premium NOW for the trust already earned. The delivery then moves the bond (further below).
+        Client? client = null;
+        if (a.ClientKey is { } clientKey)
+        {
+            client = await _db.Clients.FirstOrDefaultAsync(c => c.CompanyId == a.AccountId && c.ClientKey == clientKey, ct);
+            if (client is null)
+            {
+                client = new Client
+                {
+                    Id = Guid.NewGuid(), CompanyId = a.AccountId, ClientKey = clientKey,
+                    Name = a.ClientName ?? clientKey, HomeIcao = a.OriginIcao,
+                    LoyaltyMilli = 0, FirstSeenAt = now, UpdatedAt = now,
+                };
+                _db.Clients.Add(client);
+            }
+        }
+        // The premium rides on the EARNED base (a failed/partial delivery earns a smaller tip too), computed
+        // from pre-delivery loyalty so it rewards the history, not this leg.
+        long loyaltyBonus = client is not null && baseCents > 0
+            ? (long)Math.Round(baseCents * (decimal)_cfg.ClientLoyaltyBonusPct(client.LoyaltyMilli), MidpointRounding.AwayFromZero)
+            : 0;
+
         // The landing lever (Phase 7c): a tracker-flown leg is graded on its whole-flight score — landing
         // ∧ approach ∧ enroute — and a cheated flight forfeits any bonus. A manual/legacy record (no
         // telemetry assessment) falls back to the raw touchdown rate, so those paths settle unchanged.
@@ -105,6 +129,15 @@ public sealed class SettlementService
             lines.Add(new($"Landing penalty ({landingQualifier})", landingDelta));
         }
 
+        // A loyal client pays a repeat premium on top of the reward (Phase 8d) — the demand-side reward for a
+        // relationship you've kept. Never negative, so you always still get at least the quoted base.
+        if (loyaltyBonus > 0)
+        {
+            postings.Add(new(LedgerCategory.JobBonus, loyaltyBonus / 100m, $"Loyal client bonus — {client!.Name}",
+                LedgerRefType.Job, jobRef, DedupeKey: $"settle:{a.Id}:loyalty"));
+            lines.Add(new($"Loyal client bonus ({client!.Name})", loyaltyBonus));
+        }
+
         // Landing/handling fee at the destination — a running cost, itemised like everything else.
         // Waived if you own a base there.
         var destAirport = await _db.Airports.FirstOrDefaultAsync(x => x.Ident == a.DestIcao, ct);
@@ -142,7 +175,7 @@ public sealed class SettlementService
             lines.Add(new(farmRate ? $"Fuel ({flight.FuelUsedLbs:F0} lb, farm rate)" : $"Fuel ({flight.FuelUsedLbs:F0} lb)", -fuelCost));
         }
 
-        long total = baseCents + landingDelta - landingFee - fuelCost;
+        long total = baseCents + landingDelta + loyaltyBonus - landingFee - fuelCost;
         var breakdown = new PayoutBreakdown(total, lines);
 
         // Stage the ledger rows + cash delta (not saved), then commit them together with the Flight
@@ -223,6 +256,19 @@ public sealed class SettlementService
                     Reason = $"{a.Type} delivery to {a.DestIcao}", At = now,
                 });
             }
+        }
+
+        // Move the client bond (Phase 8d): a clean delivery builds loyalty (a sharper flight a little more), a
+        // partial dings it, a failure sours it. Applied once, in this same transaction, after the premium above
+        // has already been paid from the pre-delivery loyalty.
+        if (client is not null)
+        {
+            int loyaltyDelta = _cfg.ClientLoyaltyDeltaMilli(outcome.Grade, flight.Scored, flight.Scored ? flight.OverallScore : 0);
+            client.LoyaltyMilli = Math.Clamp(client.LoyaltyMilli + loyaltyDelta, 0, EconomyConfig.LoyaltyMax);
+            if (outcome.Grade == MissionGrade.Failed) client.JobsFailed++;
+            else client.JobsCompleted++;
+            client.LastJobAt = now;
+            client.UpdatedAt = now;
         }
 
         pilot.CurrentIcao = a.DestIcao; // the pilot ends the leg at the destination — the loop moves along

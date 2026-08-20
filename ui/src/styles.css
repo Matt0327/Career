@@ -623,6 +623,13 @@ input { font: inherit; }
 .jrow.on{background:var(--accent-dim)}
 .jrow.locked{opacity:.5}
 .jrow-type{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:8px;vertical-align:middle}
+/* Phase 8d — the client behind a job offer, shown on the board */
+.jrow-client{font-size:11.5px;color:var(--muted);margin:2px 0 0 16px;line-height:1.2}
+.loyal-star{color:#e0b23c}
+.jrow-bonus{font-size:11px;color:var(--pos);font-weight:600;opacity:.9}
+.jd-client{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;margin-top:-4px}
+.loyal-tag{font-size:11px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.loyal-tag.on{color:#e0b23c;border-color:color-mix(in srgb,#e0b23c 40%,var(--line));background:color-mix(in srgb,#e0b23c 10%,transparent)}
 .jobs-side{display:flex;flex-direction:column;gap:14px}
 .jdetail{display:flex;flex-direction:column;gap:12px}
 .jd-dest{font-size:14px;font-weight:600;margin-top:-2px}

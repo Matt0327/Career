@@ -391,6 +391,12 @@ public static class CallsignWebApp
             var icao = string.IsNullOrWhiteSpace(origin) ? pilot.CurrentIcao : origin!;
             var jobs = await board.GetAvailableAsync(icao);
             var ports = await AirportsByIdentAsync(db, jobs.SelectMany(j => new[] { j.OriginIcao, j.DestIcao }));
+            // Your standing with the clients behind these offers (Phase 8d) — so the board can show the repeat
+            // premium a loyal client will pay, turning "whose job to fly" into a real choice.
+            var clientKeys = jobs.Where(j => j.ClientKey != null).Select(j => j.ClientKey!).Distinct().ToList();
+            var loyalty = await db.Clients
+                .Where(c => c.CompanyId == pilot.CompanyId && clientKeys.Contains(c.ClientKey))
+                .ToDictionaryAsync(c => c.ClientKey, c => c.LoyaltyMilli);
             return Results.Ok(jobs.Select(j =>
             {
                 // Shown on the board, but locked with the reason (rank — 3b, or reputation — 3e/3f).
@@ -404,11 +410,14 @@ public static class CallsignWebApp
                 ports.TryGetValue(j.OriginIcao, out var o);
                 ports.TryGetValue(j.DestIcao, out var d);
                 var kind = d?.Kind ?? AirportKind.Unknown;
+                int clientLoyalty = j.ClientKey != null && loyalty.TryGetValue(j.ClientKey, out var lm) ? lm : 0;
+                long expBonus = (long)Math.Round(j.RewardCents * (decimal)cfg.ClientLoyaltyBonusPct(clientLoyalty));
                 return new JobDto(j.Id, j.Type.ToString(), j.OriginIcao, j.DestIcao,
                     d?.Name ?? j.DestIcao, j.Commodity, j.WeightLbs, j.Pax, j.DistanceNm,
                     j.RewardCents, j.Xp, reqName, rankLocked || repLocked, reason, j.ExpiresAt,
                     o?.Latitude ?? 0, o?.Longitude ?? 0, d?.Latitude ?? 0, d?.Longitude ?? 0,
-                    kind.ToString(), d?.LongestRunwayFt, cfg.LandingFeeCents(kind));
+                    kind.ToString(), d?.LongestRunwayFt, cfg.LandingFeeCents(kind),
+                    j.ClientName, clientLoyalty, expBonus);
             }));
         });
 

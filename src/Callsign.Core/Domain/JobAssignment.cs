@@ -32,6 +32,11 @@ public sealed class JobAssignment
     public long RewardQuoteCents { get; set; }
     public int XpQuote { get; set; }
 
+    /// <summary>The client this job was offered by (Phase 8d), frozen at accept so settlement credits the
+    /// same relationship even if the board has since regenerated. Null for anonymous/legacy jobs.</summary>
+    public string? ClientKey { get; set; }
+    public string? ClientName { get; set; }
+
     public AssignmentStatus Status { get; set; }
     public DateTimeOffset AcceptedAt { get; set; }
     public DateTimeOffset? SettledAt { get; set; }

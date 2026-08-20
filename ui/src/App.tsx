@@ -1090,10 +1090,13 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
                         const m = missionMeta(j.type)
                         return (
                           <tr key={j.id} className={`jrow ${selected === j.id ? 'on' : ''} ${j.locked ? 'locked' : ''}`} onClick={() => setSelected(j.id)}>
-                            <td><span className="jrow-type" style={{ background: m.color }} title={m.label} /><span className="loc">{j.dest}</span> <span className="muted">{j.destName}</span></td>
+                            <td>
+                              <span className="jrow-type" style={{ background: m.color }} title={m.label} /><span className="loc">{j.dest}</span> <span className="muted">{j.destName}</span>
+                              {j.clientName && <div className="jrow-client">{j.clientName}{j.clientLoyaltyMilli >= 25000 && <span className="loyal-star" title={`Loyal client · ${Math.round(j.clientLoyaltyMilli / 1000)}%`}> ★</span>}</div>}
+                            </td>
                             <td className="r num">{Math.round(j.distanceNm)}</td>
                             <td className="r num">{isPaxType(j.type) ? `${j.pax}p` : `${(j.weightLbs / 1000).toFixed(1)}k`}</td>
-                            <td className="r num pos">{money(j.rewardCents)}</td>
+                            <td className="r num pos">{money(j.rewardCents)}{j.expectedLoyaltyBonusCents > 0 && <span className="jrow-bonus" title="Loyal client repeat premium"> +{money(j.expectedLoyaltyBonusCents)}</span>}</td>
                             <td className="r num">+{j.xp}</td>
                           </tr>
                         )
@@ -1113,11 +1116,22 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
 }
 
 // The full briefing for one job — objective, geography, arrival detail, and the net after the landing fee.
+// Your standing with a client (Phase 8d), tiered off loyalty milli. 25% is the premium threshold — below it
+// a client is still "New" and pays no repeat bonus.
+function loyaltyTier(milli: number): { label: string; on: boolean } {
+  const pct = milli / 1000
+  if (pct >= 80) return { label: 'Preferred', on: true }
+  if (pct >= 50) return { label: 'Loyal', on: true }
+  if (pct >= 25) return { label: 'Regular', on: true }
+  return { label: 'New client', on: false }
+}
+
 function JobDetail({ job, busy, onAccept }: { job: Job; busy: boolean; onAccept: (id: string) => void }) {
   const m = missionMeta(job.type)
   const geo = (job.originLat || job.originLon) && (job.destLat || job.destLon)
   const hdg = geo ? Math.round(bearing([job.originLat, job.originLon], [job.destLat, job.destLon])) : null
-  const net = job.rewardCents - job.expectedLandingFeeCents
+  const tier = loyaltyTier(job.clientLoyaltyMilli)
+  const net = job.rewardCents + job.expectedLoyaltyBonusCents - job.expectedLandingFeeCents
   return (
     <div className="card jdetail">
       <div className="mission-head">
@@ -1128,6 +1142,10 @@ function JobDetail({ job, busy, onAccept }: { job: Job; busy: boolean; onAccept:
         </div>
       </div>
       <div className="jd-dest">{job.destName} <span className="muted">· {spaced(job.destKind).replace(' Airport', '')}</span></div>
+      {job.clientName && <div className="jd-client">
+        <span className="muted">Client</span> <b>{job.clientName}</b>
+        <span className={`loyal-tag${tier.on ? ' on' : ''}`} title={`Loyalty ${Math.round(job.clientLoyaltyMilli / 1000)}%`}>{tier.label}{tier.on ? ` · ${Math.round(job.clientLoyaltyMilli / 1000)}%` : ''}</span>
+      </div>}
       <p className="jd-obj">{isPaxType(job.type) ? `Carry ${job.pax} ${job.pax === 1 ? 'passenger' : 'passengers'}` : `Haul ${job.weightLbs.toLocaleString()} lb of ${job.commodity.toLowerCase()}`} to {job.dest}.</p>
       <div className="jd-grid">
         <div><span className="metalabel">Distance</span><span className="num">{Math.round(job.distanceNm)} nm</span></div>
@@ -1139,6 +1157,7 @@ function JobDetail({ job, busy, onAccept }: { job: Job; busy: boolean; onAccept:
       </div>
       <div className="jd-pay">
         <div className="jd-payrow"><span>Reward</span><span className="num pos">{money(job.rewardCents)}</span></div>
+        {job.expectedLoyaltyBonusCents > 0 && <div className="jd-payrow"><span className="muted">Loyal client bonus</span><span className="num pos">+{money(job.expectedLoyaltyBonusCents)}</span></div>}
         <div className="jd-payrow"><span className="muted">Est. landing fee</span><span className="num neg">-{money(job.expectedLandingFeeCents)}</span></div>
         <div className="jd-payrow jd-net"><span>Net</span><span className="num">{money(net)}</span></div>
       </div>

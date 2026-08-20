@@ -53,6 +53,8 @@ public sealed class JobAssignmentService
             DistanceNm = job.DistanceNm,
             RewardQuoteCents = job.RewardCents, // FREEZE the quote
             XpQuote = job.Xp,
+            ClientKey = job.ClientKey,   // FREEZE the client (Phase 8d) — settlement credits this relationship
+            ClientName = job.ClientName,
             Status = AssignmentStatus.Accepted,
             AcceptedAt = now,
             DeadlineAt = _cfg.MissionDeadline(job.Type, job.DistanceNm, now), // FREEZE the clock (Express/Emergency)

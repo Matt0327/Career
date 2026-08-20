@@ -48,6 +48,9 @@ export interface Job {
   destKind: string
   destLongestRunwayFt: number | null
   expectedLandingFeeCents: number
+  clientName?: string | null
+  clientLoyaltyMilli: number // your standing with this client, 0..100000 (Phase 8d)
+  expectedLoyaltyBonusCents: number // the repeat premium they'd pay on this job at current loyalty
 }
 
 export interface Assignment {
