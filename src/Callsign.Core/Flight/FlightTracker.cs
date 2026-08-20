@@ -83,8 +83,9 @@ public sealed class FlightTracker
     private bool _bankCoached, _gCoached; // Phase 9 (L9): fire the friendly nudge at most once each
     private bool _scoreValid = true; // flight-integrity monitoring (Phase 7c anti-cheat)
     // Phase 9e — engine damage from the sim's own model: baseline at first sight, monotonic max; the leg's
-    // accrued damage (max − baseline) is priced into engine wear at settlement.
-    private double _engDmgBaseline = -1, _engDmgMax;
+    // accrued damage (max − baseline) is priced into engine wear at settlement. _engDmgPrev holds the previous
+    // raw reading so a rise must be confirmed across two samples before it bills (single-frame spike guard).
+    private double _engDmgBaseline = -1, _engDmgMax, _engDmgPrev;
     private bool _engStressCoached;
 
     public FlightPhase Phase { get; private set; } = FlightPhase.Parked;
@@ -119,9 +120,20 @@ public sealed class FlightTracker
         if (dmg < 0)
             return; // a garbage reading — ignore it rather than baselining on it
         if (_engDmgBaseline < 0)
-            _engDmgBaseline = dmg;
-        if (dmg > _engDmgMax)
-            _engDmgMax = dmg;
+        {
+            _engDmgBaseline = _engDmgMax = _engDmgPrev = dmg; // first sight
+        }
+        else
+        {
+            // Confirm a rise before it bills: a lone spike frame is min'd away by its lower neighbour, so a
+            // single bogus 100% sample can't wear the engine to an overhaul — only damage that PERSISTS across
+            // two samples counts (L9: sustained, not a blip). Real cumulative damage is monotonic, so this
+            // never discards genuine wear; a sim "repair" that lowers the reading is ignored (max stays sticky).
+            double confirmed = Math.Min(dmg, _engDmgPrev);
+            if (confirmed > _engDmgMax)
+                _engDmgMax = confirmed;
+            _engDmgPrev = dmg;
+        }
         if (_engDmgMax - _engDmgBaseline >= EngStressDeadbandPct && !_engStressCoached)
         {
             _engStressCoached = true;

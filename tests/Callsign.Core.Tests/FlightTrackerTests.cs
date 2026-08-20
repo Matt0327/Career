@@ -302,6 +302,23 @@ public class FlightTrackerTests
     }
 
     [Fact]
+    public void EngineAbuse_LoneSpikeFrame_IsFilteredOut_NeverDestroysTheEngine()
+    {
+        // A single bogus 100% damage frame between sane readings must NOT wear the engine (two-frame confirm):
+        // real cumulative damage persists, a glitch doesn't. Guards against "one bad sample = full overhaul".
+        var t = new FlightTracker();
+        t.Observe(Snap(0, 0, 0, 0, onGround: true, engDmg: 0));            // baseline 0
+        t.Observe(Snap(10, 50, 70, 500, onGround: false, engDmg: 0));      // liftoff
+        t.Observe(Snap(300, 9000, 150, 0, onGround: false, engDmg: 100));  // ONE garbage spike
+        t.Observe(Snap(310, 9000, 150, 0, onGround: false, engDmg: 0));    // back to sane
+        t.Observe(Snap(600, 30, 60, -120, onGround: false, engDmg: 0));    // final
+        t.Observe(Snap(601, 0, 55, 0, onGround: true, engDmg: 0));         // touchdown
+        t.Observe(Snap(660, 0, 0, 0, onGround: true, engDmg: 0));          // shutdown → Complete()
+        Assert.Equal(0.0, t.Result!.EngineDamagePctAccrued);
+        Assert.DoesNotContain(t.Events, e => e.Message.Contains("Engine stress"));
+    }
+
+    [Fact]
     public void LandingGrade_UsesWorstOfLastThree_NotACherryPickedSoftFrame()
     {
         var t = new FlightTracker();
