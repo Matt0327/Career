@@ -1055,7 +1055,7 @@ public static class CallsignWebApp
         });
 
         // --- World calendar (Phase 8): the date, season and how long the company has been operating ---
-        app.MapGet("/api/world", async (CallsignDbContext db, IClock clock) =>
+        app.MapGet("/api/world", async (CallsignDbContext db, Callsign.Core.World.WorldOracle world, IClock clock) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
@@ -1063,10 +1063,12 @@ public static class CallsignWebApp
             var now = clock.UtcNow;
             var founded = await db.LedgerEntries.Where(e => e.AccountId == pilot.CompanyId)
                 .MinAsync(e => (DateTimeOffset?)e.At) ?? now; // the first posting (starting balance) marks the career start
+            var econ = world.EconomyPhaseAt(now);
             return Results.Ok(new WorldStateDto(
                 now.UtcDateTime.ToString("yyyy-MM-dd"), now.UtcDateTime.DayOfWeek.ToString(),
                 Callsign.Core.World.GameCalendar.Season(now, airport?.Latitude ?? 0),
-                Callsign.Core.World.GameCalendar.CareerDays(founded, now)));
+                Callsign.Core.World.GameCalendar.CareerDays(founded, now),
+                econ.Label, (int)Math.Round((econ.DemandMult - 1) * 100)));
         });
 
         // --- Weather (Phase 8): the synthetic world model at a field (current airport, or ?icao=) ---

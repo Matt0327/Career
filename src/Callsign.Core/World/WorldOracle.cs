@@ -6,6 +6,10 @@ namespace Callsign.Core.World;
 public sealed record Weather(
     int WindDirDeg, int WindKts, int GustKts, double VisibilitySm, int CeilingFt, int TempC, string Condition, string Summary);
 
+/// <summary>Where the macro economy sits (Phase 8c): a demand multiplier on what clients pay for work, and a
+/// human label for the phase of the boom↔bust cycle.</summary>
+public sealed record EconomyPhase(double DemandMult, string Label);
+
 /// <summary>
 /// The world oracle (Phase 8): what the world is like at a place and time, as a deterministic PURE FUNCTION of
 /// (coordinates, instant) — no stored state, computed from a stable hash exactly like <see cref="MarketService"/>
@@ -61,6 +65,19 @@ public sealed class WorldOracle
         visSm = Math.Round(visSm, 1);
         string summary = $"{cond} · {windKts} kt @ {windDir:000}° · {visSm:0.#} sm · {tempC}°C";
         return new Weather(windDir, windKts, gustKts, visSm, ceilFt, tempC, cond, summary);
+    }
+
+    /// <summary>The macro economy at a moment (Phase 8c): a slow sine boom↔bust, deterministic in the instant.
+    /// The level (sine) sets how much clients pay; the trend (cosine) separates recovery from a downturn.</summary>
+    public EconomyPhase EconomyPhaseAt(DateTimeOffset instant)
+    {
+        long period = Math.Max(1, _cfg.EconomyCyclePeriod.Ticks);
+        double frac = (instant.UtcTicks % period) / (double)period;   // [0,1) through the cycle — bounded, precise
+        double theta = 2 * Math.PI * frac;
+        double level = Math.Sin(theta), trend = Math.Cos(theta);
+        double mult = 1 + level * _cfg.EconomyCycleAmplitude;
+        string label = level > 0.5 ? "Boom" : level < -0.5 ? "Bust" : trend >= 0 ? "Recovery" : "Slowing";
+        return new EconomyPhase(mult, label);
     }
 
     // FNV-1a with a murmur3 fmix finalizer — the same stable, well-avalanching hash the market uses.

@@ -290,6 +290,13 @@ public sealed record EconomyConfig
     /// <summary>Fatness of the wind tail — higher means calm most days with rarer, stronger blows.</summary>
     public double WeatherWindTailExp { get; init; } = 2.4;
 
+    // --- Economy cycle (Phase 8c): a slow boom↔bust that swings what clients pay for work ---
+    /// <summary>How long one full boom→bust→recovery cycle takes (real wall-clock, the pace the calendar runs).</summary>
+    public TimeSpan EconomyCyclePeriod { get; init; } = TimeSpan.FromDays(45);
+    /// <summary>How far job rewards swing across the cycle (±fraction) — a bust pays this much less than the
+    /// mean, a boom this much more. Fixed costs (wages, rent, loans) don't move, so a bust squeezes margins.</summary>
+    public double EconomyCycleAmplitude { get; init; } = 0.22;
+
     // --- Trade (Phase 2g): buy low here, sell high there ---
     /// <summary>How far a good's price swings above/below its catalog base across airports (±fraction).</summary>
     public double TradePriceSwing { get; init; } = 0.35;

@@ -128,6 +128,9 @@ input { font: inherit; }
 .ctx .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pos); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pos) 18%, transparent); }
 .ctx .chip.wx { cursor: help; }
 .ctx .chip.wx.rough { color: #d99a1c; border-color: color-mix(in srgb, #d99a1c 40%, var(--line)); } /* Phase 8 — weather worth noting before you launch */
+.ctx .chip.econ { cursor: help; } /* Phase 8c — where the macro economy sits, and what it's doing to job pay */
+.ctx .chip.econ.up { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 40%, var(--line)); }
+.ctx .chip.econ.down { color: #d99a1c; border-color: color-mix(in srgb, #d99a1c 40%, var(--line)); }
 
 .main { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 22px 24px; max-width: 1200px; width: 100%; margin: 0 auto; }
 .grid { display: grid; gap: 16px; }

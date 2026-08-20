@@ -3,6 +3,7 @@ using Callsign.Core.Data;
 using Callsign.Core.Domain;
 using Callsign.Core.Economy;
 using Callsign.Core.Time;
+using Callsign.Core.World;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
@@ -29,7 +30,8 @@ public class JobBoardServiceTests
     }
 
     private static JobBoardService Board(CallsignDbContext db, IClock clock)
-        => new(db, new AirportRepository(db), new CargoJobSource(EconomyConfig.Default), clock, EconomyConfig.Default);
+        => new(db, new AirportRepository(db), new CargoJobSource(EconomyConfig.Default), clock, EconomyConfig.Default,
+               new WorldOracle(EconomyConfig.Default));
 
     [Fact]
     public async Task Refresh_GeneratesNearbyCargoJobs_AndPersists()
@@ -59,7 +61,10 @@ public class JobBoardServiceTests
                 Assert.True(j.WeightLbs is >= 200 and <= 3000);
                 Assert.InRange(j.DistanceNm, 20, 400);
                 Assert.True(j.ExpiresAt > clock.UtcNow);
-                Assert.Equal(EconomyConfig.Default.CargoRewardCents(j.DistanceNm, j.WeightLbs), j.RewardCents);
+                // Reward = base rate × the macro-economy demand multiplier frozen at posting (Phase 8c).
+                double demand = new WorldOracle(EconomyConfig.Default).EconomyPhaseAt(clock.UtcNow).DemandMult;
+                long expected = (long)Math.Round(EconomyConfig.Default.CargoRewardCents(j.DistanceNm, j.WeightLbs) * demand);
+                Assert.Equal(expected, j.RewardCents);
             });
         }
     }

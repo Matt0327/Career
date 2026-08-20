@@ -72,4 +72,52 @@ public class WorldOracleTests
             if (w.Condition == "Rain") Assert.True(w.TempC > 0);
         }
     }
+
+    // ── economy cycle (Phase 8c) ──────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void EconomyPhaseAt_IsDeterministic()
+    {
+        Assert.Equal(Oracle.EconomyPhaseAt(T), Oracle.EconomyPhaseAt(T)); // pure function of the instant
+    }
+
+    [Fact]
+    public void EconomyPhaseAt_MultiplierStaysWithinAmplitude()
+    {
+        var cfg = EconomyConfig.Default;
+        // Sweep a whole cycle in fine steps; the demand multiplier must never leave [1-amp, 1+amp].
+        long step = cfg.EconomyCyclePeriod.Ticks / 500;
+        for (int i = 0; i < 1000; i++)
+        {
+            double m = Oracle.EconomyPhaseAt(T.AddTicks(step * i)).DemandMult;
+            Assert.InRange(m, 1 - cfg.EconomyCycleAmplitude - 1e-9, 1 + cfg.EconomyCycleAmplitude + 1e-9);
+        }
+    }
+
+    [Fact]
+    public void EconomyPhaseAt_OscillatesAboveAndBelowPar_OverACycle()
+    {
+        var cfg = EconomyConfig.Default;
+        double min = double.MaxValue, max = double.MinValue;
+        long step = cfg.EconomyCyclePeriod.Ticks / 200;
+        for (int i = 0; i < 200; i++)
+        {
+            double m = Oracle.EconomyPhaseAt(T.AddTicks(step * i)).DemandMult;
+            min = Math.Min(min, m); max = Math.Max(max, m);
+        }
+        Assert.True(max > 1.05, "a boom lifts pay well above par");
+        Assert.True(min < 0.95, "a bust cuts pay well below par");
+    }
+
+    [Fact]
+    public void EconomyPhaseAt_LabelsAreTheFourKnownPhases()
+    {
+        var cfg = EconomyConfig.Default;
+        var labels = new HashSet<string>();
+        long step = cfg.EconomyCyclePeriod.Ticks / 400;
+        for (int i = 0; i < 400; i++)
+            labels.Add(Oracle.EconomyPhaseAt(T.AddTicks(step * i)).Label);
+        Assert.Subset(new HashSet<string> { "Boom", "Bust", "Recovery", "Slowing" }, labels);
+        Assert.True(labels.Count >= 3, "a full cycle passes through several phases");
+    }
 }

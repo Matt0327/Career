@@ -601,6 +601,8 @@ export interface WorldState {
   dayOfWeek: string
   season: string // Spring | Summer | Autumn | Winter (hemisphere-correct)
   careerDays: number // whole days the company has operated
+  economyLabel: string // Boom | Bust | Recovery | Slowing (the macro cycle, Phase 8c)
+  economyRewardPct: number // signed % the cycle adds to fresh job pay (e.g. +12, -8)
 }
 
 export interface Weather {

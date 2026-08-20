@@ -2,6 +2,7 @@ using Callsign.Core.Airports;
 using Callsign.Core.Data;
 using Callsign.Core.Domain;
 using Callsign.Core.Time;
+using Callsign.Core.World;
 using Microsoft.EntityFrameworkCore;
 
 namespace Callsign.Core.Economy;
@@ -17,15 +18,17 @@ public sealed class JobBoardService
     private readonly IJobSource _source;
     private readonly IClock _clock;
     private readonly EconomyConfig _cfg;
+    private readonly WorldOracle _world;
 
     public JobBoardService(
-        CallsignDbContext db, AirportRepository airports, IJobSource source, IClock clock, EconomyConfig cfg)
+        CallsignDbContext db, AirportRepository airports, IJobSource source, IClock clock, EconomyConfig cfg, WorldOracle world)
     {
         _db = db;
         _airports = airports;
         _source = source;
         _clock = clock;
         _cfg = cfg;
+        _world = world;
     }
 
     /// <summary>Regenerate the board at <paramref name="originIcao"/>; returns how many jobs were posted.</summary>
@@ -44,6 +47,9 @@ public sealed class JobBoardService
             .ToList();
 
         var generated = _source.Generate(new JobGenerationRequest(originIcao, candidates, rank, count, seed));
+        // The macro economy (Phase 8c) swings what clients pay: a boom lifts every offer, a bust discounts it.
+        // Frozen onto the job at posting, so accepting locks the rate in — settlement reads it unchanged.
+        double demand = _world.EconomyPhaseAt(now).DemandMult;
         foreach (var g in generated)
         {
             _db.Jobs.Add(new Job
@@ -56,7 +62,7 @@ public sealed class JobBoardService
                 WeightLbs = g.WeightLbs,
                 Pax = g.Pax,
                 DistanceNm = g.DistanceNm,
-                RewardCents = g.RewardCents,
+                RewardCents = (long)Math.Round(g.RewardCents * demand),
                 Xp = g.Xp,
                 RequiredRank = g.RequiredRank,
                 GeneratedAt = now,

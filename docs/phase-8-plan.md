@@ -62,6 +62,8 @@ The `GameClock` made legible: a world date, day-of-week, and season shown across
 ### 3c. Economy cycles
 A slow macro oscillation (boom → peak → bust → recovery) over the world clock — the *macro* layer above 7g's *micro* market pressure. In a boom the job board is fuller and rewards richer; in a bust it thins and margins compress (but your fixed costs — wages, rent, loans — don't, which is where a bust bites). Deterministic from the clock (L6), config-tunable amplitude/period, and it multiplies the reward/availability the job board and market already compute — no new settlement path.
 
+**Delivered (v1):** `WorldOracle.EconomyPhaseAt(instant)` — a pure sine cycle (`EconomyCyclePeriod` 45 d, `EconomyCycleAmplitude` 0.22 → demand ∈ [0.78, 1.22]) returning `(DemandMult, Label)` where the label is Boom / Bust / Recovery / Slowing (level from `sin`, trend from `cos`). `JobBoardService.RefreshAsync` multiplies every generated offer's reward by `DemandMult` **once, at posting**, then freezes it onto the `Job` (accept re-freezes the quote; settlement pays it — no recompute). Both cargo and passenger sources ride the cycle uniformly. `/api/world` surfaces `EconomyLabel` + `EconomyRewardPct`; the context header shows a Boom/Bust chip with the signed % vs par. Availability-tie-in and market-demand tie-in deferred to 8f. Fuel-price tie-in stays deferred (§5).
+
 ### 3d. Client relationships
 Jobs stop being anonymous. A **client** (persisted — this is a player-relationship, the L6 exception) accumulates loyalty from the jobs you complete well and sours from failures/late deliveries. A loyal client sends repeat, better-paying, exclusive offers; a burned one stops calling. This is the *demand-side* mirror of the crew relationship 7f built (a green hire appreciates) — a client you serve well appreciates. Threads through the job board (whose offers) and reputation (already built).
 
@@ -79,7 +81,7 @@ Critical path **8a → 8b → 8c**; clients (8d) and certificate (8e) are branch
 
 - **8a — Weather substrate + scored-leg difficulty (the pivot).** The `WorldOracle.WeatherAt`, the synthetic model, the added telemetry fields, and the scoring difficulty multiplier. This is the biggest single lift and everything else is lighter once the oracle exists. Ship the synthetic model first (planning/forecast), wire the sim-read for scoring second.
 - **8b — `GameClock` + calendar surface.** Persist the world epoch, expose date/season. Small, unblocks 8c/8e.
-- **8c — Economy cycles.** A pure multiplier off the clock into the job board + market. Small once 8b exists.
+- **8c — Economy cycles. ✅ shipped.** A pure multiplier off the clock into the job board (both sources), frozen at posting. Market-demand + availability tie-ins moved to 8f. Small once 8b exists.
 - **8d — Client relationships.** The persisted client + loyalty + repeat offers. Medium; independent of weather.
 - **8e — Operating certificate.** The gate + renewal. Medium; independent of weather.
 - **8f — Weather → autonomous reconcile (holds/scrubs) + weather → market demand.** The remaining weather consumers, once 8a's oracle is proven.
