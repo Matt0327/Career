@@ -125,7 +125,16 @@ internal sealed class LauncherForm : Form
             return;
         }
         PostStatus("downloading", "Installing update — Callsign will relaunch…", -1, "Updating…");
-        try { mgr.ApplyUpdatesAndRestart(update); } // exits and relaunches into the new version
+        try
+        {
+            // Apply SILENTLY: ApplyUpdatesAndRestart pops Velopack's own native "Installing update…" progress
+            // window on top of our branded launcher — the whole update belongs in the launcher only. The
+            // lower-level call with silent:true swaps the files with no UI; its helper waits for THIS process to
+            // exit first (it can't replace running files), so we exit ourselves exactly as
+            // ApplyUpdatesAndRestart would, and it relaunches into the new version.
+            mgr.WaitExitThenApplyUpdates(update.TargetFullRelease, silent: true, restart: true);
+            Environment.Exit(0);
+        }
         catch { PostStatus("error", "Couldn't install the update — starting the current version.", null, "Play"); }
     }
 
