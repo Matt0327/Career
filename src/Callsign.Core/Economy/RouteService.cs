@@ -55,6 +55,9 @@ public sealed class RouteService
                        ?? throw new InvalidOperationException("Aircraft not found in your fleet.");
         if (aircraft.Availability != AircraftAvailability.Available)
             throw new InvalidOperationException("That aircraft isn't available.");
+        // Only an OWNED tail can fly a scheduled route (Phase 9f): a rental/lease is hand-fly-only.
+        if (aircraft.Ownership != OwnershipKind.Owned)
+            throw new InvalidOperationException("Only an aircraft you own can fly a route — a rental is hand-fly-only.");
         var staff = await _db.Staff.FirstOrDefaultAsync(s => s.Id == staffId && s.CompanyId == companyId && s.IsActive, ct)
                     ?? throw new InvalidOperationException("Pilot not found.");
         // One pilot flies one line, so the per-line FTL duty cap equals the crew's real daily limit (Phase 7f).

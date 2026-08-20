@@ -38,6 +38,7 @@ public sealed class InsuranceService
     {
         var inst = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == aircraftInstanceId && a.CompanyId == companyId && !a.IsDeleted, ct);
         if (inst is null) return null;
+        if (inst.Ownership != OwnershipKind.Owned) return null; // no insurable interest in a tail you don't own (Phase 9f)
         var type = await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == inst.TypeId, ct);
         if (type is null) return null;
         long hull = AircraftPricing.Quote(_cfg, type).TotalCents;
@@ -51,6 +52,10 @@ public sealed class InsuranceService
     {
         var inst = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == aircraftInstanceId && a.CompanyId == companyId && !a.IsDeleted, ct)
                    ?? throw new InvalidOperationException("Aircraft not found in your fleet.");
+        // No insurable interest in a tail you don't own (Phase 9f): a rental/lease hull is the owner's risk —
+        // a lease's hull cover rides its own weekly line instead.
+        if (inst.Ownership != OwnershipKind.Owned)
+            throw new InvalidOperationException("You can only insure an aircraft you own.");
         if (await _db.InsurancePolicies.AnyAsync(p => p.AircraftInstanceId == aircraftInstanceId && p.Active && !p.IsDeleted, ct))
             throw new InvalidOperationException("That aircraft is already insured.");
         var type = await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == inst.TypeId, ct)

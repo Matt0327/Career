@@ -525,5 +525,23 @@ public sealed record EconomyConfig
     public long InsuranceDeductibleCents(long coveredValueCents)
         => (long)Math.Round(coveredValueCents * (InsuranceDeductibleMilli / 100_000.0));
 
+    // --- Aircraft rental (Phase 9f-1): rent a non-owned tail short-term, fly it BY HAND, return it. Priced so
+    // renting is never cheaper than owning per flight-hour (usage rent sits above the wear it substitutes), and
+    // the deposit caps the renter's damage liability. The lessor eats routine maintenance; the deposit is touched
+    // only by real, telemetry-verified damage beyond ordinary hours-depreciation — so coach-band flying is free. ---
+    public int RentFlightHourRateBps { get; init; } = 40;   // usage rent per flight-hour, bps of sticker (0.40%/flt-hr)
+    public int RentHoldingRateBps { get; init; } = 20;      // holding fee per calendar day, bps of sticker (0.20%/day)
+    public int RentDepositFactor { get; init; } = 15_000;   // escrow = 15% of sticker (milli) — the renter's MAX damage liability
+    public int RentTermDefaultDays { get; init; } = 7;      // default short-term window
+    public int RentMaxTermDays { get; init; } = 30;         // rentals are short-term
+    public int RentExpiryWarnDays { get; init; } = 3;       // digest nudge before auto-return (Law 4)
+    public int RentalDeliveryConditionMilli { get; init; } = 100_000; // the world delivers a freshly serviced tail
+
+    // usage rent (40 bps) > the resale value ordinary wear/hr consumes (≈ AircraftResaleFactor × wear/hr = 0.70 × 0.4% = 0.28%),
+    // so renting a flight-hour always costs more than owning it — no rent-to-earn pump at any utilization.
+    public long RentFlightHourCents(long stickerCents) => (long)Math.Round(stickerCents * (RentFlightHourRateBps / 10_000.0));
+    public long RentHoldingPerDayCents(long stickerCents) => (long)Math.Round(stickerCents * (RentHoldingRateBps / 10_000.0));
+    public long RentDepositCents(long stickerCents) => (long)Math.Round(stickerCents * (RentDepositFactor / 100_000.0));
+
     public static EconomyConfig Default { get; } = new();
 }

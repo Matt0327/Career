@@ -11,7 +11,7 @@ namespace Callsign.Core.Economy;
 public sealed record StaffCandidate(int Seed, string Name, long WagePerDayCents, int SkillMilli);
 
 /// <summary>What a reconcile produced (for the reopen digest).</summary>
-public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed, int EmptyLegs = 0, IReadOnlyList<string>? LoanWarnings = null, IReadOnlyList<string>? Defaults = null, IReadOnlyList<string>? CertLapsed = null, int WeatheredOut = 0, IReadOnlyList<string>? CertExpiring = null);
+public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed, int EmptyLegs = 0, IReadOnlyList<string>? LoanWarnings = null, IReadOnlyList<string>? Defaults = null, IReadOnlyList<string>? CertLapsed = null, int WeatheredOut = 0, IReadOnlyList<string>? CertExpiring = null, long RentalCents = 0, IReadOnlyList<string>? RentalsExpiring = null, IReadOnlyList<string>? RentalsAutoReturned = null);
 
 /// <summary>
 /// Staff + standing orders (Phase 2d): hire pilots, set repeating autonomous routes, and reconcile the
@@ -86,6 +86,10 @@ public sealed class OperationsService
                        ?? throw new InvalidOperationException("Aircraft not found in your fleet.");
         if (aircraft.Availability != AircraftAvailability.Available)
             throw new InvalidOperationException("That aircraft isn't available.");
+        // Only an OWNED tail can fly autonomous work (Phase 9f): a rental/lease is hand-fly-only, which
+        // structurally kills the rent-a-tail-for-autonomous-income pump.
+        if (aircraft.Ownership != OwnershipKind.Owned)
+            throw new InvalidOperationException("Only an aircraft you own can fly a standing order — a rental is hand-fly-only.");
         // One pilot flies one line: without this a single crew stacked on two lines would fly the daily duty
         // limit on EACH, defeating the FTL cap (Phase 7f). Assign a different pilot — or hire one.
         if (await CrewAlreadyFlyingAsync(staffId, ct))
@@ -423,6 +427,53 @@ public sealed class OperationsService
             totalInsurance += premium;
         }
 
+        // Aircraft rentals (Phase 9f-1): bill the holding fee + per-flight-hour usage on every active rental,
+        // warn before an expiring one auto-returns, and auto-return an expired IDLE rental (Law 4). Billed
+        // before the loan block below so the solvency valve sees the cost.
+        long totalRental = 0;
+        var rentalsExpiring = new List<string>();
+        var rentalsReturned = new List<string>();
+        foreach (var ag in await _db.RentalAgreements.Where(r => r.CompanyId == companyId && r.Status == RentalStatus.Active && !r.IsDeleted).ToListAsync(ct))
+        {
+            var tail = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == ag.AircraftInstanceId, ct);
+            if (tail is null) continue;
+            var rtType = await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == tail.TypeId, ct);
+
+            // Auto-return at expiry — but only an IDLE tail; a rental mid-leg keeps accruing and returns next pass.
+            if (now >= ag.ExpiresAt && tail.Availability == AircraftAvailability.Available && rtType is not null)
+            {
+                await AircraftDealerService.SettleReturnAsync(_db, _ledger, _cfg, ag, tail, rtType, now, ct);
+                rentalsReturned.Add(tail.Tail);
+                continue;
+            }
+
+            // Holding (fractional day, like base rent) + usage (per accrued flight-hour). Keyed on the pre-advance
+            // watermark so a replay of the same window dedupes; both watermarks advance to now/current hours.
+            var stamp = ag.LastRentBilledAt.UtcTicks;
+            long holding = (long)Math.Round(Math.Max(0, (now - ag.LastRentBilledAt).TotalDays) * ag.HoldingPerDayCents);
+            double usageHours = Math.Max(0, tail.AirframeHours - ag.HoursLastBilled);
+            long usage = (long)Math.Round(usageHours * ag.FlightHourRateCents);
+            var rp = new List<LedgerPosting>();
+            if (holding > 0)
+                rp.Add(new(LedgerCategory.AircraftRental, -(holding / 100m), $"Rental holding — {tail.Tail}",
+                    LedgerRefType.Rental, ag.Id.ToString(), AircraftInstanceId: tail.Id, DedupeKey: $"rental-hold:{ag.Id}:{stamp}"));
+            if (usage > 0)
+                rp.Add(new(LedgerCategory.AircraftRental, -(usage / 100m), $"Rental usage — {tail.Tail} ({usageHours:F1} h)",
+                    LedgerRefType.Rental, ag.Id.ToString(), AircraftInstanceId: tail.Id, DedupeKey: $"rental-use:{ag.Id}:{stamp}"));
+            if (rp.Count > 0)
+            {
+                await _ledger.StageBatchAsync(companyId, rp, ct);
+                totalRental += holding + usage;
+            }
+            ag.LastRentBilledAt = now;
+            ag.HoursLastBilled = tail.AirframeHours;
+            ag.UpdatedAt = now;
+
+            int daysLeft = (int)Math.Ceiling((ag.ExpiresAt - now).TotalDays);
+            if (daysLeft > 0 && daysLeft <= _cfg.RentExpiryWarnDays)
+                rentalsExpiring.Add($"{tail.Tail} in {daysLeft}d");
+        }
+
         // Loans (Phase 4a) + default safety valve (Phase 7g): billed LAST, so the solvency check sees all of
         // this period's income and other costs. A company that can't cover a payment goes into forbearance
         // (billing pauses so the hole doesn't deepen) and is WARNED; if it stays underwater past the grace
@@ -478,8 +529,8 @@ public sealed class OperationsService
 
         await _db.SaveChangesAsync(ct);
         return new ReconcileDigest(totalTrips, grossIncome, totalFees, totalWages, totalRent, totalLoan, totalInsurance,
-            grossIncome - totalFees - totalWages - totalRent - totalLoan - totalInsurance, totalIncidents, grounded, dutyMaxed, totalEmpty,
-            loanWarnings, defaults, certLapsed, totalWeatheredOut, certExpiring);
+            grossIncome - totalFees - totalWages - totalRent - totalLoan - totalInsurance - totalRental, totalIncidents, grounded, dutyMaxed, totalEmpty,
+            loanWarnings, defaults, certLapsed, totalWeatheredOut, certExpiring, totalRental, rentalsExpiring, rentalsReturned);
     }
 
     /// <summary>

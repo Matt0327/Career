@@ -17,6 +17,17 @@ public sealed record OwnedAircraft(AircraftInstance Instance, AircraftType Type)
 public sealed record UsedListing(int Seed, Guid TypeId, string TypeName, string Category,
     double AirframeHours, int ConditionMilli, long PriceCents, long NewPriceCents);
 
+/// <summary>A rentable aircraft type (Phase 9f-1): its holding + usage rates and the escrow deposit.</summary>
+public sealed record RentalOffer(Guid TypeId, string TypeName, string Category, long StickerCents,
+    long DailyHoldingCents, long FlightHourCents, long DepositCents, int TermDays);
+
+/// <summary>A preview of what returning a rental would cost/refund now — no mutation (Phase 9f-1).</summary>
+public sealed record RentalReturnQuote(long FinalRentCents, long DamageCents, string? DamageReason, long RefundCents);
+
+/// <summary>An active rental joined to its tail + type, with accrued rent and the live projected refund.</summary>
+public sealed record ActiveRental(RentalAgreement Agreement, AircraftInstance Tail, AircraftType Type,
+    long AccruedRentCents, int DaysLeft, RentalReturnQuote Projected);
+
 /// <summary>
 /// Buying and owning aircraft (Phase 2a). Every purchase debits the company through the ledger —
 /// the airframe row and the money move in one transaction — so cash always reconciles.
@@ -381,6 +392,10 @@ public sealed class AircraftDealerService
         var inst = await _db.AircraftInstances
             .FirstOrDefaultAsync(a => a.Id == instanceId && a.CompanyId == companyId && !a.IsDeleted, ct)
             ?? throw new InvalidOperationException("Aircraft not found in your fleet.");
+        // You can only sell a tail you OWN (Phase 9f master invariant): a rented/leased tail has no equity to
+        // sell — it goes back to its owner via Return, never onto the block.
+        if (inst.Ownership != OwnershipKind.Owned)
+            throw new InvalidOperationException("You can only sell an aircraft you own — return the rental instead.");
         if (inst.Availability != AircraftAvailability.Available)
             throw new InvalidOperationException("This airframe is busy — it must be available (not in flight or reserved) to sell.");
 
@@ -482,6 +497,231 @@ public sealed class AircraftDealerService
             throw;
         }
         return fee;
+    }
+
+    // ── Aircraft rental (Phase 9f-1) ──────────────────────────────────────────────────────────────
+    // Rent a non-owned tail, fly it by hand, return it. The deposit escrows the renter's abnormal-damage
+    // liability; a holding fee + per-flight-hour usage rent are billed at reconcile; on return the deposit
+    // is refunded less any real damage BEYOND ordinary hours-depreciation (so coach-band flying is free).
+
+    /// <summary>Resale value of a tail AT a hypothetical hull/engine condition — the same market × haircut ×
+    /// worst-condition formula <see cref="ResaleValueCents"/> uses, for the return-damage waterfall (9f-1).</summary>
+    public long ValueAtCondition(AircraftType type, int hullMilli, int engineMilli)
+        => ValueAtConditionCents(_cfg, type, hullMilli, engineMilli);
+
+    private static long ValueAtConditionCents(EconomyConfig cfg, AircraftType type, int hullMilli, int engineMilli)
+    {
+        double condition = Math.Clamp(Math.Min(hullMilli, engineMilli), 0, 100_000) / 100_000.0;
+        return (long)Math.Round(AircraftPricing.Quote(cfg, type).TotalCents * cfg.AircraftResaleFactor * condition);
+    }
+
+    /// <summary>Every rentable type at a field, priced (holding/day + usage/flight-hour + deposit), cheapest first.</summary>
+    public async Task<IReadOnlyList<RentalOffer>> GetRentalOffersAsync(CancellationToken ct = default)
+    {
+        var types = await _db.AircraftTypes.ToListAsync(ct);
+        return types
+            .Select(t =>
+            {
+                long sticker = MarketValueCents(t);
+                return new RentalOffer(t.Id, t.CanonicalName, t.Category.ToString(), sticker,
+                    _cfg.RentHoldingPerDayCents(sticker), _cfg.RentFlightHourCents(sticker),
+                    _cfg.RentDepositCents(sticker), _cfg.RentTermDefaultDays);
+            })
+            .OrderBy(o => o.StickerCents)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Rent a fresh tail of a type at <paramref name="atIcao"/>: escrows a deposit (real cash), delivers a
+    /// serviced <see cref="OwnershipKind.Rented"/> airframe you fly by hand, and opens a <see cref="RentalAgreement"/>.
+    /// The sticker is NEVER debited — you did not buy it. Idempotent via <paramref name="idempotencyKey"/>.
+    /// </summary>
+    public async Task<AircraftInstance> RentAsync(
+        Guid companyId, Guid typeId, string atIcao, int termDays = 0, string? idempotencyKey = null, CancellationToken ct = default)
+    {
+        string? dedupe = idempotencyKey is null ? null : $"rent-open:{idempotencyKey}";
+        async Task<AircraftInstance?> PriorAsync()
+        {
+            if (dedupe is null) return null;
+            var e = await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct);
+            return e?.AircraftInstanceId is Guid id ? await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == id, ct) : null;
+        }
+        if (await PriorAsync() is { } replay) return replay;
+
+        var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId, ct)
+                      ?? throw new InvalidOperationException($"Company {companyId} not found.");
+        var type = await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == typeId, ct)
+                   ?? throw new InvalidOperationException($"Aircraft type {typeId} not found.");
+
+        long sticker = MarketValueCents(type);
+        long deposit = _cfg.RentDepositCents(sticker); // the escrow actually leaves cash, so check it
+        if (company.CashCents < deposit)
+            throw new InvalidOperationException(
+                $"Not enough cash to rent the {type.CanonicalName}: the deposit is {deposit / 100m:C0}, you have {company.Cash:C0}.");
+
+        int term = Math.Clamp(termDays <= 0 ? _cfg.RentTermDefaultDays : termDays, 1, _cfg.RentMaxTermDays);
+        var now = _clock.UtcNow;
+        var instance = new AircraftInstance
+        {
+            Id = Guid.NewGuid(), TypeId = typeId, CompanyId = companyId, Tail = NewTail(),
+            Ownership = OwnershipKind.Rented, Availability = AircraftAvailability.Available, LocationIcao = atIcao,
+            HullConditionMilli = _cfg.RentalDeliveryConditionMilli, EngineConditionMilli = _cfg.RentalDeliveryConditionMilli,
+            AirframeHours = 0, MaintenanceHoursWatermark = 0, Last100hHoursWatermark = 0, LastAnnualAt = now, // dealer-prepped, flyable now
+            PurchasePriceCents = null, AcquiredAt = now, UpdatedAt = now, // you did not buy it → no purchase basis
+        };
+        _db.AircraftInstances.Add(instance);
+
+        var agreement = new RentalAgreement
+        {
+            Id = Guid.NewGuid(), CompanyId = companyId, AircraftInstanceId = instance.Id,
+            Kind = RentalKind.Rental, Status = RentalStatus.Active,
+            HoursAtPickup = 0, HullMilliAtPickup = instance.HullConditionMilli, EngineMilliAtPickup = instance.EngineConditionMilli,
+            DepositCents = deposit, HoldingPerDayCents = _cfg.RentHoldingPerDayCents(sticker), FlightHourRateCents = _cfg.RentFlightHourCents(sticker),
+            LastRentBilledAt = now, HoursLastBilled = 0, StartedAt = now, ExpiresAt = now.AddDays(term), UpdatedAt = now,
+        };
+        _db.RentalAgreements.Add(agreement);
+
+        await _ledger.StageBatchAsync(companyId, new[]
+        {
+            new LedgerPosting(LedgerCategory.AircraftRental, -(deposit / 100m),
+                $"Rental deposit — {type.CanonicalName} ({instance.Tail})",
+                LedgerRefType.Rental, agreement.Id.ToString(), AircraftInstanceId: instance.Id, DedupeKey: dedupe ?? $"rental-deposit:{agreement.Id}"),
+        }, ct);
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException) when (dedupe is not null)
+        {
+            _db.ChangeTracker.Clear();
+            if (await PriorAsync() is { } raced) return raced;
+            throw;
+        }
+        return instance;
+    }
+
+    // The final-rent + damage waterfall for a return, as a PURE computation so the preview and the real return
+    // share one source of truth. Damage = resale-value shortfall BELOW the ordinary hours-depreciation line
+    // (usage rent already paid for routine wear), clamped to the deposit — so only abnormal damage bills, and
+    // never more than the escrow.
+    private static (long Holding, long Usage, long Damage, string? Reason, long Refund) ComputeReturn(
+        EconomyConfig cfg, RentalAgreement ag, AircraftInstance tail, AircraftType type, DateTimeOffset now)
+    {
+        long holding = (long)Math.Round(Math.Max(0, (now - ag.LastRentBilledAt).TotalDays) * ag.HoldingPerDayCents);
+        double usageHours = Math.Max(0, tail.AirframeHours - ag.HoursLastBilled);
+        long usage = (long)Math.Round(usageHours * ag.FlightHourRateCents);
+
+        int expectedWear = (int)Math.Round(Math.Max(0, tail.AirframeHours - ag.HoursAtPickup) * cfg.ConditionWearMilliPerHour);
+        int expHull = Math.Max(0, ag.HullMilliAtPickup - expectedWear);
+        int expEngine = Math.Max(0, ag.EngineMilliAtPickup - expectedWear);
+        long valueExpected = ValueAtConditionCents(cfg, type, expHull, expEngine);
+        long valueActual = ValueAtConditionCents(cfg, type, tail.HullConditionMilli, tail.EngineConditionMilli);
+        long damage = Math.Clamp(valueExpected - valueActual, 0, ag.DepositCents);
+        string? reason = damage > 0
+            ? $"returned at {Math.Min(tail.HullConditionMilli, tail.EngineConditionMilli) / 1000}% vs the {Math.Min(expHull, expEngine) / 1000}% expected for the hours flown"
+            : null;
+        long refund = ag.DepositCents - damage; // return-of-principal, never < 0 (damage ≤ deposit)
+        return (holding, usage, damage, reason, refund);
+    }
+
+    /// <summary>Preview what returning a rental costs/refunds NOW, without mutating anything (Law 4, warned-first).</summary>
+    public async Task<RentalReturnQuote?> ReturnQuoteAsync(Guid companyId, Guid agreementId, CancellationToken ct = default)
+    {
+        var ag = await _db.RentalAgreements.FirstOrDefaultAsync(a => a.Id == agreementId && a.CompanyId == companyId && a.Status == RentalStatus.Active && !a.IsDeleted, ct);
+        if (ag is null) return null;
+        var tail = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == ag.AircraftInstanceId, ct);
+        var type = tail is null ? null : await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == tail.TypeId, ct);
+        if (tail is null || type is null) return null;
+        var (holding, usage, damage, reason, refund) = ComputeReturn(_cfg, ag, tail, type, _clock.UtcNow);
+        return new RentalReturnQuote(holding + usage, damage, reason, refund);
+    }
+
+    /// <summary>
+    /// Settle a return: bill the final holding + usage rent, withhold any damage beyond ordinary wear from the
+    /// deposit, refund the rest, and retire the tail + agreement. STAGES onto the context (does not save) so
+    /// both the endpoint and the reconcile auto-return can commit it in their own transaction. Returns the
+    /// refund in cents. The <c>rental-return:{id}</c> posting is always written, so the return is idempotent.
+    /// </summary>
+    internal static async Task<long> SettleReturnAsync(
+        CallsignDbContext db, LedgerService ledger, EconomyConfig cfg,
+        RentalAgreement ag, AircraftInstance tail, AircraftType type, DateTimeOffset now, CancellationToken ct)
+    {
+        var (holding, usage, damage, _, refund) = ComputeReturn(cfg, ag, tail, type, now);
+        var stamp = ag.LastRentBilledAt.UtcTicks; // one stamp keys both fees; both watermarks advance together
+        var postings = new List<LedgerPosting>();
+        if (holding > 0)
+            postings.Add(new(LedgerCategory.AircraftRental, -(holding / 100m), $"Rental holding — {tail.Tail}",
+                LedgerRefType.Rental, ag.Id.ToString(), AircraftInstanceId: tail.Id, DedupeKey: $"rental-hold:{ag.Id}:{stamp}"));
+        if (usage > 0)
+            postings.Add(new(LedgerCategory.AircraftRental, -(usage / 100m), $"Rental usage — {tail.Tail}",
+                LedgerRefType.Rental, ag.Id.ToString(), AircraftInstanceId: tail.Id, DedupeKey: $"rental-use:{ag.Id}:{stamp}"));
+        // Refund = deposit − damage (return-of-principal). Always posted, even at 0, as the idempotency marker.
+        postings.Add(new(LedgerCategory.AircraftRental, refund / 100m,
+            damage > 0 ? $"Deposit refund less {damage / 100m:C0} damage — {tail.Tail}" : $"Deposit refund — {tail.Tail}",
+            LedgerRefType.Rental, ag.Id.ToString(), AircraftInstanceId: tail.Id, DedupeKey: $"rental-return:{ag.Id}"));
+        await ledger.StageBatchAsync(ag.CompanyId, postings, ct);
+
+        ag.LastRentBilledAt = now;
+        ag.HoursLastBilled = tail.AirframeHours;
+        ag.Status = RentalStatus.Returned;
+        ag.UpdatedAt = now;
+        tail.IsDeleted = true;               // goes back to the owner — off your books
+        tail.Availability = AircraftAvailability.Grounded;
+        tail.UpdatedAt = now;
+        return refund;
+    }
+
+    /// <summary>Return a rented tail: settles the final rent + damage and refunds the deposit. Idempotent.</summary>
+    public async Task<long> ReturnAsync(Guid companyId, Guid agreementId, CancellationToken ct = default)
+    {
+        string dedupe = $"rental-return:{agreementId}";
+        if (await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct) is { } prior)
+            return prior.AmountCents; // already returned — replay the refund, no second settlement
+
+        var ag = await _db.RentalAgreements.FirstOrDefaultAsync(a => a.Id == agreementId && a.CompanyId == companyId && !a.IsDeleted, ct)
+                 ?? throw new InvalidOperationException("Rental not found.");
+        if (ag.Status != RentalStatus.Active)
+            throw new InvalidOperationException("This rental has already been closed.");
+        var tail = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == ag.AircraftInstanceId, ct)
+                   ?? throw new InvalidOperationException("Rented aircraft not found.");
+        if (tail.Availability != AircraftAvailability.Available)
+            throw new InvalidOperationException("Finish this aircraft's flight before returning it.");
+        var type = await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == tail.TypeId, ct)
+                   ?? throw new InvalidOperationException("Aircraft type not found.");
+
+        long refund = await SettleReturnAsync(_db, _ledger, _cfg, ag, tail, type, _clock.UtcNow, ct);
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException)
+        {
+            _db.ChangeTracker.Clear();
+            if (await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct) is { } raced) return raced.AmountCents;
+            throw;
+        }
+        return refund;
+    }
+
+    /// <summary>The company's active rentals, joined to tail + type, with accrued rent + the live return quote.</summary>
+    public async Task<IReadOnlyList<ActiveRental>> GetActiveRentalsAsync(Guid companyId, CancellationToken ct = default)
+    {
+        var now = _clock.UtcNow;
+        var ags = await _db.RentalAgreements
+            .Where(r => r.CompanyId == companyId && r.Status == RentalStatus.Active && !r.IsDeleted)
+            .OrderBy(r => r.StartedAt).ToListAsync(ct);
+        var result = new List<ActiveRental>(ags.Count);
+        foreach (var ag in ags)
+        {
+            var tail = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == ag.AircraftInstanceId, ct);
+            var type = tail is null ? null : await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == tail.TypeId, ct);
+            if (tail is null || type is null) continue;
+            var (holding, usage, damage, reason, refund) = ComputeReturn(_cfg, ag, tail, type, now);
+            int daysLeft = Math.Max(0, (int)Math.Ceiling((ag.ExpiresAt - now).TotalDays));
+            result.Add(new ActiveRental(ag, tail, type, holding + usage, daysLeft,
+                new RentalReturnQuote(holding + usage, damage, reason, refund)));
+        }
+        return result;
     }
 
     // A friendly tail: "CS-" + 6 hex from a fresh guid (~16.7M space; collisions negligible per fleet).

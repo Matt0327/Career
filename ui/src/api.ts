@@ -196,6 +196,37 @@ export interface UsedListing {
   newPriceCents: number
 }
 
+// Phase 9f-1 — aircraft rental
+export interface RentalOffer {
+  typeId: string
+  typeName: string
+  category: string
+  stickerCents: number
+  dailyHoldingCents: number
+  flightHourCents: number
+  depositCents: number
+  termDays: number
+}
+export interface RentalReturnQuote {
+  finalRentCents: number
+  damageCents: number
+  damageReason: string | null
+  refundCents: number
+}
+export interface ActiveRental {
+  agreementId: string
+  aircraftInstanceId: string
+  tail: string
+  typeName: string
+  locationIcao: string
+  depositCents: number
+  accruedRentCents: number
+  daysLeft: number
+  flightHourCents: number
+  dailyHoldingCents: number
+  projected: RentalReturnQuote
+}
+
 export interface OwnedAircraft {
   id: string
   typeId: string
@@ -245,6 +276,7 @@ export interface OwnedAircraft {
   hoursTo100h: number
   daysToAnnual: number
   inspectionQuoteCents: number
+  ownership: string // Phase 9f — "Owned" | "Rented"
 }
 
 export interface AircraftFlight {
@@ -418,6 +450,9 @@ export interface ReconcileResult {
   certLapsed: string[] // Phase 8e — routes held because their operating certificate lapsed (renew to resume)
   weatheredOut: number // Phase 8f — autonomous trips scrubbed by foul weather at the origin this pass
   certExpiring: string[] // Phase 8e-2 — certificates nearing expiry, warned before they lapse (Law 4)
+  rentalCents: number // Phase 9f-1 — holding + usage rent billed on active rentals this pass
+  rentalsExpiring: string[] // Phase 9f-1 — rentals nearing auto-return, warned first (Law 4)
+  rentalsAutoReturned: string[] // Phase 9f-1 — rentals auto-returned at expiry this pass
 }
 
 export interface InsurancePolicy {
@@ -879,6 +914,11 @@ export const api = {
   buyAircraft: (typeId: string) => POST_IDEM('/api/aircraft/buy', { typeId }).then(ok),
   usedMarket: () => fetch('/api/aircraft/used').then(ok<UsedListing[]>),
   buyUsed: (typeId: string, seed: number) => POST_IDEM('/api/aircraft/buy-used', { typeId, seed }).then(ok),
+  rentalOffers: () => fetch('/api/rentals/offers').then(ok<RentalOffer[]>),
+  rentals: () => fetch('/api/rentals').then(ok<ActiveRental[]>),
+  rent: (typeId: string, termDays?: number) => POST_IDEM('/api/rentals', { typeId, termDays }).then(ok<{ id: string, tail: string }>),
+  rentalReturnQuote: (id: string) => fetch(`/api/rentals/${id}/return-quote`).then(ok<RentalReturnQuote>),
+  returnRental: (id: string) => POST_IDEM(`/api/rentals/${id}/return`).then(ok<{ refundCents: number }>),
   maintain: (id: string) => POST_IDEM(`/api/aircraft/${id}/maintain`).then(ok),
   inspect: (id: string) => POST_IDEM(`/api/aircraft/${id}/inspect`).then(ok),
   aircraftHistory: (id: string) => fetch(`/api/aircraft/${id}/history`).then(ok<AircraftHistory>),

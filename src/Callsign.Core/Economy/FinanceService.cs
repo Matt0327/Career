@@ -57,12 +57,23 @@ public sealed class FinanceService
         long aircraft = 0;
         foreach (var a in instances)
         {
+            // Only an OWNED tail is an asset (Phase 9f): a rented/leased tail isn't yours to sell, so booking its
+            // resale value would be phantom equity. Its escrowed deposit is a receivable, added below instead.
+            if (a.Ownership != OwnershipKind.Owned)
+                continue;
             if (!types.TryGetValue(a.TypeId, out var type))
                 continue;
             long market = AircraftPricing.Quote(_cfg, type).TotalCents;
             double condition = Math.Min(a.HullConditionMilli, a.EngineConditionMilli) / 100_000.0;
             aircraft += (long)Math.Round(market * _cfg.AircraftResaleFactor * condition);
         }
+
+        // Rental/lease deposits are escrowed receivables (returned at term-end, less any damage): renting debits
+        // cash by the deposit, so counting it back here keeps net worth flat at pickup and drops it by exactly
+        // the damage at return — never a windfall (Phase 9f).
+        aircraft += await _db.RentalAgreements
+            .Where(r => r.CompanyId == companyId && r.Status == RentalStatus.Active && !r.IsDeleted)
+            .SumAsync(r => r.DepositCents, ct);
 
         var lots = await _db.InventoryLots.Where(l => l.CompanyId == companyId && l.Quantity > 0 && !l.IsDeleted).ToListAsync(ct);
         long inventory = lots.Sum(l => l.UnitCostCents * (long)l.Quantity);

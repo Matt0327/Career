@@ -36,6 +36,7 @@ public sealed class CallsignDbContext : DbContext
     public DbSet<CampaignProgress> CampaignProgress => Set<CampaignProgress>();
     public DbSet<Client> Clients => Set<Client>();
     public DbSet<OperatingCertificate> OperatingCertificates => Set<OperatingCertificate>();
+    public DbSet<RentalAgreement> RentalAgreements => Set<RentalAgreement>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -238,6 +239,16 @@ public sealed class CallsignDbContext : DbContext
         cert.Property(c => c.Kind).HasConversion<string>().HasMaxLength(20);
         cert.HasIndex(c => new { c.CompanyId, c.Kind }).IsUnique(); // one certificate row per kind per company (renewed in place)
         cert.HasOne<Company>().WithMany().HasForeignKey(c => c.CompanyId).OnDelete(DeleteBehavior.Restrict);
+
+        // --- Rental agreements (Phase 9f): rentals + leases of non-owned airframes (the tail is Ownership=Rented) ---
+        var rental = model.Entity<RentalAgreement>();
+        rental.HasKey(r => r.Id);
+        rental.Property(r => r.Kind).HasConversion<string>().HasMaxLength(16);
+        rental.Property(r => r.Status).HasConversion<string>().HasMaxLength(16);
+        rental.HasIndex(r => r.CompanyId);
+        rental.HasIndex(r => r.AircraftInstanceId);
+        rental.HasOne<Company>().WithMany().HasForeignKey(r => r.CompanyId).OnDelete(DeleteBehavior.Restrict);
+        rental.HasOne<AircraftInstance>().WithMany().HasForeignKey(r => r.AircraftInstanceId).OnDelete(DeleteBehavior.Restrict);
 
         // --- Pilot licence classes (Phase 3c) ---
         var qual = model.Entity<PilotQualification>();

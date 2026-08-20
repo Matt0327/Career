@@ -5,6 +5,7 @@ import {
   type FinancesData, type FinanceDetail, type AttributionLine, type CashPoint, type StatementRow, type FlightLog, type FlightDetail, type FlightTotals, type Insurance, type Inventory, type Job, type LeaderboardRow, type LedgerEntry, type LiveEvent, type Loan, type LoanOffer, type Loans,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
   type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type UsedListing, type VersionInfo, type Weather, type WorldState, type WsEvent,
+  type RentalOffer, type ActiveRental,
 } from './api'
 import { loadPrefs, savePrefs, type Prefs, type Theme } from './prefs'
 import * as L from 'leaflet'
@@ -1958,7 +1959,7 @@ function AircraftDetail({ a, history, bases, busy, onService, onInspect, onInsur
             Inspect · {money(a.inspectionQuoteCents)}
           </button>
         )}
-        {!a.insured && <button disabled={busy} onClick={() => onInsure(a)}>Insure</button>}
+        {a.ownership === 'Owned' && !a.insured && <button disabled={busy} onClick={() => onInsure(a)}>Insure</button>}
         {ferryTargets.length > 0 && (
           <div className="relocate-form">
             <select value={dest} onChange={e => setDest(e.target.value)} disabled={busy || !avail}>
@@ -1970,12 +1971,13 @@ function AircraftDetail({ a, history, bases, busy, onService, onInspect, onInsur
             </button>
           </div>
         )}
-        {confirmSell
+        {a.ownership === 'Owned' && (confirmSell
           ? <><button className="danger" disabled={busy || !avail} onClick={() => onSell(a)}>Confirm sell · {money(a.resaleValueCents)}</button>
               <button disabled={busy} onClick={() => setConfirmSell(false)}>Cancel</button></>
           : <button className="danger-ghost" disabled={busy || !avail} onClick={() => setConfirmSell(true)}
-              title={avail ? 'Sell this airframe' : 'Must be available to sell'}>Sell</button>}
+              title={avail ? 'Sell this airframe' : 'Must be available to sell'}>Sell</button>)}
       </div>
+      {a.ownership === 'Rented' && <div className="hint">Rented — fly it, then return it from the Rentals section below. It can't be sold or insured.</div>}
       {!avail && <div className="hint">Ferry and sale are available only when the aircraft is idle.</div>}
     </div>
   )
@@ -1989,6 +1991,8 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
   const [owned, setOwned] = useState<OwnedAircraft[] | null>(null)
   const [offers, setOffers] = useState<AircraftOffer[] | null>(null)
   const [used, setUsed] = useState<UsedListing[]>([])
+  const [rentalOffers, setRentalOffers] = useState<RentalOffer[]>([])
+  const [rentals, setRentals] = useState<ActiveRental[]>([])
   const [bases, setBases] = useState<BaseView[]>([])
   const [selId, setSelId] = useState<string | null>(null)
   const [history, setHistory] = useState<AircraftHistory | null>(null)
@@ -2003,6 +2007,8 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
       setOwned(h)
       setOffers(await api.market())
       setUsed(await api.usedMarket())
+      setRentalOffers(await api.rentalOffers())
+      setRentals(await api.rentals())
       setBases(await api.bases())
       setSelId(prev => (prev && h.some(a => a.id === prev)) ? prev : (h[0]?.id ?? null))
     } catch (e) { setMsg(cleanErr(e)) }
@@ -2026,6 +2032,16 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
   const buyUsedListing = async (l: UsedListing) => {
     setBusy(true); setMsg(null)
     try { await api.buyUsed(l.typeId, l.seed); await load(); onChanged(); setMsg(`Bought a used ${l.typeName} (${Math.round(l.airframeHours)} h, ${Math.round(l.conditionMilli / 1000)}% condition) — it's in your hangar.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+  const rentAircraft = async (o: RentalOffer) => {
+    setBusy(true); setMsg(null)
+    try { await api.rent(o.typeId); await load(); onChanged(); setMsg(`Rented a ${o.typeName} — it's in your hangar. Fly it, then return it.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+  const returnRentalAgreement = async (r: ActiveRental) => {
+    setBusy(true); setMsg(null)
+    try { const res = await api.returnRental(r.agreementId); await load(); onChanged(); setMsg(`Returned ${r.tail} — ${money(res.refundCents)} deposit back.`) }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
   const maintain = async (a: OwnedAircraft) => {
@@ -2073,7 +2089,7 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
   const sel = fleet.find(a => a.id === selId) ?? null
 
   // Fleet KPIs — the header NeoFly never gives you at a glance.
-  const totalValue = fleet.reduce((s, a) => s + a.resaleValueCents, 0)
+  const totalValue = fleet.filter(a => a.ownership === 'Owned').reduce((s, a) => s + a.resaleValueCents, 0) // rentals aren't assets (Phase 9f)
   const totalHours = fleet.reduce((s, a) => s + a.airframeHours, 0)
   const totalEarned = fleet.reduce((s, a) => s + a.lifetimeEarningsCents, 0)
   const availCount = fleet.filter(a => a.availability === 'Available').length
@@ -2188,6 +2204,59 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
           </div>
         </section>
       )}
+
+      {rentals.length > 0 && (
+        <section className="card">
+          <div className="row-head"><h2>Your rentals</h2><span className="hint">Fly by hand, then return — the deposit comes back less any real damage</span></div>
+          <div className="jobs">
+            {rentals.map(r => (
+              <div className="card job" key={r.agreementId}>
+                <div className="job-top"><div className="leg"><b>{r.tail}</b> · {r.typeName}</div><div className="tag">{r.daysLeft}d left</div></div>
+                <div className="commodity">at {r.locationIcao}</div>
+                <div className="job-meta">
+                  <Meta label="Deposit" value={money(r.depositCents)} />
+                  <Meta label="Rent so far" value={money(r.accruedRentCents)} />
+                  <Meta label="Usage" value={`${money(r.flightHourCents)}/h`} />
+                </div>
+                <div className="price num">{money(r.projected.refundCents)} <span className="fair-ref">refund now</span></div>
+                {r.projected.damageCents > 0 && <div className="hint">−{money(r.projected.damageCents)} damage: {r.projected.damageReason}</div>}
+                <div className="job-foot">
+                  <span className="hint" />
+                  <button className="primary" disabled={busy} onClick={() => returnRentalAgreement(r)}>Return</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {rentalOffers.length > 0 && (
+        <section className="card">
+          <div className="row-head"><h2>Rent an aircraft</h2><span className="hint">Capital-free — a deposit + rent, flown by hand</span></div>
+          <div className="jobs">
+            {rentalOffers.map(o => {
+              const afford = state.cashCents >= o.depositCents
+              return (
+                <div className="card job" key={o.typeId}>
+                  <AircraftImage typeId={o.typeId} category={o.category} />
+                  <div className="job-top"><div className="leg"><b>{o.typeName}</b></div><div className="tag">{o.termDays}d term</div></div>
+                  <div className="commodity">{spaced(o.category)}</div>
+                  <div className="job-meta">
+                    <Meta label="Deposit" value={money(o.depositCents)} />
+                    <Meta label="Holding" value={`${money(o.dailyHoldingCents)}/day`} />
+                    <Meta label="Usage" value={`${money(o.flightHourCents)}/h`} />
+                  </div>
+                  <div className="price num">{money(o.depositCents)} <span className="fair-ref">deposit</span></div>
+                  <div className="job-foot">
+                    <span className="hint">{afford ? '' : 'deposit over budget'}</span>
+                    <button className="primary" disabled={busy || !afford} onClick={() => rentAircraft(o)}>Rent</button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
     </div>
   )
 }
@@ -2291,7 +2360,9 @@ function Ops({ onChanged }: { onChanged: () => void }) {
       const cert = d.certLapsed.length > 0 ? ` · ⚠ Held (certificate lapsed): ${d.certLapsed.join('; ')} — renew in the Airline tab to resume.` : ''
       const wx = d.weatheredOut > 0 ? ` · ${d.weatheredOut} trip${d.weatheredOut === 1 ? '' : 's'} weathered out at the origin.` : ''
       const cx = d.certExpiring.length > 0 ? ` · ⚠ Renew soon: ${d.certExpiring.join('; ')} — renew in the Airline tab before it lapses.` : ''
-      setMsg(base + inc + empty + duty + warn + owed + def + cert + wx + cx)
+      const rtn = d.rentalsAutoReturned.length > 0 ? ` · Rental${d.rentalsAutoReturned.length === 1 ? '' : 's'} returned at term end: ${d.rentalsAutoReturned.join(', ')}.` : ''
+      const rx = d.rentalsExpiring.length > 0 ? ` · ⚠ Rental ending: ${d.rentalsExpiring.join('; ')} — return it or it auto-returns.` : ''
+      setMsg(base + inc + empty + duty + warn + owed + def + cert + wx + cx + rtn + rx)
     } catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
 

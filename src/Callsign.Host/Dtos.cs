@@ -60,7 +60,8 @@ public record OwnedAircraftDto(
     bool Insured, int? CoverageMilli, long? InsuredValueCents,
     int LifetimeFlights, double LifetimeDistanceNm, double LifetimeFuelLbs,
     long LifetimeEarningsCents, long LifetimeUpkeepCents,
-    bool Airworthy, string? UnairworthyReason, double HoursTo100h, int DaysToAnnual, long InspectionQuoteCents);
+    bool Airworthy, string? UnairworthyReason, double HoursTo100h, int DaysToAnnual, long InspectionQuoteCents,
+    string Ownership); // Phase 9f — "Owned" | "Rented"; a rented tail can't be sold/insured
 
 // --- Hangar depth (Phase 6): per-airframe drill-down ---
 public record AircraftFlightDto(
@@ -93,6 +94,12 @@ public record BuyAircraftRequest(Guid TypeId);
 public record UsedListingDto(int Seed, Guid TypeId, string TypeName, string Category, double AirframeHours, int ConditionMilli, long PriceCents, long NewPriceCents);
 public record BuyUsedRequest(Guid TypeId, int Seed);
 
+// --- Phase 9f-1: aircraft rental ---
+public record RentalOfferDto(Guid TypeId, string TypeName, string Category, long StickerCents, long DailyHoldingCents, long FlightHourCents, long DepositCents, int TermDays);
+public record RentAircraftRequest(Guid TypeId, int? TermDays);
+public record RentalReturnQuoteDto(long FinalRentCents, long DamageCents, string? DamageReason, long RefundCents);
+public record ActiveRentalDto(Guid AgreementId, Guid AircraftInstanceId, string Tail, string TypeName, string LocationIcao, long DepositCents, long AccruedRentCents, int DaysLeft, long FlightHourCents, long DailyHoldingCents, RentalReturnQuoteDto Projected);
+
 // --- Phase 2d: staff + standing orders ---
 public record StaffCandidateDto(int Seed, string Name, long WagePerDayCents, int SkillMilli);
 public record StaffDto(Guid Id, string Name, long WagePerDayCents, int SkillMilli);
@@ -103,7 +110,7 @@ public record StandingOrderDto(
     int PriceMultiplierMilli, int FillPct, long FairRewardPerTripCents);
 public record StandingOrderRequest(Guid StaffId, Guid AircraftInstanceId, string DestIcao, int? PriceMultiplierMilli);
 public record OrderPriceRequest(int PriceMultiplierMilli);
-public record ReconcileDto(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed, int EmptyLegs, IReadOnlyList<string> LoanWarnings, IReadOnlyList<string> Defaults, IReadOnlyList<string> CertLapsed, int WeatheredOut, IReadOnlyList<string> CertExpiring);
+public record ReconcileDto(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed, int EmptyLegs, IReadOnlyList<string> LoanWarnings, IReadOnlyList<string> Defaults, IReadOnlyList<string> CertLapsed, int WeatheredOut, IReadOnlyList<string> CertExpiring, long RentalCents, IReadOnlyList<string> RentalsExpiring, IReadOnlyList<string> RentalsAutoReturned);
 
 // --- Phase 4a: loans ---
 public record LoanOfferDto(int Tier, string Name, long MinPrincipalCents, long MaxPrincipalCents, int AprBps, int EffectiveAprBps);
