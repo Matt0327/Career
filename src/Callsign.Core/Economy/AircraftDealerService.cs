@@ -251,6 +251,10 @@ public sealed class AircraftDealerService
                       ?? throw new InvalidOperationException($"Company {companyId} not found.");
         var inst = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == instanceId && a.CompanyId == companyId, ct)
                    ?? throw new InvalidOperationException("Aircraft not found in your fleet.");
+        // Only an OWNED tail (Phase 9f): the lessor maintains a rental. Without this a renter could wreck a tail,
+        // service it back to 100% for a flat fee, and reclaim the whole damage deposit — nulling the mechanic.
+        if (inst.Ownership != OwnershipKind.Owned)
+            throw new InvalidOperationException("You can only service an aircraft you own — the lessor maintains a rental.");
 
         long cost = await ApplyShopDiscountAsync(companyId, inst.LocationIcao, MaintenanceQuoteCents(inst), ct);
         if (company.CashCents < cost)
@@ -335,6 +339,8 @@ public sealed class AircraftDealerService
                       ?? throw new InvalidOperationException($"Company {companyId} not found.");
         var inst = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == instanceId && a.CompanyId == companyId, ct)
                    ?? throw new InvalidOperationException("Aircraft not found in your fleet.");
+        if (inst.Ownership != OwnershipKind.Owned) // Phase 9f: the lessor handles a rental's airworthiness
+            throw new InvalidOperationException("You can only inspect an aircraft you own — the lessor maintains a rental.");
 
         var now = _clock.UtcNow;
         bool due100h = inst.AirframeHours - inst.Last100hHoursWatermark >= _cfg.HundredHourIntervalHours;
@@ -454,6 +460,8 @@ public sealed class AircraftDealerService
         var inst = await _db.AircraftInstances
             .FirstOrDefaultAsync(a => a.Id == instanceId && a.CompanyId == companyId && !a.IsDeleted, ct)
             ?? throw new InvalidOperationException("Aircraft not found in your fleet.");
+        if (inst.Ownership != OwnershipKind.Owned) // Phase 9f: a rental is hand-fly-only; fly it where you need it
+            throw new InvalidOperationException("You can only ferry an aircraft you own — fly the rental there yourself.");
         if (inst.Availability != AircraftAvailability.Available)
             throw new InvalidOperationException("This airframe is busy — it must be available to ferry.");
 
@@ -611,7 +619,12 @@ public sealed class AircraftDealerService
         double usageHours = Math.Max(0, tail.AirframeHours - ag.HoursLastBilled);
         long usage = (long)Math.Round(usageHours * ag.FlightHourRateCents);
 
-        int expectedWear = (int)Math.Round(Math.Max(0, tail.AirframeHours - ag.HoursAtPickup) * cfg.ConditionWearMilliPerHour);
+        // Expected wear = ordinary hours wear PLUS the Fun-Dial handling allowance (L9): a firm-but-acceptable
+        // landing and minor engine wear are expected and free; only wear past this line — a real slam, or gross
+        // engine abuse (9e) — bites the deposit. This is what makes "coach-band flying is free" true on the
+        // telemetry path (settlement also subtracts landing + engine-abuse wear, not just hours).
+        int expectedWear = (int)Math.Round(Math.Max(0, tail.AirframeHours - ag.HoursAtPickup)
+            * (cfg.ConditionWearMilliPerHour + cfg.RentOrdinaryHandlingWearMilliPerHour));
         int expHull = Math.Max(0, ag.HullMilliAtPickup - expectedWear);
         int expEngine = Math.Max(0, ag.EngineMilliAtPickup - expectedWear);
         long valueExpected = ValueAtConditionCents(cfg, type, expHull, expEngine);
@@ -640,9 +653,10 @@ public sealed class AircraftDealerService
     /// Settle a return: bill the final holding + usage rent, withhold any damage beyond ordinary wear from the
     /// deposit, refund the rest, and retire the tail + agreement. STAGES onto the context (does not save) so
     /// both the endpoint and the reconcile auto-return can commit it in their own transaction. Returns the
-    /// refund in cents. The <c>rental-return:{id}</c> posting is always written, so the return is idempotent.
+    /// refund AND the rent billed (so reconcile can fold an auto-return into its digest). The
+    /// <c>rental-return:{id}</c> posting is always written, so the return is idempotent.
     /// </summary>
-    internal static async Task<long> SettleReturnAsync(
+    internal static async Task<(long Refund, long RentBilled)> SettleReturnAsync(
         CallsignDbContext db, LedgerService ledger, EconomyConfig cfg,
         RentalAgreement ag, AircraftInstance tail, AircraftType type, DateTimeOffset now, CancellationToken ct)
     {
@@ -668,7 +682,7 @@ public sealed class AircraftDealerService
         tail.IsDeleted = true;               // goes back to the owner — off your books
         tail.Availability = AircraftAvailability.Grounded;
         tail.UpdatedAt = now;
-        return refund;
+        return (refund, holding + usage);
     }
 
     /// <summary>Return a rented tail: settles the final rent + damage and refunds the deposit. Idempotent.</summary>
@@ -689,7 +703,7 @@ public sealed class AircraftDealerService
         var type = await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == tail.TypeId, ct)
                    ?? throw new InvalidOperationException("Aircraft type not found.");
 
-        long refund = await SettleReturnAsync(_db, _ledger, _cfg, ag, tail, type, _clock.UtcNow, ct);
+        long refund = (await SettleReturnAsync(_db, _ledger, _cfg, ag, tail, type, _clock.UtcNow, ct)).Refund;
         try
         {
             await _db.SaveChangesAsync(ct);

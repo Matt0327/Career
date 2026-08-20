@@ -430,19 +430,31 @@ public sealed class OperationsService
         // Aircraft rentals (Phase 9f-1): bill the holding fee + per-flight-hour usage on every active rental,
         // warn before an expiring one auto-returns, and auto-return an expired IDLE rental (Law 4). Billed
         // before the loan block below so the solvency valve sees the cost.
-        long totalRental = 0;
+        long totalRental = 0, totalRentalRefund = 0;
         var rentalsExpiring = new List<string>();
         var rentalsReturned = new List<string>();
         foreach (var ag in await _db.RentalAgreements.Where(r => r.CompanyId == companyId && r.Status == RentalStatus.Active && !r.IsDeleted).ToListAsync(ct))
         {
             var tail = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == ag.AircraftInstanceId, ct);
-            if (tail is null) continue;
+            if (tail is null) // the tail row is gone (an unsupported hard-delete) — close the agreement so it can't bill a ghost forever
+            {
+                ag.Status = RentalStatus.Returned; ag.UpdatedAt = now;
+                continue;
+            }
             var rtType = await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == tail.TypeId, ct);
+            bool expired = now >= ag.ExpiresAt && tail.Availability == AircraftAvailability.Available;
 
             // Auto-return at expiry — but only an IDLE tail; a rental mid-leg keeps accruing and returns next pass.
-            if (now >= ag.ExpiresAt && tail.Availability == AircraftAvailability.Available && rtType is not null)
+            if (expired && rtType is not null)
             {
-                await AircraftDealerService.SettleReturnAsync(_db, _ledger, _cfg, ag, tail, rtType, now, ct);
+                var (refund, rent) = await AircraftDealerService.SettleReturnAsync(_db, _ledger, _cfg, ag, tail, rtType, now, ct);
+                totalRental += rent; totalRentalRefund += refund; // fold into the digest so NetCents is exact
+                rentalsReturned.Add(tail.Tail);
+                continue;
+            }
+            if (expired) // the type row is gone — can't value the return; close it so billing can't run away (unsupported data state)
+            {
+                ag.Status = RentalStatus.Returned; ag.UpdatedAt = now;
                 rentalsReturned.Add(tail.Tail);
                 continue;
             }
@@ -529,7 +541,7 @@ public sealed class OperationsService
 
         await _db.SaveChangesAsync(ct);
         return new ReconcileDigest(totalTrips, grossIncome, totalFees, totalWages, totalRent, totalLoan, totalInsurance,
-            grossIncome - totalFees - totalWages - totalRent - totalLoan - totalInsurance - totalRental, totalIncidents, grounded, dutyMaxed, totalEmpty,
+            grossIncome - totalFees - totalWages - totalRent - totalLoan - totalInsurance - totalRental + totalRentalRefund, totalIncidents, grounded, dutyMaxed, totalEmpty,
             loanWarnings, defaults, certLapsed, totalWeatheredOut, certExpiring, totalRental, rentalsExpiring, rentalsReturned);
     }
 

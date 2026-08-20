@@ -286,7 +286,7 @@ public sealed class TradeService
     private async Task<int> CarryCapacityLbsAsync(Guid companyId, CancellationToken ct)
     {
         var typeIds = await _db.AircraftInstances
-            .Where(a => a.CompanyId == companyId && !a.IsDeleted)
+            .Where(a => a.CompanyId == companyId && !a.IsDeleted && a.Ownership == OwnershipKind.Owned) // trade scales with what you OWN (Phase 9f) — a rental can't lift your carry cap
             .Select(a => a.TypeId)
             .Distinct()
             .ToListAsync(ct);

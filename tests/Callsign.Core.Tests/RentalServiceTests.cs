@@ -127,6 +127,22 @@ public class RentalServiceTests
     }
 
     [Fact]
+    public async Task RentedTail_CannotBeServiced_TheLessorMaintainsIt()
+    {
+        // The load-bearing guard: without it a renter could wreck a tail, service it to 100% for a flat fee,
+        // and reclaim the whole damage deposit — nulling the mechanic. Maintain/Inspect/Ferry are Owned-only.
+        using var tdb = new TestDb(); var clock = new FakeClock();
+        var s = await SeedAsync(tdb, clock, C172());
+        var agId = await RentAsync(tdb, clock, s);
+        using var db = tdb.NewContext();
+        var tailId = (await db.RentalAgreements.FindAsync(agId))!.AircraftInstanceId;
+        var dealer = Dealer(db, clock);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => dealer.MaintainAsync(s.CompanyId, tailId));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => dealer.InspectAsync(s.CompanyId, tailId));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => dealer.RelocateAsync(s.CompanyId, tailId, "EHRD"));
+    }
+
+    [Fact]
     public async Task RentedTail_CannotFlyAutonomousWork_HandFlyOnly()
     {
         using var tdb = new TestDb(); var clock = new FakeClock();
@@ -189,14 +205,30 @@ public class RentalServiceTests
     }
 
     [Fact]
-    public async Task HardLeg_ChargesDamageBeyondOrdinaryWear_CappedAtTheDeposit()
+    public async Task OrdinaryFirmLeg_WithinTheHandlingBand_DamageZero()
+    {
+        // 10 h flown, condition ~10000 milli below the hours line — a firm-but-acceptable landing / minor wear,
+        // inside the Fun-Dial handling allowance (10 h × 1200 = 12000). It must NOT touch the deposit (L9).
+        using var tdb = new TestDb(); var clock = new FakeClock();
+        var s = await SeedAsync(tdb, clock, C172());
+        var agId = await RentAsync(tdb, clock, s);
+        int cond = Cfg.RentalDeliveryConditionMilli - (int)Math.Round(10.0 * Cfg.ConditionWearMilliPerHour) - 10_000;
+        await FlyRental(tdb, agId, 10, cond, cond);
+
+        using var db = tdb.NewContext();
+        var q = await Dealer(db, clock).ReturnQuoteAsync(s.CompanyId, agId);
+        Assert.Equal(0, q!.DamageCents);
+        Assert.Equal(s.DepositCents, q.RefundCents);
+    }
+
+    [Fact]
+    public async Task HardLeg_ChargesDamageBeyondTheHandlingBand_CappedAtTheDeposit()
     {
         using var tdb = new TestDb(); var clock = new FakeClock();
         var s = await SeedAsync(tdb, clock, C172());
         var agId = await RentAsync(tdb, clock, s);
-        // 10 h flown, but condition 10% below the expected line — real abuse.
-        int expected = Cfg.RentalDeliveryConditionMilli - (int)Math.Round(10.0 * Cfg.ConditionWearMilliPerHour);
-        await FlyRental(tdb, agId, 10, expected - 10_000, expected - 10_000);
+        // 10 h flown, condition well past the ordinary-handling band — genuine abuse (a real slam / engine damage).
+        await FlyRental(tdb, agId, 10, Cfg.RentalDeliveryConditionMilli - 40_000, Cfg.RentalDeliveryConditionMilli - 40_000);
 
         long refund;
         using (var db = tdb.NewContext())

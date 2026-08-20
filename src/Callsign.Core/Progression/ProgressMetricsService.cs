@@ -33,7 +33,7 @@ public sealed class ProgressMetricsService
 
         var flights = await _db.Flights.CountAsync(ct);
         var smooth = await _db.Flights.CountAsync(f => f.TouchdownFpm >= -60 && f.TouchdownFpm <= 60, ct);
-        var aircraft = await _db.AircraftInstances.CountAsync(a => a.CompanyId == companyId && !a.IsDeleted, ct);
+        var aircraft = await _db.AircraftInstances.CountAsync(a => a.CompanyId == companyId && !a.IsDeleted && a.Ownership == OwnershipKind.Owned, ct); // fleet-size counts OWNED tails, not rentals (Phase 9f)
         var bases = await _db.Bases.CountAsync(b => b.CompanyId == companyId && !b.IsDeleted, ct);
         var routes = await _db.Routes.CountAsync(r => r.CompanyId == companyId, ct); // "ever opened"
         var loansPaid = await _db.Loans.CountAsync(l => l.CompanyId == companyId && l.Status == LoanStatus.PaidOff, ct);

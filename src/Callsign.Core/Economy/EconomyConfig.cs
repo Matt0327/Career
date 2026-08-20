@@ -536,6 +536,11 @@ public sealed record EconomyConfig
     public int RentMaxTermDays { get; init; } = 30;         // rentals are short-term
     public int RentExpiryWarnDays { get; init; } = 3;       // digest nudge before auto-return (Law 4)
     public int RentalDeliveryConditionMilli { get; init; } = 100_000; // the world delivers a freshly serviced tail
+    // The Fun-Dial forgiveness band on a rental return (L9): ordinary handling wear a hand-flown leg leaves
+    // BEYOND the hours line — a firm-but-acceptable landing (LandingWearMilli, ~1000/leg at 400 fpm) and minor
+    // engine wear — is expected and free. Only wear PAST this allowance (a real slam, or gross engine abuse from
+    // 9e) bites the deposit. Folded into the expected-wear baseline; also absorbs per-leg rounding drift.
+    public int RentOrdinaryHandlingWearMilliPerHour { get; init; } = 1_200;
 
     // usage rent (40 bps) > the resale value ordinary wear/hr consumes (≈ AircraftResaleFactor × wear/hr = 0.70 × 0.4% = 0.28%),
     // so renting a flight-hour always costs more than owning it — no rent-to-earn pump at any utilization.
