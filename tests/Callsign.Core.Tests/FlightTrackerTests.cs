@@ -13,7 +13,8 @@ public class FlightTrackerTests
         double lat = 52.0, double lon = 4.0, double fuel = 500, string title = "Cessna 172",
         double bank = 0, double g = 1.0, bool stall = false, bool overspeed = false, double? agl = null,
         double simRate = 1.0, bool slew = false,
-        double windKts = 0, double windDir = 0, double heading = 0, double visSm = 10)
+        double windKts = 0, double windDir = 0, double heading = 0, double visSm = 10,
+        double tdNormalFps = 0, double tdLateralFps = 0)
         => new()
         {
             Sequence = sec,
@@ -38,6 +39,8 @@ public class FlightTrackerTests
             OverspeedWarning = overspeed,
             SimRate = simRate,
             SlewActive = slew,
+            TouchdownNormalVelocityFps = tdNormalFps,
+            TouchdownLateralVelocityFps = tdLateralFps,
         };
 
     private static FlightTracker FlyStandardLeg()
@@ -148,6 +151,49 @@ public class FlightTrackerTests
         var t = LegWith(bank: 68); // past the 60° exceedance — the real limit still bites
         Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Warning && e.Message.Contains("Steep bank"));
         Assert.True(t.Result!.ViolationPoints > 0);
+    }
+
+    // ── Phase 9c: authoritative touchdown grade from the sim's captured contact state ─────────────
+
+    [Fact]
+    public void AuthoritativeTouchdown_CatchesAPeakTheSamplingMissed()
+    {
+        var t = new FlightTracker();
+        t.Observe(Snap(0, 0, 0, 0, onGround: true));
+        t.Observe(Snap(10, 50, 70, 500, onGround: false));
+        t.Observe(Snap(59, 40, 65, -100, onGround: false));               // sampled: a soft-looking -100 fpm final
+        t.Observe(Snap(60, 0, 55, 0, onGround: true, tdNormalFps: 10));    // sim captured 10 ft/s = -600 fpm at contact
+        t.Observe(Snap(120, 0, 0, 0, onGround: true));                     // shutdown
+
+        Assert.Equal(-600, t.Result!.TouchdownFpmWorst3);                  // the authoritative rate drives the grade
+        Assert.Contains(t.Events, e => e.Message == "Landed at -600 fpm"); // and the log line agrees
+    }
+
+    [Fact]
+    public void AuthoritativeTouchdown_NeverSoftensASlam()
+    {
+        var t = new FlightTracker();
+        t.Observe(Snap(0, 0, 0, 0, onGround: true));
+        t.Observe(Snap(10, 50, 70, 500, onGround: false));
+        t.Observe(Snap(59, 40, 65, -850, onGround: false));               // sampled: a genuine slam
+        t.Observe(Snap(60, 0, 55, 0, onGround: true, tdNormalFps: 2));     // sim reports a soft 2 ft/s = -120
+        t.Observe(Snap(120, 0, 0, 0, onGround: true));
+
+        Assert.Equal(-850, t.Result!.TouchdownFpmWorst3);                  // Min keeps the hardest — can't be gamed softer
+    }
+
+    [Fact]
+    public void SideLoadTouchdown_Coaches_WithNoPenalty()
+    {
+        var t = new FlightTracker();
+        t.Observe(Snap(0, 0, 0, 0, onGround: true));
+        t.Observe(Snap(10, 50, 70, 500, onGround: false));
+        t.Observe(Snap(60, 30, 60, -120, onGround: false));               // clean final
+        t.Observe(Snap(61, 0, 55, 0, onGround: true, tdLateralFps: 7));    // firm de-crab side-load
+        t.Observe(Snap(120, 0, 0, 0, onGround: true));
+
+        Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Coaching && e.Message.Contains("Side-load"));
+        Assert.Equal(0, t.Result!.ViolationPoints); // technique note, not a penalty (L9)
     }
 
     [Fact]

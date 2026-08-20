@@ -51,6 +51,9 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
         public double AmbientWindKts;
         public double AmbientWindDirDeg;
         public double AmbientVisibilityMeters;
+        // Phase 9c authoritative touchdown — order here MUST match the AddToDataDefinition call order below.
+        public double TouchdownNormalVelocityFps;
+        public double TouchdownLateralVelocityFps;
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
         public string Title;
     }
@@ -228,6 +231,11 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
             SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
         sc.AddToDataDefinition(Definitions.AircraftData, "AMBIENT VISIBILITY", "meters",
             SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        // Phase 9c — the sim's captured touchdown state (order matches the struct fields above).
+        sc.AddToDataDefinition(Definitions.AircraftData, "PLANE TOUCHDOWN NORMAL VELOCITY", "feet per second",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "PLANE TOUCHDOWN LATERAL VELOCITY", "feet per second",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
         sc.AddToDataDefinition(Definitions.AircraftData, "TITLE", null,
             SIMCONNECT_DATATYPE.STRING256, 0f, unused);
         sc.RegisterDataDefineStruct<AircraftData>(Definitions.AircraftData);
@@ -270,6 +278,8 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
             AmbientWindKts = d.AmbientWindKts,
             AmbientWindDirDeg = d.AmbientWindDirDeg,
             AmbientVisibilitySm = d.AmbientVisibilityMeters / 1609.344, // meters → statute miles
+            TouchdownNormalVelocityFps = d.TouchdownNormalVelocityFps,
+            TouchdownLateralVelocityFps = d.TouchdownLateralVelocityFps,
         });
     }
 

@@ -34,6 +34,7 @@ public sealed class FlightTracker
     // crosses the harder limit above.
     private const double CoachBankDeg = 35;              // steep-ish, but not an exceedance
     private const double CoachGHigh = 1.8, CoachGLow = -0.3; // firm, but not an exceedance
+    private const double CoachLateralFps = 4;            // a firm de-crab side-load at touchdown → a nudge (Phase 9c)
 
     // Phase 8 — tough conditions earn a landing back some grade: a firm touchdown in a 25 kt crosswind or
     // low visibility is a better piece of flying than the same numbers in calm, clear air.
@@ -150,10 +151,20 @@ public sealed class FlightTracker
             // sample; the grade tracks the WORST across contacts — worst of the last three of THIS contact,
             // min'd with earlier contacts — so a soft frame OR a bounce can't game the landing away.
             double contactWorstFpm = _recentVs.Count > 0 ? _recentVs.Min() : _lastAirborneVs;
+            // Phase 9c: fold in the sim's captured touchdown rate. As a descent it's negative; Min keeps the
+            // HARDEST, so the authoritative value can only sharpen the grade (catch a peak the sampling missed),
+            // never soften a slam. Default 0 = not reported → the sampled worst-of-three stands (L10).
+            double authFpm = _lastAirborneVs;
+            if (t.TouchdownNormalVelocityFps != 0)
+            {
+                double simTdFpm = -Math.Abs(t.TouchdownNormalVelocityFps) * 60.0;
+                contactWorstFpm = Math.Min(contactWorstFpm, simTdFpm);
+                authFpm = Math.Min(_lastAirborneVs, simTdFpm); // display the HARDER of the two, so a bounce can't understate
+            }
             _worstFpm = Math.Min(_worstFpm, contactWorstFpm);
             _worstG = Math.Max(_worstG, Math.Max(Math.Abs(t.GForce), _lastAirborneG));
             _worstBank = Math.Max(_worstBank, _lastAirborneBankDeg);
-            _touchdownFpm = _lastAirborneVs; // raw last-frame rate of the latest contact (kept for continuity)
+            _touchdownFpm = authFpm; // authoritative rate when the sim reports it, else the raw last-frame rate
             _tdWindKts = t.AmbientWindKts; _tdWindDir = t.AmbientWindDirDeg; _tdHeading = t.HeadingDegTrue; _tdVisSm = t.AmbientVisibilitySm;
             _arrivedAt = t.CapturedAt;
             _arrLat = t.LatitudeDeg;
@@ -168,6 +179,10 @@ public sealed class FlightTracker
 
             _events.Add(new FlightEvent(t.CapturedAt, LandingSeverity(_touchdownFpm),
                 $"Landed at {_touchdownFpm:F0} fpm"));
+            // Fun Dial (L9): a firm de-crab side-load at touchdown coaches, it doesn't penalise (Phase 9c).
+            if (Math.Abs(t.TouchdownLateralVelocityFps) > CoachLateralFps)
+                _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Coaching,
+                    $"Side-load on touchdown — {Math.Abs(t.TouchdownLateralVelocityFps):F0} ft/s, de-crab a touch earlier"));
             return;
         }
 

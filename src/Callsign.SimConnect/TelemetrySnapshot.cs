@@ -84,4 +84,12 @@ public sealed record TelemetrySnapshot
     public double AmbientWindDirDeg { get; init; }
     /// <summary>Surface visibility (statute miles). Default 10 = clear, so no-weather telemetry adds no difficulty.</summary>
     public double AmbientVisibilitySm { get; init; } = 10;
+
+    // --- Authoritative touchdown (Phase 9c): the sim captures the exact touchdown state at contact, so a low
+    // sample rate can't miss the peak. Default 0 = not reported → the tracker keeps its sampled worst-of-three
+    // (L10: a missing signal changes nothing). The sim value only ever makes the grade harder, never softer.
+    /// <summary>Vertical velocity AT the moment of touchdown (feet per second, magnitude used). ×60 = touchdown fpm.</summary>
+    public double TouchdownNormalVelocityFps { get; init; }
+    /// <summary>Lateral (side-load) velocity at touchdown (feet per second) — a firm crab-on-touchdown de-crab tell.</summary>
+    public double TouchdownLateralVelocityFps { get; init; }
 }
