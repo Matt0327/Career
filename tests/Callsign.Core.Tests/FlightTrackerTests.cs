@@ -12,10 +12,15 @@ public class FlightTrackerTests
         int sec, double alt, double gs, double vs, bool onGround,
         double lat = 52.0, double lon = 4.0, double fuel = 500, string title = "Cessna 172",
         double bank = 0, double g = 1.0, bool stall = false, bool overspeed = false, double? agl = null,
-        double simRate = 1.0, bool slew = false)
+        double simRate = 1.0, bool slew = false,
+        double windKts = 0, double windDir = 0, double heading = 0, double visSm = 10)
         => new()
         {
             Sequence = sec,
+            AmbientWindKts = windKts,
+            AmbientWindDirDeg = windDir,
+            HeadingDegTrue = heading,
+            AmbientVisibilitySm = visSm,
             CapturedAt = T0.AddSeconds(sec),
             AltitudeFt = alt,
             IndicatedAirspeedKts = gs,
@@ -272,5 +277,38 @@ public class FlightTrackerTests
 
         Assert.NotNull(t.Result);
         Assert.Equal(-100, t.Result!.TouchdownFpm); // the final landing, not the -500 bounce
+    }
+
+    // ── Weather difficulty on the landing grade (Phase 8) ──────────────────────
+
+    [Fact]
+    public void WeatherLandingBonus_CalmClearIsZero_CrosswindAndLowVisRaiseIt_Capped()
+    {
+        Assert.Equal(0, FlightTracker.WeatherLandingBonus(0, 10));      // calm, clear → no bonus (the default path)
+        Assert.True(FlightTracker.WeatherLandingBonus(25, 10) > 0);     // a full crosswind
+        Assert.True(FlightTracker.WeatherLandingBonus(0, 0.5) > 0);     // low visibility
+        Assert.True(FlightTracker.WeatherLandingBonus(25, 10) > FlightTracker.WeatherLandingBonus(10, 10)); // more wind, more bonus
+        Assert.True(FlightTracker.WeatherLandingBonus(200, 0) <= 15);   // capped
+    }
+
+    // A firm landing (rawLanding below 100) in a stiff crosswind grades higher than the identical landing in calm.
+    private static FlightRecord FlyLandingWith(double windKts, double windDir, double heading, double visSm = 10)
+    {
+        var t = new FlightTracker();
+        t.Observe(Snap(0, 0, 0, 0, onGround: true));
+        t.Observe(Snap(10, 50, 70, 500, onGround: false, heading: heading));   // takeoff
+        t.Observe(Snap(60, 200, 70, -150, onGround: false, heading: heading)); // short final at -150 fpm
+        t.Observe(Snap(61, 0, 60, 0, onGround: true, heading: heading, windKts: windKts, windDir: windDir, visSm: visSm)); // touchdown, in these conditions
+        t.Observe(Snap(120, 0, 0, 0, onGround: true));                          // shutdown
+        return t.Result!;
+    }
+
+    [Fact]
+    public void Landing_InACrosswind_GradesHigherThanTheSameLandingInCalm()
+    {
+        int calm = FlyLandingWith(0, 0, 0).LandingScore;
+        var gustyLeg = FlyLandingWith(20, 90, 0); // 20 kt wind at 90° to a runway heading of 0° = 20 kt crosswind
+        Assert.True(gustyLeg.LandingScore > calm);                            // tough air earns grade back
+        Assert.Contains(gustyLeg.Events, e => e.Message.Contains("Tough conditions")); // and it's announced (transparency)
     }
 }

@@ -76,4 +76,12 @@ public sealed record TelemetrySnapshot
 
     /// <summary>True while slew mode is active (a teleport/cheat tell). Recorded for the Phase 7c pass.</summary>
     public bool SlewActive { get; init; }
+
+    // --- Ambient weather (Phase 8): the sim's actual conditions, for scoring a flown leg's difficulty (law L7) ---
+    /// <summary>Sustained ambient wind speed (kt). Default 0 = calm, so no-weather telemetry adds no difficulty.</summary>
+    public double AmbientWindKts { get; init; }
+    /// <summary>Wind direction (degrees, FROM). Combined with heading at touchdown to get the crosswind component.</summary>
+    public double AmbientWindDirDeg { get; init; }
+    /// <summary>Surface visibility (statute miles). Default 10 = clear, so no-weather telemetry adds no difficulty.</summary>
+    public double AmbientVisibilitySm { get; init; } = 10;
 }

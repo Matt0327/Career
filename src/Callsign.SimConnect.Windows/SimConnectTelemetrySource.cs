@@ -47,6 +47,10 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
         public int OverspeedWarning;
         public double SimRate;
         public int SlewActive;
+        // Phase 8 ambient weather — order here MUST match the AddToDataDefinition call order below.
+        public double AmbientWindKts;
+        public double AmbientWindDirDeg;
+        public double AmbientVisibilityMeters;
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
         public string Title;
     }
@@ -218,6 +222,12 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
             SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
         sc.AddToDataDefinition(Definitions.AircraftData, "IS SLEW ACTIVE", "bool",
             SIMCONNECT_DATATYPE.INT32, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "AMBIENT WIND VELOCITY", "knots",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "AMBIENT WIND DIRECTION", "degrees",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "AMBIENT VISIBILITY", "meters",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
         sc.AddToDataDefinition(Definitions.AircraftData, "TITLE", null,
             SIMCONNECT_DATATYPE.STRING256, 0f, unused);
         sc.RegisterDataDefineStruct<AircraftData>(Definitions.AircraftData);
@@ -257,6 +267,9 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
             OverspeedWarning = d.OverspeedWarning != 0,
             SimRate = d.SimRate,
             SlewActive = d.SlewActive != 0,
+            AmbientWindKts = d.AmbientWindKts,
+            AmbientWindDirDeg = d.AmbientWindDirDeg,
+            AmbientVisibilitySm = d.AmbientVisibilityMeters / 1609.344, // meters → statute miles
         });
     }
 

@@ -30,6 +30,12 @@ public sealed class FlightTracker
     private const double OverGHigh = 2.5, OverGLow = -1.0;
     private const int PtsOverspeed = 15, PtsStall = 20, PtsOverBank = 10, PtsOverG = 15;
 
+    // Phase 8 — tough conditions earn a landing back some grade: a firm touchdown in a 25 kt crosswind or
+    // low visibility is a better piece of flying than the same numbers in calm, clear air.
+    private const double XwindFullKts = 25;              // crosswind at which the difficulty maxes out
+    private const double VisEasySm = 5, VisHardSm = 1;   // below 5 sm vis starts to bite; 1 sm is fully hard
+    private const int MaxWeatherLandingBonus = 15;       // the most tough conditions can lift a landing grade
+
     private readonly List<FlightEvent> _events = [];
 
     private bool _wasAirborne;
@@ -55,6 +61,8 @@ public sealed class FlightTracker
     private double _worstFpm;         // most-negative sink at contact; 0 = no contact yet
     private double _worstG = 1.0;     // hardest vertical g at contact
     private double _worstBank;        // steepest bank at contact
+    // The sim's actual conditions at touchdown (Phase 8) — read, never commanded (law L7).
+    private double _tdWindKts, _tdWindDir, _tdHeading, _tdVisSm = 10;
     private int _approachPass, _approachTotal;
     private int _violationPoints;
     private bool _overspeedWarned, _stallWarned, _bankWarned, _gWarned;
@@ -140,6 +148,7 @@ public sealed class FlightTracker
             _worstG = Math.Max(_worstG, Math.Max(Math.Abs(t.GForce), _lastAirborneG));
             _worstBank = Math.Max(_worstBank, _lastAirborneBankDeg);
             _touchdownFpm = _lastAirborneVs; // raw last-frame rate of the latest contact (kept for continuity)
+            _tdWindKts = t.AmbientWindKts; _tdWindDir = t.AmbientWindDirDeg; _tdHeading = t.HeadingDegTrue; _tdVisSm = t.AmbientVisibilitySm;
             _arrivedAt = t.CapturedAt;
             _arrLat = t.LatitudeDeg;
             _arrLon = t.LongitudeDeg;
@@ -253,7 +262,15 @@ public sealed class FlightTracker
     private void Complete()
     {
         double worst3 = _worstFpm != 0 ? _worstFpm : _touchdownFpm;
-        int landing = Math.Min(FpmScore(worst3), Math.Min(GScore(_worstG), BankScore(_worstBank)));
+        int rawLanding = Math.Min(FpmScore(worst3), Math.Min(GScore(_worstG), BankScore(_worstBank)));
+        // The sim's actual conditions at touchdown lift the grade: crosswind = |wind · sin(windDir − heading)|,
+        // plus low visibility. A firm arrival in tough air was better flying than the raw numbers suggest.
+        double crosswind = Math.Abs(_tdWindKts * Math.Sin((_tdWindDir - _tdHeading) * Math.PI / 180.0));
+        int weatherBonus = WeatherLandingBonus(crosswind, _tdVisSm);
+        int landing = Math.Min(100, rawLanding + weatherBonus);
+        if (weatherBonus > 0)
+            _events.Add(new FlightEvent(_arrivedAt, FlightEventSeverity.Info,
+                $"Tough conditions — {crosswind:F0} kt crosswind{(_tdVisSm < VisEasySm ? $", {_tdVisSm:F1} sm vis" : "")} — +{weatherBonus} to the landing grade"));
         int approach = ApproachScore();
         int enroute = Math.Clamp(100 - _violationPoints, 0, 100);
         int overall = (int)Math.Round(0.55 * landing + 0.30 * approach + 0.15 * enroute);
@@ -306,5 +323,15 @@ public sealed class FlightTracker
     {
         double m = Math.Abs(bankDeg);
         return m <= 3 ? 100 : m <= 6 ? 90 : m <= 10 ? 75 : m <= 15 ? 55 : m <= 25 ? 30 : 10;
+    }
+
+    // Grade points the conditions earn back: crosswind (weighted 0.7) + low visibility (0.3), scaled to the cap.
+    // Calm and clear (the default telemetry) returns 0, so a leg flown without weather data is graded as before.
+    internal static int WeatherLandingBonus(double crosswindKts, double visSm)
+    {
+        double xw = Math.Clamp(crosswindKts / XwindFullKts, 0, 1);
+        double vis = Math.Clamp((VisEasySm - visSm) / (VisEasySm - VisHardSm), 0, 1);
+        double difficulty = Math.Clamp(xw * 0.7 + vis * 0.3, 0, 1);
+        return (int)Math.Round(difficulty * MaxWeatherLandingBonus);
     }
 }
