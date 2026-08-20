@@ -381,6 +381,12 @@ public sealed record EconomyConfig
         return t * ClientLoyaltyBonusMaxPct;
     }
 
+    // --- Operating certificate renewal (Phase 8e-2): warn before the licence lapses (Law 4) ---
+    /// <summary>Reconcile nudges you to renew an operating certificate once it's within this many days of
+    /// expiring — a proactive Law-4 warning, so a lapse never springs on you and gated routes never silently
+    /// stop.</summary>
+    public int CertRenewalWarnDays { get; init; } = 21;
+
     // --- Trade (Phase 2g): buy low here, sell high there ---
     /// <summary>How far a good's price swings above/below its catalog base across airports (±fraction).</summary>
     public double TradePriceSwing { get; init; } = 0.35;

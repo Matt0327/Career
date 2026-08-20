@@ -172,6 +172,34 @@ public class RouteServiceTests
     }
 
     [Fact]
+    public async Task Reconcile_WarnsWhenACertificateIsNearingExpiry_ButNotWhenComfortable()
+    {
+        // Phase 8e-2: a proactive Law-4 nudge — warn before a certificate lapses, whether or not you run routes.
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var (companyId, _, _) = await SeedAsync(tdb, clock);
+        using (var db = tdb.NewContext())
+        {
+            db.OperatingCertificates.Add(new OperatingCertificate
+            {
+                Id = Guid.NewGuid(), CompanyId = companyId, Kind = CertificateKind.Charter,
+                IssuedAt = clock.UtcNow.AddDays(-110), ExpiresAt = clock.UtcNow.AddDays(10), UpdatedAt = clock.UtcNow, // 10 days left
+            });
+            db.OperatingCertificates.Add(new OperatingCertificate
+            {
+                Id = Guid.NewGuid(), CompanyId = companyId, Kind = CertificateKind.Hazmat,
+                IssuedAt = clock.UtcNow, ExpiresAt = clock.UtcNow.AddDays(90), UpdatedAt = clock.UtcNow, // 90 days — comfortable
+            });
+            await db.SaveChangesAsync();
+        }
+
+        using var db2 = tdb.NewContext();
+        var digest = await Ops(db2, clock).ReconcileAsync(companyId);
+        Assert.Contains(digest.CertExpiring!, s => s.Contains("Charter"));        // 10d <= 21d warn window
+        Assert.DoesNotContain(digest.CertExpiring!, s => s.Contains("Dangerous")); // Hazmat 90d out — not warned
+    }
+
+    [Fact]
     public async Task Reconcile_HoldsPremiumRoute_WhenCertificateLapsed_NoIncome_ForfeitsWindow()
     {
         // Phase 8e regression: a VIP route set up while certified must STOP paying once the cert lapses — the

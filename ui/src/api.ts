@@ -417,6 +417,7 @@ export interface ReconcileResult {
   defaults: string[] // Phase 7g — loans that defaulted this pass (charged off, credit wrecked)
   certLapsed: string[] // Phase 8e — routes held because their operating certificate lapsed (renew to resume)
   weatheredOut: number // Phase 8f — autonomous trips scrubbed by foul weather at the origin this pass
+  certExpiring: string[] // Phase 8e-2 — certificates nearing expiry, warned before they lapse (Law 4)
 }
 
 export interface InsurancePolicy {

@@ -11,7 +11,7 @@ namespace Callsign.Core.Economy;
 public sealed record StaffCandidate(int Seed, string Name, long WagePerDayCents, int SkillMilli);
 
 /// <summary>What a reconcile produced (for the reopen digest).</summary>
-public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed, int EmptyLegs = 0, IReadOnlyList<string>? LoanWarnings = null, IReadOnlyList<string>? Defaults = null, IReadOnlyList<string>? CertLapsed = null, int WeatheredOut = 0);
+public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed, int EmptyLegs = 0, IReadOnlyList<string>? LoanWarnings = null, IReadOnlyList<string>? Defaults = null, IReadOnlyList<string>? CertLapsed = null, int WeatheredOut = 0, IReadOnlyList<string>? CertExpiring = null);
 
 /// <summary>
 /// Staff + standing orders (Phase 2d): hire pilots, set repeating autonomous routes, and reconcile the
@@ -186,6 +186,7 @@ public sealed class OperationsService
         var grounded = new List<string>(); // tails that couldn't fly their autonomous work — surfaced in the digest
         var dutyMaxed = new List<string>();// tails whose lone crew hit the duty limit — hire more crew to fly them harder
         var certLapsed = new List<string>();// routes held because their operating certificate lapsed (Phase 8e)
+        var certExpiring = new List<string>();// certificates nearing expiry — renew before they lapse (Phase 8e-2)
         var world = new WorldOracle(_cfg); // the pure synthetic weather model (Phase 8f-2), for scrub checks
 
         // How many of a batch's trip slots are weathered out at the origin (Phase 8f-2): a pure, deterministic
@@ -322,8 +323,17 @@ public sealed class OperationsService
         }
 
         // Routes (Phase 4d): base-to-base scheduled trips — fee-free (both ends are your bases).
-        var validCertKinds = (await _db.OperatingCertificates
-            .Where(c => c.CompanyId == companyId && c.ExpiresAt > now).Select(c => c.Kind).ToListAsync(ct)).ToHashSet();
+        var validCerts = await _db.OperatingCertificates
+            .Where(c => c.CompanyId == companyId && c.ExpiresAt > now).ToListAsync(ct);
+        var validCertKinds = validCerts.Select(c => c.Kind).ToHashSet();
+        // Renewal nudge (Phase 8e-2): warn before a valid certificate lapses, so a gated route never silently
+        // stops and you're never caught out (Law 4). Fires regardless of whether you run any routes.
+        foreach (var c in validCerts)
+        {
+            int daysLeft = (int)Math.Ceiling((c.ExpiresAt - now).TotalDays);
+            if (daysLeft <= _cfg.CertRenewalWarnDays)
+                certExpiring.Add($"{CertificateCatalog.Def(c.Kind).DisplayName} in {daysLeft}d");
+        }
         foreach (var route in await _db.Routes.Where(r => r.CompanyId == companyId && r.Active && !r.IsDeleted).ToListAsync(ct))
         {
             double elapsedH = (now - route.LastReconciledAt).TotalHours;
@@ -469,7 +479,7 @@ public sealed class OperationsService
         await _db.SaveChangesAsync(ct);
         return new ReconcileDigest(totalTrips, grossIncome, totalFees, totalWages, totalRent, totalLoan, totalInsurance,
             grossIncome - totalFees - totalWages - totalRent - totalLoan - totalInsurance, totalIncidents, grounded, dutyMaxed, totalEmpty,
-            loanWarnings, defaults, certLapsed, totalWeatheredOut);
+            loanWarnings, defaults, certLapsed, totalWeatheredOut, certExpiring);
     }
 
     /// <summary>

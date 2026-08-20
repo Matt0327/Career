@@ -2289,7 +2289,8 @@ function Ops({ onChanged }: { onChanged: () => void }) {
       const def = d.defaults.length > 0 ? ` · ✖ Defaulted: ${d.defaults.join('; ')}.` : ''
       const cert = d.certLapsed.length > 0 ? ` · ⚠ Held (certificate lapsed): ${d.certLapsed.join('; ')} — renew in the Airline tab to resume.` : ''
       const wx = d.weatheredOut > 0 ? ` · ${d.weatheredOut} trip${d.weatheredOut === 1 ? '' : 's'} weathered out at the origin.` : ''
-      setMsg(base + inc + empty + duty + warn + owed + def + cert + wx)
+      const cx = d.certExpiring.length > 0 ? ` · ⚠ Renew soon: ${d.certExpiring.join('; ')} — renew in the Airline tab before it lapses.` : ''
+      setMsg(base + inc + empty + duty + warn + owed + def + cert + wx + cx)
     } catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
 
