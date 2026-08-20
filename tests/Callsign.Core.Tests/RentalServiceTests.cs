@@ -524,4 +524,24 @@ public class RentalServiceTests
         var ins = new InsuranceService(db, new LedgerService(db, clock), clock, Cfg);
         await Assert.ThrowsAsync<InvalidOperationException>(() => ins.InsureAsync(s.CompanyId, tailId, null));
     }
+
+    [Fact]
+    public async Task RentedTail_FlownPast100Hours_IsNotGroundedOnInspection_ButStillGroundsOnCondition()
+    {
+        // The 9f-2 review's HIGH: a non-owned tail flown past the 100-hour interval must NOT ground (the holder
+        // can't clear an inspection — the lessor keeps it up), but a wrecked one still grounds on the condition floor.
+        using var tdb = new TestDb(); var clock = new FakeClock();
+        var s = await SeedAsync(tdb, clock, C172());
+        var agId = await LeaseAsync(tdb, clock, s);
+        await FlyLease(tdb, agId, 150, 90_000, 90_000); // well past the 100-h interval, still good condition
+
+        using var db = tdb.NewContext();
+        var dealer = Dealer(db, clock);
+        var tail = await db.AircraftInstances.FindAsync((await db.RentalAgreements.FindAsync(agId))!.AircraftInstanceId);
+        Assert.Equal(OwnershipKind.Rented, tail!.Ownership);
+        Assert.True(dealer.Airworthiness(tail).Airworthy);    // never grounded on the 100-h interval — the lessor maintains it
+
+        tail.HullConditionMilli = tail.EngineConditionMilli = 10_000; // wrecked, below the airworthy floor
+        Assert.False(dealer.Airworthiness(tail).Airworthy);   // the condition floor still bites → return or casualty
+    }
 }

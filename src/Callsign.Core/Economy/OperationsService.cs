@@ -447,8 +447,8 @@ public sealed class OperationsService
             // Auto-return at expiry — but only an IDLE tail; a rental mid-leg keeps accruing and returns next pass.
             if (expired && rtType is not null)
             {
-                var (refund, rent) = await AircraftDealerService.SettleReturnAsync(_db, _ledger, _cfg, ag, tail, rtType, now, ct);
-                totalRental += rent; totalRentalRefund += refund; // fold into the digest so NetCents is exact
+                var (refund, rent, ins) = await AircraftDealerService.SettleReturnAsync(_db, _ledger, _cfg, ag, tail, rtType, now, ct);
+                totalRental += rent; totalInsurance += ins; totalRentalRefund += refund; // fold into the digest so NetCents is exact
                 rentalsReturned.Add(tail.Tail);
                 continue;
             }
@@ -476,7 +476,7 @@ public sealed class OperationsService
                     if (ins > 0)
                         rp.Add(new(LedgerCategory.InsurancePremium, -(ins / 100m), $"Lease hull cover — {tail.Tail}",
                             LedgerRefType.Rental, ag.Id.ToString(), AircraftInstanceId: tail.Id, DedupeKey: $"lease-ins:{ag.Id}:{stamp}"));
-                    if (rp.Count > 0) { await _ledger.StageBatchAsync(companyId, rp, ct); totalRental += rent + ins; }
+                    if (rp.Count > 0) { await _ledger.StageBatchAsync(companyId, rp, ct); totalRental += rent; totalInsurance += ins; }
                     ag.LastRentBilledAt = ag.LastRentBilledAt.AddDays(days); // whole days only; remainder carried
                     ag.RentCreditedCents += rent;                            // rent credits a future buyout
                     ag.UpdatedAt = now;

@@ -315,8 +315,13 @@ public sealed class AircraftDealerService
         double daysSinceAnnual = (now - annualBase).TotalDays;
         int daysToAnnual = (int)Math.Ceiling(cfg.AnnualIntervalDays - daysSinceAnnual);
 
-        bool due100h = hoursSince100h >= cfg.HundredHourIntervalHours;
-        bool dueAnnual = daysSinceAnnual >= cfg.AnnualIntervalDays;
+        // The lessor keeps a rental/lease inspected (Phase 9f): a non-owned tail is never grounded on the
+        // 100-hour / annual INTERVALS (the holder can't clear them — inspect/maintain are Owned-only), so those
+        // gates would strand it mid-term. The condition floor below still bites, routing a wrecked one to a
+        // return or an insured casualty. Owned tails are unchanged.
+        bool lessorMaintained = inst.Ownership != OwnershipKind.Owned;
+        bool due100h = !lessorMaintained && hoursSince100h >= cfg.HundredHourIntervalHours;
+        bool dueAnnual = !lessorMaintained && daysSinceAnnual >= cfg.AnnualIntervalDays;
         int worstCond = Math.Min(inst.HullConditionMilli, inst.EngineConditionMilli);
         long quote = (due100h ? cfg.HundredHourInspectionCents : 0) + (dueAnnual ? cfg.AnnualInspectionCents : 0);
 
@@ -657,7 +662,7 @@ public sealed class AircraftDealerService
         int deficit = Math.Max(0, Math.Min(ag.HullMilliAtPickup, ag.EngineMilliAtPickup) - Math.Min(tail.HullConditionMilli, tail.EngineConditionMilli));
         long market = AircraftPricing.Quote(cfg, type).TotalCents;
         long damage = Math.Min(ag.DepositCents, (long)Math.Round(market * cfg.AircraftResaleFactor * (deficit / 100_000.0)));
-        string? reason = damage > 0 ? $"returned {deficit / 1000}% below pickup condition" : null;
+        string? reason = damage > 0 ? $"returned {deficit / 1000.0:F1}% below pickup condition" : null;
         long refund = ag.DepositCents - damage;
         return (rent, ins, damage, reason, refund, days);
     }
@@ -686,13 +691,13 @@ public sealed class AircraftDealerService
     /// refund AND the rent billed (so reconcile can fold an auto-return into its digest). The
     /// <c>rental-return:{id}</c> posting is always written, so the return is idempotent.
     /// </summary>
-    internal static async Task<(long Refund, long RentBilled)> SettleReturnAsync(
+    internal static async Task<(long Refund, long RentBilled, long InsuranceBilled)> SettleReturnAsync(
         CallsignDbContext db, LedgerService ledger, EconomyConfig cfg,
         RentalAgreement ag, AircraftInstance tail, AircraftType type, DateTimeOffset now, CancellationToken ct)
     {
         var stamp = ag.LastRentBilledAt.UtcTicks;
         var postings = new List<LedgerPosting>();
-        long refund, rentBilled;
+        long refund, rentBilled, insBilled = 0;
         long damage;
 
         if (ag.Kind == RentalKind.Lease)
@@ -706,7 +711,7 @@ public sealed class AircraftDealerService
                     LedgerRefType.Rental, ag.Id.ToString(), AircraftInstanceId: tail.Id, DedupeKey: $"lease-ins:{ag.Id}:{stamp}"));
             ag.LastRentBilledAt = ag.LastRentBilledAt.AddDays(days); // whole billed days only (remainder carried)
             ag.RentCreditedCents += rent;
-            refund = rf; rentBilled = rent + ins; damage = dmg;
+            refund = rf; rentBilled = rent; insBilled = ins; damage = dmg;
         }
         else
         {
@@ -732,7 +737,7 @@ public sealed class AircraftDealerService
         tail.IsDeleted = true;               // goes back to the owner — off your books
         tail.Availability = AircraftAvailability.Grounded;
         tail.UpdatedAt = now;
-        return (refund, rentBilled);
+        return (refund, rentBilled, insBilled);
     }
 
     /// <summary>Return a rented tail: settles the final rent + damage and refunds the deposit. Idempotent.</summary>
@@ -980,6 +985,9 @@ public sealed class AircraftDealerService
         {
             _db.ChangeTracker.Clear();
             if (await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct) is { } raced) return -raced.AmountCents;
+            // A concurrent return/casualty may have closed the lease first (shared rental-return marker).
+            if (await _ledger.FindByDedupeKeyAsync(companyId, $"rental-return:{agreementId}", ct) is not null)
+                throw new InvalidOperationException("This lease has already been closed.");
             throw;
         }
         return buyout;
@@ -1040,6 +1048,9 @@ public sealed class AircraftDealerService
         {
             _db.ChangeTracker.Clear();
             if (await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct) is { } raced) return -raced.AmountCents;
+            // A concurrent return/buyout may have closed the lease first (shared rental-return marker).
+            if (await _ledger.FindByDedupeKeyAsync(companyId, $"rental-return:{agreementId}", ct) is not null)
+                throw new InvalidOperationException("This lease has already been closed.");
             throw;
         }
         return deductible;
