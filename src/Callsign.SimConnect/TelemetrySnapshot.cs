@@ -106,4 +106,11 @@ public sealed record TelemetrySnapshot
     public double CgFwdLimit { get; init; }
     /// <summary>Aft CG limit (same scale as <see cref="CgPercent"/>). 0 = not reported.</summary>
     public double CgAftLimit { get; init; }
+
+    // --- Engine damage (Phase 9e): the sim's OWN cumulative engine-damage figure (GENERAL ENG DAMAGE PERCENT),
+    // 0 = pristine. The tracker baselines it at first sight and accrues the leg's increase, which is priced into
+    // engine wear at settlement. Default 0 → an aircraft that doesn't publish it accrues no wear (L10). Read,
+    // never commanded (L7); folded monotonically, so it can only ever add authoritative wear, never soften it.
+    /// <summary>Cumulative engine damage as the simulator models it, percent (0 = pristine).</summary>
+    public double EngineDamagePercent { get; init; }
 }

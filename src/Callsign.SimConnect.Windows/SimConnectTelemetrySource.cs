@@ -60,6 +60,8 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
         public double CgPercent;
         public double CgFwdLimit;
         public double CgAftLimit;
+        // Phase 9e engine damage — order here MUST match the AddToDataDefinition call order below.
+        public double EngineDamagePercent;
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
         public string Title;
     }
@@ -253,6 +255,10 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
             SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
         sc.AddToDataDefinition(Definitions.AircraftData, "CG AFT LIMIT", "percent",
             SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        // Phase 9e — the sim's own cumulative engine damage (primary engine; a multi-engine max is a later
+        // refinement). Explicit "percent" unit so the reading is 0..100, never an SDK default trap (L10).
+        sc.AddToDataDefinition(Definitions.AircraftData, "GENERAL ENG DAMAGE PERCENT:1", "percent",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
         sc.AddToDataDefinition(Definitions.AircraftData, "TITLE", null,
             SIMCONNECT_DATATYPE.STRING256, 0f, unused);
         sc.RegisterDataDefineStruct<AircraftData>(Definitions.AircraftData);
@@ -302,6 +308,7 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
             CgPercent = d.CgPercent,
             CgFwdLimit = d.CgFwdLimit,
             CgAftLimit = d.CgAftLimit,
+            EngineDamagePercent = d.EngineDamagePercent,
         });
     }
 

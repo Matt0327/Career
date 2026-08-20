@@ -300,8 +300,12 @@ public sealed class SettlementService
                     ? _cfg.LandingWearMilli(flight.TouchdownFpmWorst3, flight.TouchdownG)
                     : (_cfg.LandingModifierPct(flight.TouchdownFpm) < 0 ? _cfg.HardLandingWearMilli : 0);
                 int hullWear = hourWear + landingWear;
+                // Engine abuse (Phase 9e): the sim's own damage the leg accrued becomes extra engine-condition
+                // loss — on top of the hours — which then bills through the existing maintenance + resale paths
+                // (never a per-exceedance cash hit). Zero for a clean leg, or one the sim didn't instrument (L10).
+                int engineAbuseWear = _cfg.EngineAbuseWearMilli(flight.EngineDamagePctAccrued);
                 instance.HullConditionMilli = Math.Max(0, instance.HullConditionMilli - hullWear);
-                instance.EngineConditionMilli = Math.Max(0, instance.EngineConditionMilli - hourWear);
+                instance.EngineConditionMilli = Math.Max(0, instance.EngineConditionMilli - hourWear - engineAbuseWear);
                 instance.UpdatedAt = now;
             }
         }

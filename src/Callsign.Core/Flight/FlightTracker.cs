@@ -39,6 +39,10 @@ public sealed class FlightTracker
     private const double OverweightGrossFactor = 1.05;   // >5% over MTOW at takeoff = a real overload
     private const double CgGrossEnvelopeFrac = 0.25;     // beyond a CG limit by >25% of the envelope width = gross
     private const int PtsOverweight = 15, PtsCg = 12;    // scored only for the GROSS case
+    // Engine wear (Phase 9e, on the Fun Dial): a deadband below which the sim's damage reading is treated as
+    // noise — no cost, no nudge. At/above it the first sign earns a coaching nudge (L4) and the accrued damage
+    // is priced into engine wear at settlement. This is the "sustained abuse bills, brief exceedance is free" line.
+    private const double EngStressDeadbandPct = 0.5;
 
     // Phase 8 — tough conditions earn a landing back some grade: a firm touchdown in a 25 kt crosswind or
     // low visibility is a better piece of flying than the same numbers in calm, clear air.
@@ -78,6 +82,10 @@ public sealed class FlightTracker
     private bool _overspeedWarned, _stallWarned, _bankWarned, _gWarned;
     private bool _bankCoached, _gCoached; // Phase 9 (L9): fire the friendly nudge at most once each
     private bool _scoreValid = true; // flight-integrity monitoring (Phase 7c anti-cheat)
+    // Phase 9e — engine damage from the sim's own model: baseline at first sight, monotonic max; the leg's
+    // accrued damage (max − baseline) is priced into engine wear at settlement.
+    private double _engDmgBaseline = -1, _engDmgMax;
+    private bool _engStressCoached;
 
     public FlightPhase Phase { get; private set; } = FlightPhase.Parked;
     public IReadOnlyList<FlightEvent> Events => _events;
@@ -90,6 +98,8 @@ public sealed class FlightTracker
         _title = t.AircraftTitle;
         bool airborne = !t.OnGround;
 
+        MeterEngineStress(t); // Phase 9e — accrue the sim's own engine damage across the WHOLE leg (ground run-up too)
+
         if (airborne)
             ObserveAirborne(t);
         else
@@ -97,6 +107,33 @@ public sealed class FlightTracker
 
         _wasAirborne = airborne;
     }
+
+    // Meter engine abuse from the sim's OWN cumulative damage figure (Phase 9e), on the Fun Dial (L9). Baseline
+    // at first sight so a tail loaded with pre-existing damage isn't re-billed; track the monotonic max so a
+    // mid-leg reading can only ever add authoritative wear, never soften it (un-gameable). Once the accrued
+    // damage clears the noise deadband, the first sign earns ONE coaching nudge — the "you're doing real harm,
+    // back off" warning (L4) — while the wear itself bills later, at settlement, through the maintenance path.
+    private void MeterEngineStress(TelemetrySnapshot t)
+    {
+        double dmg = t.EngineDamagePercent;
+        if (dmg < 0)
+            return; // a garbage reading — ignore it rather than baselining on it
+        if (_engDmgBaseline < 0)
+            _engDmgBaseline = dmg;
+        if (dmg > _engDmgMax)
+            _engDmgMax = dmg;
+        if (_engDmgMax - _engDmgBaseline >= EngStressDeadbandPct && !_engStressCoached)
+        {
+            _engStressCoached = true;
+            _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Coaching,
+                "Engine stress registering — ease the power and watch your temps"));
+        }
+    }
+
+    // The leg's accrued engine damage, past the noise deadband (0 below it, or when the sim never reported).
+    private double EngineDamageAccrued()
+        => _engDmgBaseline >= 0 && _engDmgMax - _engDmgBaseline >= EngStressDeadbandPct
+            ? _engDmgMax - _engDmgBaseline : 0;
 
     private void ObserveAirborne(TelemetrySnapshot t)
     {
@@ -371,6 +408,7 @@ public sealed class FlightTracker
             ViolationPoints = _violationPoints,
             Scored = true,
             ScoreValid = _scoreValid,
+            EngineDamagePctAccrued = EngineDamageAccrued(), // Phase 9e — priced into engine wear at settlement
         };
         _inFlight = false;
         _landed = false;

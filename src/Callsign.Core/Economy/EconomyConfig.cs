@@ -185,6 +185,15 @@ public sealed record EconomyConfig
     public int HardLandingWearMilli { get; init; } = 1_500;        // extra hull wear on a hard touchdown
     public long FuelPriceCentsPerLb { get; init; } = 90;           // ~$0.90/lb of consumable fuel burned (Phase 7e)
 
+    // Engine-abuse wear (Phase 9e, on the Fun Dial): the sim's OWN cumulative engine-damage model is the
+    // authority — a leg's accrued damage-percent points (max − baseline) become engine-condition loss here,
+    // which then bills through the existing maintenance visits + resale + insurance paths. Never a per-
+    // exceedance cash hit: a brief harmless exceedance leaves the sim's damage untouched → zero cost; only
+    // genuine, sim-modelled harm accrues, warned first in the live log (L4). At 1500, 1% of engine damage
+    // costs 1.5% of engine condition, so a destroyed engine (~100%) fully wears it down to an overhaul.
+    public int EngineAbuseWearMilliPerPct { get; init; } = 1_500;
+    public int EngineAbuseWearMilli(double pctAccrued) => (int)Math.Round(Math.Max(0, pctAccrued) * EngineAbuseWearMilliPerPct);
+
     // --- Airworthiness & inspections (Phase 7e): a worn or overdue tail is grounded until serviced ---
     public int AirworthyFloorMilli { get; init; } = 20_000;        // below 20% hull/engine condition = grounded
     public double HundredHourIntervalHours { get; init; } = 100;   // a 100-hour inspection comes due every 100 airframe hours

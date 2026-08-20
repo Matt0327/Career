@@ -76,4 +76,11 @@ public sealed record FlightRecord(
     /// <summary>False when flight-integrity monitoring caught a cheat (slew, or time-acceleration near the
     /// ground). An invalid flight forfeits any performance bonus (Phase 7c anti-cheat).</summary>
     public bool ScoreValid { get; init; } = true;
+
+    /// <summary>Engine-damage percentage points this leg ADDED, as the sim's own damage model reported it
+    /// (monotonic max − baseline; 0 below a small deadband, and when the sim doesn't publish damage). The
+    /// economy prices this into engine-condition wear at settlement (Phase 9e) — because it's the sim's own
+    /// authoritative figure, folded monotonically, it can't be gamed. A brief exceedance the sim deems
+    /// harmless leaves it at 0 (no cost); only genuine, sustained abuse accrues.</summary>
+    public double EngineDamagePctAccrued { get; init; }
 }

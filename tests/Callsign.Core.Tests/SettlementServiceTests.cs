@@ -772,6 +772,45 @@ public class SettlementServiceTests
                 e => e.Category == LedgerCategory.Fuel && e.AmountCents == -5_400);
     }
 
+    [Fact]
+    public async Task Settle_OwnedAircraft_EngineAbuse_WearsTheEngine_OnTopOfHours()
+    {
+        // Phase 9e: the sim's own engine damage the leg accrued is priced into engine condition at settlement,
+        // which then feeds maintenance visits, insurance, and resale (all read Min(hull, engine) condition).
+        static async Task<int> SettleAndReadEngineCondition(double engineDamagePct)
+        {
+            using var tdb = new TestDb();
+            var clock = new FakeClock();
+            Seed s;
+            Guid assignmentId, aircraftId;
+            using (var db = tdb.NewContext())
+            {
+                s = await SeedAsync(db);
+                var typeId = await db.AircraftTypes.Select(t => t.Id).FirstAsync();
+                var inst = new AircraftInstance
+                {
+                    Id = Guid.NewGuid(), TypeId = typeId, CompanyId = s.CompanyId, Tail = "CS-1",
+                    Ownership = OwnershipKind.Owned, Availability = AircraftAvailability.Available, LocationIcao = "EHAM",
+                };
+                db.AircraftInstances.Add(inst);
+                await db.SaveChangesAsync();
+                aircraftId = inst.Id;
+                assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, s.PilotId)).Id;
+            }
+            using (var db = tdb.NewContext())
+                await new SettlementService(db, new LedgerService(db, clock), clock, EconomyConfig.Default)
+                    .SettleAsync(assignmentId, Flown(-80) with { Scored = true, EngineDamagePctAccrued = engineDamagePct }, aircraftId);
+            using (var db = tdb.NewContext())
+                return (await db.AircraftInstances.FindAsync(aircraftId))!.EngineConditionMilli;
+        }
+
+        int clean = await SettleAndReadEngineCondition(0);   // identical leg, no engine abuse
+        int abused = await SettleAndReadEngineCondition(8);   // the sim recorded 8% of fresh engine damage
+        // Block time (hence hours wear) is identical, so the whole gap is the abuse wear: 8 × 1500 = 12000 milli.
+        Assert.Equal(EconomyConfig.Default.EngineAbuseWearMilli(8), clean - abused);
+        Assert.True(abused < clean);
+    }
+
     [Theory]
     [InlineData(-50, 0.10)]
     [InlineData(-150, 0.05)]

@@ -15,7 +15,8 @@ public class FlightTrackerTests
         double simRate = 1.0, bool slew = false,
         double windKts = 0, double windDir = 0, double heading = 0, double visSm = 10,
         double tdNormalFps = 0, double tdLateralFps = 0,
-        double totalWt = 0, double maxGross = 0, double cg = 0, double cgFwd = 0, double cgAft = 0)
+        double totalWt = 0, double maxGross = 0, double cg = 0, double cgFwd = 0, double cgAft = 0,
+        double engDmg = 0)
         => new()
         {
             Sequence = sec,
@@ -47,6 +48,7 @@ public class FlightTrackerTests
             CgPercent = cg,
             CgFwdLimit = cgFwd,
             CgAftLimit = cgAft,
+            EngineDamagePercent = engDmg,
         };
 
     private static FlightTracker FlyStandardLeg()
@@ -254,6 +256,49 @@ public class FlightTrackerTests
         var t = WbLeg(cg: 37, cgFwd: 15, cgAft: 35); // just past the aft limit, within the gross margin
         Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Coaching && e.Message.Contains("CG"));
         Assert.Equal(0, t.Result!.ViolationPoints);
+    }
+
+    // ── Phase 9e: engine wear from the sim's OWN damage model, on the Fun Dial ─────────────────────────
+
+    // A minimal leg that lands, with the engine reading `baseline` damage at first sight and `peak` in cruise.
+    private static FlightTracker EngLeg(double baseline, double peak)
+    {
+        var t = new FlightTracker();
+        t.Observe(Snap(0, 0, 0, 0, onGround: true, engDmg: baseline));        // parked — sets the baseline
+        t.Observe(Snap(10, 50, 70, 500, onGround: false, engDmg: baseline));  // liftoff
+        t.Observe(Snap(300, 9000, 150, 0, onGround: false, engDmg: peak));    // cruise — damage accrues
+        t.Observe(Snap(600, 30, 60, -120, onGround: false, engDmg: peak));    // final
+        t.Observe(Snap(601, 0, 55, 0, onGround: true, engDmg: peak));         // touchdown
+        t.Observe(Snap(660, 0, 0, 0, onGround: true, engDmg: peak));          // shutdown → Complete()
+        return t;
+    }
+
+    [Fact]
+    public void EngineAbuse_SustainedDamage_CoachesAndAccrues_WithoutScoring()
+    {
+        var t = EngLeg(baseline: 0, peak: 8); // the sim recorded 8% of fresh engine damage this leg
+        Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Coaching && e.Message.Contains("Engine stress"));
+        Assert.Equal(8.0, t.Result!.EngineDamagePctAccrued, 3);
+        Assert.Equal(0, t.Result!.ViolationPoints); // it bills through engine wear, never the flight score (L9)
+    }
+
+    [Fact]
+    public void EngineAbuse_PreExistingDamage_IsNotRebilled()
+    {
+        var t = EngLeg(baseline: 30, peak: 33); // already-worn engine; only THIS leg's 3% is the pilot's to answer for
+        Assert.Equal(3.0, t.Result!.EngineDamagePctAccrued, 3);
+    }
+
+    [Fact]
+    public void EngineAbuse_UnderTheDeadband_And_NoSimData_AreFreeAndSilent()
+    {
+        var blip = EngLeg(baseline: 0, peak: 0.3); // trivial jitter below the noise deadband
+        Assert.Equal(0.0, blip.Result!.EngineDamagePctAccrued);
+        Assert.DoesNotContain(blip.Events, e => e.Message.Contains("Engine stress"));
+
+        var noData = EngLeg(baseline: 0, peak: 0); // an aircraft that never publishes damage (L10)
+        Assert.Equal(0.0, noData.Result!.EngineDamagePctAccrued);
+        Assert.DoesNotContain(noData.Events, e => e.Message.Contains("Engine stress"));
     }
 
     [Fact]
