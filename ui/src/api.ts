@@ -146,6 +146,7 @@ export interface FlightDetail {
   overallScore: number | null
   landingScore: number | null
   approachScore: number | null
+  comfortScore: number | null // Phase 10c — passenger-ride smoothness
   touchdownG: number | null
   stabilizedApproach: boolean | null
   violationPoints: number | null

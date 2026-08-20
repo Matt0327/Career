@@ -336,6 +336,29 @@ public class FlightTrackerTests
     }
 
     [Fact]
+    public void Comfort_SmoothLegScoresHigh_RoughLegScoresLow()
+    {
+        var smooth = new FlightTracker();
+        smooth.Observe(Snap(0, 0, 0, 0, onGround: true));
+        smooth.Observe(Snap(10, 50, 70, 500, onGround: false));               // gentle climb-out
+        smooth.Observe(Snap(300, 5000, 150, 0, onGround: false));             // cruise
+        smooth.Observe(Snap(600, 500, 80, -180, onGround: false, agl: 500));  // easing down the final
+        smooth.Observe(Snap(610, 200, 70, -150, onGround: false, agl: 200));
+        smooth.Observe(Snap(615, 30, 65, -80, onGround: false, agl: 30));
+        smooth.Observe(Snap(616, 0, 55, 0, onGround: true));                  // a greaser
+        smooth.Observe(Snap(660, 0, 0, 0, onGround: true));
+        Assert.True(smooth.Result!.ComfortScore >= 90, $"a gentle leg should feel smooth (got {smooth.Result!.ComfortScore})");
+
+        var rough = new FlightTracker();
+        rough.Observe(Snap(0, 0, 0, 0, onGround: true));
+        rough.Observe(Snap(10, 50, 70, 500, onGround: false, bank: 55, g: 2.3)); // a violent airborne manoeuvre
+        rough.Observe(Snap(600, 30, 60, -700, onGround: false, bank: 40));
+        rough.Observe(Snap(601, 0, 55, 0, onGround: true, g: 2.0));              // and a hard arrival
+        rough.Observe(Snap(660, 0, 0, 0, onGround: true));
+        Assert.True(rough.Result!.ComfortScore < 60, $"a rough leg should feel rough (got {rough.Result!.ComfortScore})");
+    }
+
+    [Fact]
     public void ApproachPrecision_OnCentreline_ScoresFull_OffCentreline_Docks()
     {
         var on = ApproachLeg(0);       // on the centreline (and the default 0 → isolation: unchanged)

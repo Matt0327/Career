@@ -79,6 +79,9 @@ public sealed class FlightTracker
     private double _worstFpm;         // most-negative sink at contact; 0 = no contact yet
     private double _worstG = 1.0;     // hardest vertical g at contact
     private double _worstBank;        // steepest bank at contact
+    // Phase 10c — the whole-flight ride envelope, for the passenger-comfort grade.
+    private double _peakBankDeg;      // steepest bank anywhere airborne
+    private double _peakGDev;         // largest |g − 1| anywhere airborne
     // The sim's actual conditions at touchdown (Phase 8) — read, never commanded (law L7).
     private double _tdWindKts, _tdWindDir, _tdHeading, _tdVisSm = 10;
     private int _approachPass, _approachTotal;
@@ -158,6 +161,8 @@ public sealed class FlightTracker
         _lastAirborneVs = t.VerticalSpeedFpm;
         _lastAirborneBankDeg = Math.Abs(t.BankDeg);
         _lastAirborneG = Math.Abs(t.GForce);
+        _peakBankDeg = Math.Max(_peakBankDeg, _lastAirborneBankDeg);      // Phase 10c — ride envelope
+        _peakGDev = Math.Max(_peakGDev, Math.Abs(t.GForce - 1.0));
 
         if (!_wasAirborne)
         {
@@ -421,6 +426,7 @@ public sealed class FlightTracker
         int approach = ApproachScore();
         int enroute = Math.Clamp(100 - _violationPoints, 0, 100);
         int overall = (int)Math.Round(0.55 * landing + 0.30 * approach + 0.15 * enroute);
+        int comfort = ComfortScore(_peakBankDeg, _peakGDev, worst3, _worstG, _violationPoints); // Phase 10c
 
         Result = new FlightRecord(
             _title, _departedAt, _arrivedAt, _touchdownFpm, _maxAltFt,
@@ -436,6 +442,7 @@ public sealed class FlightTracker
             ApproachScore = approach,
             EnrouteScore = enroute,
             OverallScore = overall,
+            ComfortScore = comfort,
             StabilizedApproach = approach >= StableApproachMinScore,
             ViolationPoints = _violationPoints,
             Scored = true,
@@ -471,6 +478,19 @@ public sealed class FlightTracker
     {
         double m = Math.Abs(bankDeg);
         return m <= 3 ? 100 : m <= 6 ? 90 : m <= 10 ? 75 : m <= 15 ? 55 : m <= 25 ? 30 : 10;
+    }
+
+    // Passenger comfort (Phase 10c): a limousine ride starts at 100 and loses points for what a passenger
+    // actually feels — steep banks, a bumpy g envelope, a firm touchdown, and any hard exceedance. Purely a
+    // read of the recorded envelope (un-gameable); the economy turns it into a comfort tip on a passenger leg.
+    private static int ComfortScore(double peakBankDeg, double peakGDev, double touchdownFpm, double touchdownG, int violationPoints)
+    {
+        double penalty = 1.5 * Math.Max(0, peakBankDeg - 20)             // banks past ~20° are felt in the seat
+                       + 80 * Math.Max(0, peakGDev - 0.25)               // a bumpy ride — g wandering past ±0.25
+                       + Math.Max(0, Math.Abs(touchdownFpm) - 200) / 8.0 // a firm arrival
+                       + 40 * Math.Max(0, touchdownG - 1.3)              // the thump at contact
+                       + 6 * violationPoints;                            // every exceedance rattles them
+        return (int)Math.Clamp(100 - Math.Round(penalty), 0, 100);
     }
 
     // Grade points the conditions earn back: crosswind (weighted 0.7) + low visibility (0.3), scaled to the cap.

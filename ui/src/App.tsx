@@ -3635,6 +3635,7 @@ function FlightDetail({ id }: { id: string }) {
           <div className="fs-subs">
             <div><span className="metalabel">Landing</span><span className={`num ${scoreTone(d.landingScore)}`}>{d.landingScore ?? '—'}</span></div>
             <div><span className="metalabel">Approach</span><span className={`num ${d.stabilizedApproach === false ? 'neg' : scoreTone(d.approachScore)}`}>{d.approachScore ?? '—'}{d.stabilizedApproach === false ? ' · unstable' : ''}</span></div>
+            {d.comfortScore != null && <div><span className="metalabel">Comfort</span><span className={`num ${scoreTone(d.comfortScore)}`}>{d.comfortScore}</span></div>}
             {d.touchdownG != null && <div><span className="metalabel">Touchdown g</span><span className="num">{d.touchdownG.toFixed(2)}</span></div>}
             {d.violationPoints != null && d.violationPoints > 0 && <div><span className="metalabel">Exceedances</span><span className="num neg">−{d.violationPoints}</span></div>}
           </div>

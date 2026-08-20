@@ -811,6 +811,62 @@ public class SettlementServiceTests
         Assert.True(abused < clean);
     }
 
+    [Fact]
+    public void ComfortBonus_ZeroBelowThreshold_RampsToMax_AndMovesLoyaltyBothWays()
+    {
+        var c = EconomyConfig.Default;
+        Assert.Equal(0, c.ComfortBonusPct(50));
+        Assert.Equal(0, c.ComfortBonusPct(c.ComfortBonusThresholdScore));
+        Assert.Equal(c.ComfortBonusMaxPct, c.ComfortBonusPct(100), 5);
+        Assert.True(c.ComfortLoyaltyDeltaMilli(100) > 0);   // a smooth ride builds the bond
+        Assert.True(c.ComfortLoyaltyDeltaMilli(30) < 0);    // a rough one sheds it
+        Assert.Equal(0, c.ComfortLoyaltyDeltaMilli(60));    // a middling ride is neutral
+    }
+
+    [Fact]
+    public async Task Settle_PassengerRide_TipsForSmooth_NotForRough_NorWhenCheated()
+    {
+        static async Task<long?> ComfortBonusFor(int comfortScore, bool valid = true)
+        {
+            using var tdb = new TestDb();
+            var clock = new FakeClock();
+            Guid assignmentId;
+            using (var db = tdb.NewContext())
+                assignmentId = await SeedPaxSettleAsync(db, clock, seats: 9, pax: 4);
+            using (var db = tdb.NewContext())
+            {
+                var rec = new FlightRecord("Pilatus PC-12", T0.AddMinutes(5), T0.AddMinutes(55), -80, 9000, 52.3, 4.76, 51.95, 4.44, 120, 200, [])
+                    with { Scored = true, ScoreValid = valid, OverallScore = 90, ComfortScore = comfortScore };
+                await new SettlementService(db, new LedgerService(db, clock), clock, EconomyConfig.Default).SettleAsync(assignmentId, rec);
+            }
+            using (var db = tdb.NewContext())
+                return (await db.LedgerEntries.Where(e => e.Category == LedgerCategory.JobBonus).ToListAsync())
+                    .FirstOrDefault(e => e.Description.Contains("Smooth ride"))?.AmountCents;
+        }
+
+        Assert.Equal((long)Math.Round(200_000 * EconomyConfig.Default.ComfortBonusPct(100)), await ComfortBonusFor(100)); // smooth → a tip
+        Assert.Null(await ComfortBonusFor(50));                 // rough → no tip, base pay stands (L9)
+        Assert.Null(await ComfortBonusFor(100, valid: false));  // cheated → forfeit, like the landing bonus
+    }
+
+    [Fact]
+    public async Task Settle_CargoJob_PaysNoComfortBonus_EvenWhenSmooth()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Guid assignmentId;
+        using (var db = tdb.NewContext())
+        {
+            var s = await SeedAsync(db);
+            assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, s.PilotId)).Id;
+        }
+        using (var db = tdb.NewContext())
+            await new SettlementService(db, new LedgerService(db, clock), clock, EconomyConfig.Default)
+                .SettleAsync(assignmentId, Flown(-80) with { Scored = true, ScoreValid = true, OverallScore = 95, ComfortScore = 100 });
+        using (var db = tdb.NewContext())
+            Assert.DoesNotContain(await db.LedgerEntries.ToListAsync(), e => e.Description.Contains("Smooth ride")); // comfort is a PASSENGER perk
+    }
+
     [Theory]
     [InlineData(-50, 0.10)]
     [InlineData(-150, 0.05)]

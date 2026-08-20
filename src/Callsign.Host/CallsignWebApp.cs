@@ -1450,7 +1450,7 @@ public static class CallsignWebApp
                 f.DepartedAt, f.ArrivedAt, f.SettledAt,
                 o?.Latitude ?? 0, o?.Longitude ?? 0, d?.Latitude ?? 0, d?.Longitude ?? 0,
                 a?.Pax, a?.WeightLbs, a?.Commodity, lines, events,
-                f.OverallScore, f.LandingScore, f.ApproachScore, f.TouchdownG, f.StabilizedApproach, f.ViolationPoints, f.ScoreValid,
+                f.OverallScore, f.LandingScore, f.ApproachScore, f.ComfortScore, f.TouchdownG, f.StabilizedApproach, f.ViolationPoints, f.ScoreValid,
                 f.OutcomeGrade, f.OutcomeReason, debrief));
         });
 

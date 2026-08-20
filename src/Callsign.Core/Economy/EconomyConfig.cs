@@ -390,6 +390,34 @@ public sealed record EconomyConfig
         return t * ClientLoyaltyBonusMaxPct;
     }
 
+    // --- Passenger comfort (Phase 10c): a smooth PASSENGER ride earns a comfort TIP on top of the earned base
+    // (the reward-side mirror of the 7d ride-quality penalty), and builds the client bond a little more. On the
+    // Fun Dial (L9): it's pure upside for a smooth ride — a rough one simply earns no tip, base pay stands. ---
+    public int ComfortBonusThresholdScore { get; init; } = 75;  // below this comfort score, no tip
+    public double ComfortBonusMaxPct { get; init; } = 0.08;     // the tip at a flawless (100) ride, fraction of the earned base
+    public int ComfortLoyaltyBonusMilli { get; init; } = 1_200;  // extra client loyalty at a flawless passenger ride
+    public int ComfortLoyaltyPenaltyMilli { get; init; } = 1_500;// loyalty a genuinely rough passenger ride sheds
+
+    /// <summary>The comfort tip (fraction of the earned base) a passenger leg with this comfort score pays —
+    /// 0 below the threshold, ramping linearly to <see cref="ComfortBonusMaxPct"/> at a flawless 100.</summary>
+    public double ComfortBonusPct(int comfortScore)
+    {
+        if (comfortScore <= ComfortBonusThresholdScore) return 0;
+        double span = Math.Max(1, 100 - ComfortBonusThresholdScore);
+        return Math.Min(1.0, (comfortScore - ComfortBonusThresholdScore) / span) * ComfortBonusMaxPct;
+    }
+
+    /// <summary>The loyalty a passenger ride moves purely on comfort: a smooth ride (≥ threshold) adds up to
+    /// <see cref="ComfortLoyaltyBonusMilli"/>; a rough one (&lt; 50) sheds up to <see cref="ComfortLoyaltyPenaltyMilli"/>.</summary>
+    public int ComfortLoyaltyDeltaMilli(int comfortScore)
+    {
+        if (comfortScore >= ComfortBonusThresholdScore)
+            return (int)Math.Round(ComfortLoyaltyBonusMilli * Math.Min(1.0, (comfortScore - ComfortBonusThresholdScore) / Math.Max(1.0, 100.0 - ComfortBonusThresholdScore)));
+        if (comfortScore < 50)
+            return -(int)Math.Round(ComfortLoyaltyPenaltyMilli * Math.Min(1.0, (50 - comfortScore) / 50.0));
+        return 0;
+    }
+
     // --- Operating certificate renewal (Phase 8e-2): warn before the licence lapses (Law 4) ---
     /// <summary>Reconcile nudges you to renew an operating certificate once it's within this many days of
     /// expiring — a proactive Law-4 warning, so a lapse never springs on you and gated routes never silently

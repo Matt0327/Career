@@ -191,7 +191,7 @@ public record FlightDetailDto(
     int? Pax, int? WeightLbs, string? Commodity,
     IReadOnlyList<PayoutLineDto> Lines,
     IReadOnlyList<FlightEventDto> Events,
-    int? OverallScore, int? LandingScore, int? ApproachScore,
+    int? OverallScore, int? LandingScore, int? ApproachScore, int? ComfortScore,
     double? TouchdownG, bool? StabilizedApproach, int? ViolationPoints, bool? ScoreValid,
     int? OutcomeGrade, string? OutcomeReason,
     DebriefDto Debrief); // Phase 10a — the post-flight coaching debrief

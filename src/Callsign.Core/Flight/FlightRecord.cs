@@ -62,6 +62,11 @@ public sealed record FlightRecord(
     /// <summary>Composite flight score 0..100 (0.55·landing + 0.30·approach + 0.15·enroute).</summary>
     public int OverallScore { get; init; } = 100;
 
+    /// <summary>Passenger-comfort grade 0..100 (Phase 10c): the whole-flight ride smoothness — peak bank, the g
+    /// envelope, the touchdown, and exceedances. 100 = a limousine ride. The economy pays a comfort tip on a
+    /// passenger leg from this; it has no effect on a cargo leg. Defaults to 100 so an unscored record is neutral.</summary>
+    public int ComfortScore { get; init; } = 100;
+
     /// <summary>True when the approach stayed within stabilised-approach limits below the gate.</summary>
     public bool StabilizedApproach { get; init; } = true;
 

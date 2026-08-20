@@ -142,6 +142,20 @@ public sealed class SettlementService
             lines.Add(new($"Loyal client bonus ({client!.Name})", loyaltyBonus));
         }
 
+        // Passenger comfort tip (Phase 10c): a smooth PASSENGER ride earns a bonus on the EARNED base — the
+        // reward-side mirror of the 7d ride-quality penalty. Only a scored, valid, paid passenger leg qualifies
+        // (a cheated flight forfeits it, like the landing bonus), and a rough ride simply earns no tip — base
+        // pay always stands (L9). Never negative.
+        long comfortBonus = a.Type.CarriesPassengers() && flight.Scored && flight.ScoreValid && baseCents > 0
+            ? (long)Math.Round((decimal)baseCents * (decimal)_cfg.ComfortBonusPct(flight.ComfortScore), MidpointRounding.AwayFromZero)
+            : 0;
+        if (comfortBonus > 0)
+        {
+            postings.Add(new(LedgerCategory.JobBonus, comfortBonus / 100m, $"Smooth ride bonus (comfort {flight.ComfortScore})",
+                LedgerRefType.Job, jobRef, DedupeKey: $"settle:{a.Id}:comfort"));
+            lines.Add(new($"Comfort bonus (ride {flight.ComfortScore})", comfortBonus));
+        }
+
         // Landing/handling fee at the destination — a running cost, itemised like everything else.
         // Waived if you own a base there.
         var destAirport = await _db.Airports.FirstOrDefaultAsync(x => x.Ident == a.DestIcao, ct);
@@ -179,7 +193,7 @@ public sealed class SettlementService
             lines.Add(new(farmRate ? $"Fuel ({flight.FuelUsedLbs:F0} lb, farm rate)" : $"Fuel ({flight.FuelUsedLbs:F0} lb)", -fuelCost));
         }
 
-        long total = baseCents + landingDelta + loyaltyBonus - landingFee - fuelCost;
+        long total = baseCents + landingDelta + loyaltyBonus + comfortBonus - landingFee - fuelCost;
         var breakdown = new PayoutBreakdown(total, lines);
 
         // Stage the ledger rows + cash delta (not saved), then commit them together with the Flight
@@ -210,6 +224,7 @@ public sealed class SettlementService
             LandingScore = flight.Scored ? flight.LandingScore : null,
             ApproachScore = flight.Scored ? flight.ApproachScore : null,
             OverallScore = flight.Scored ? flight.OverallScore : null,
+            ComfortScore = flight.Scored ? flight.ComfortScore : null,
             StabilizedApproach = flight.Scored ? flight.StabilizedApproach : null,
             ViolationPoints = flight.Scored ? flight.ViolationPoints : null,
             ScoreValid = flight.Scored ? flight.ScoreValid : null,
@@ -269,7 +284,10 @@ public sealed class SettlementService
         {
             // Apply this delivery's move to the DECAYED loyalty (re-anchoring at now), so neglect between jobs
             // genuinely erodes the bond rather than being frozen at its old peak.
-            int loyaltyDelta = _cfg.ClientLoyaltyDeltaMilli(outcome.Grade, flight.Scored, flight.Scored ? flight.OverallScore : 0);
+            int loyaltyDelta = _cfg.ClientLoyaltyDeltaMilli(outcome.Grade, flight.Scored, flight.Scored ? flight.OverallScore : 0)
+                // A passenger client also remembers the RIDE (Phase 10c): a smooth flight builds the bond a
+                // little more, a rough one sheds some — beyond the delivery grade the base delta already reflects.
+                + (a.Type.CarriesPassengers() && flight.Scored ? _cfg.ComfortLoyaltyDeltaMilli(flight.ComfortScore) : 0);
             client.LoyaltyMilli = Math.Clamp(loyaltyNow + loyaltyDelta, 0, EconomyConfig.LoyaltyMax);
             if (outcome.Grade == MissionGrade.Failed) client.JobsFailed++;
             else client.JobsCompleted++;

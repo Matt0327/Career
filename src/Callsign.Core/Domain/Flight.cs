@@ -32,6 +32,7 @@ public sealed class Flight
     public int? LandingScore { get; set; }
     public int? ApproachScore { get; set; }
     public int? OverallScore { get; set; }
+    public int? ComfortScore { get; set; }  // Phase 10c — passenger-ride smoothness (null on a legacy/unscored record)
     public bool? StabilizedApproach { get; set; }
     public int? ViolationPoints { get; set; }
     public bool? ScoreValid { get; set; }   // Phase 7c — false when flight-integrity monitoring voided the score
