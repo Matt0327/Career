@@ -69,7 +69,15 @@ public static class CallsignWebApp
 
         // --- Singletons ---
         builder.Services.AddSingleton<IClock, SystemClock>();
-        builder.Services.AddSingleton(EconomyConfig.Default);
+        // Live weather (Phase 9b) is the one config-driven knob set: bind LiveWeather:* into the injected
+        // EconomyConfig so the runtime guards (in AviationWeatherSource + WeatherProvider) read the SAME toggle
+        // the DI registration gate below reads — otherwise the feature is inert even with the source registered.
+        var economyConfig = EconomyConfig.Default with
+        {
+            LiveWeatherEnabled = builder.Configuration.GetValue<bool?>("LiveWeather:Enabled") ?? EconomyConfig.Default.LiveWeatherEnabled,
+            LiveWeatherFeedsMarket = builder.Configuration.GetValue<bool?>("LiveWeather:FeedsMarket") ?? EconomyConfig.Default.LiveWeatherFeedsMarket,
+        };
+        builder.Services.AddSingleton(economyConfig);
         builder.Services.AddSingleton<IJobSource>(sp =>
         {
             var cfg = sp.GetRequiredService<EconomyConfig>();
@@ -115,7 +123,7 @@ public static class CallsignWebApp
         // Live weather (Phase 9b): a real-METAR seam ABOVE the pure WorldOracle. When OFF (the default), a
         // NullWeatherSource makes every read synthetic — "off" and "feed down" are the same code path. The live
         // adapter is Host-only (owns HttpClient), so Core never gains a System.Net.Http reference (firewall lock).
-        bool liveWeatherOn = builder.Configuration.GetValue<bool?>("LiveWeather:Enabled") ?? EconomyConfig.Default.LiveWeatherEnabled;
+        bool liveWeatherOn = economyConfig.LiveWeatherEnabled; // same toggle the runtime guards read (bound above)
         if (liveWeatherOn)
         {
             builder.Services.AddHttpClient(Callsign.Host.World.AviationWeatherSource.HttpClientName, c =>

@@ -109,6 +109,7 @@ public class MetarParserTests
     public void FromRaw_Units_AndSpecials()
     {
         Assert.Equal(0.5, MetarParser.FromRaw("KXYZ 281951Z 18004KT 1/2SM FG OVC002 03/03")!.VisibilitySm);
+        Assert.Equal(1.5, MetarParser.FromRaw("KXYZ 281951Z 27008KT 1 1/2SM BR OVC010 12/10 A3000")!.VisibilitySm); // whole+fraction, not the bare 0.5
         Assert.Equal("Fog", MetarParser.FromRaw("KXYZ 281951Z 18004KT 1/2SM FG OVC002 03/03")!.Condition);
         Assert.Equal(200, MetarParser.FromRaw("KXYZ 281951Z 18004KT 1/2SM FG OVC002 03/03")!.CeilingFt);
 

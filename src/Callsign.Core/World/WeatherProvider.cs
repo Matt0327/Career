@@ -67,15 +67,16 @@ public sealed class WeatherProvider
         return pinned;
     }
 
-    // The SAME coarse cell + window epoch the synthetic model uses, so a live pin and a synthetic fall-through
-    // share the field's regional front.
+    // Pin PER-FIELD (~0.01° ≈ 1 km) within a window, NOT the synthetic model's coarse WeatherCellDeg (2.5°)
+    // regional cell: a live METAR is a single station's observation, so it must not shade every field in a
+    // whole cell with one station's weather (the display chip already resolves per-station). display==settlement
+    // still holds — the same field in the same window pins exactly once. A synthetic fall-through evaluated at
+    // the field's own coordinates is still deterministic.
     private (long Cx, long Cy, long Epoch) CellEpochKey(double lat, double lon, DateTimeOffset now)
     {
         long window = Math.Max(1, _cfg.WeatherWindow.Ticks);
         long epoch = now.UtcTicks / window;
-        long cellLat = (long)Math.Floor(lat / _cfg.WeatherCellDeg);
-        long cellLon = (long)Math.Floor(lon / _cfg.WeatherCellDeg);
-        return (cellLat, cellLon, epoch);
+        return ((long)Math.Round(lat * 100), (long)Math.Round(lon * 100), epoch);
     }
 
     // Keep the pin dictionary bounded: once a new window opens, drop pins two-or-more windows old.

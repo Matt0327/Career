@@ -64,7 +64,8 @@ public sealed class AviationWeatherSource : IWeatherSource
             using var http = _httpFactory.CreateClient(HttpClientName);
             using var cts = new CancellationTokenSource(_cfg.LiveWeatherTimeout);
             var rows = await http.GetFromJsonAsync<List<MetarJson>>($"metar?ids={icao}&format=json", cts.Token);
-            var row = rows?.FirstOrDefault(r => string.Equals(r.IcaoId, icao, StringComparison.OrdinalIgnoreCase)) ?? rows?.FirstOrDefault();
+            // Only the queried station's own obs — never a borrowed/nearest one — so the field's LIVE label is accurate.
+            var row = rows?.FirstOrDefault(r => string.Equals(r.IcaoId, icao, StringComparison.OrdinalIgnoreCase));
             if (row?.ObsTime is not long obs) return;
             var weather = MetarParser.FromJson(row) ?? MetarParser.FromRaw(row.RawOb);
             if (weather is null) return;

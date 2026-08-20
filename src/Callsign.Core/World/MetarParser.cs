@@ -60,8 +60,17 @@ public static class MetarParser
         if (string.IsNullOrWhiteSpace(rawOb)) return null;
         var raw = rawOb.Trim().ToUpperInvariant();
         if (raw.Contains("NIL")) return null;
-        var tokens = raw.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-        if (tokens.Length == 0) return null;
+        var split = raw.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+        if (split.Length == 0) return null;
+        // Re-join a US whole+fraction visibility that the space-split tore apart ("1 1/2SM" → 1.5 sm), so it
+        // isn't misread as the bare fraction (0.5 sm).
+        var tokens = new List<string>(split.Length);
+        for (int i = 0; i < split.Length; i++)
+        {
+            if (i + 1 < split.Length && Regex.IsMatch(split[i], @"^\d$") && Regex.IsMatch(split[i + 1], @"^\d/\dSM$"))
+            { tokens.Add(split[i] + " " + split[i + 1]); i++; }
+            else tokens.Add(split[i]);
+        }
 
         int? windDir = null, windKts = null, gustKts = null, tempC = null, ceilFt = null;
         double? visSm = null;
@@ -170,14 +179,21 @@ public static class MetarParser
         sm = 0;
         if (tok.EndsWith("SM"))
         {
-            var body = tok[..^2].TrimStart('P', 'M');
+            var body = tok[..^2].TrimStart('P', 'M').Trim();
+            double whole = 0;
+            if (body.Contains(' ')) // "1 1/2" — a whole part plus a fraction
+            {
+                var sp = body.Split(' ');
+                if (sp.Length != 2 || !double.TryParse(sp[0], out whole)) return false;
+                body = sp[1];
+            }
             if (body.Contains('/'))
             {
                 var p = body.Split('/');
-                if (p.Length == 2 && double.TryParse(p[0], out var n) && double.TryParse(p[1], out var d) && d != 0) { sm = n / d; return true; }
+                if (p.Length == 2 && double.TryParse(p[0], out var n) && double.TryParse(p[1], out var d) && d != 0) { sm = whole + n / d; return true; }
                 return false;
             }
-            if (double.TryParse(body, out var v)) { sm = v; return true; }
+            if (double.TryParse(body, out var v)) { sm = whole + v; return true; }
             return false;
         }
         if (tok.Length == 4 && tok.All(char.IsDigit)) // bare metres group (e.g. 4800, 9999)
