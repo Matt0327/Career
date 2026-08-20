@@ -459,30 +459,50 @@ public sealed class OperationsService
                 continue;
             }
 
-            // Holding (fractional day, like base rent) + usage (per accrued flight-hour). Keyed on the pre-advance
-            // watermark so a replay of the same window dedupes; both watermarks advance to now/current hours.
+            // Bill the period. Keyed on the pre-advance watermark so a replay of the same window dedupes.
             var stamp = ag.LastRentBilledAt.UtcTicks;
-            long holding = (long)Math.Round(Math.Max(0, (now - ag.LastRentBilledAt).TotalDays) * ag.HoldingPerDayCents);
-            double usageHours = Math.Max(0, tail.AirframeHours - ag.HoursLastBilled);
-            long usage = (long)Math.Round(usageHours * ag.FlightHourRateCents);
             var rp = new List<LedgerPosting>();
-            if (holding > 0)
-                rp.Add(new(LedgerCategory.AircraftRental, -(holding / 100m), $"Rental holding — {tail.Tail}",
-                    LedgerRefType.Rental, ag.Id.ToString(), AircraftInstanceId: tail.Id, DedupeKey: $"rental-hold:{ag.Id}:{stamp}"));
-            if (usage > 0)
-                rp.Add(new(LedgerCategory.AircraftRental, -(usage / 100m), $"Rental usage — {tail.Tail} ({usageHours:F1} h)",
-                    LedgerRefType.Rental, ag.Id.ToString(), AircraftInstanceId: tail.Id, DedupeKey: $"rental-use:{ag.Id}:{stamp}"));
-            if (rp.Count > 0)
+            if (ag.Kind == RentalKind.Lease)
             {
-                await _ledger.StageBatchAsync(companyId, rp, ct);
-                totalRental += holding + usage;
+                // Lease (Idiom-B): a fixed weekly rate + the lessee-carried hull cover, by whole billed days.
+                int days = (int)Math.Floor((now - ag.LastRentBilledAt).TotalDays);
+                if (days > 0)
+                {
+                    long rent = (long)Math.Round(ag.WeeklyRateCents * (days / 7.0));
+                    long ins = (long)Math.Round(ag.InsuranceWeeklyCents * (days / 7.0));
+                    if (rent > 0)
+                        rp.Add(new(LedgerCategory.AircraftRental, -(rent / 100m), $"Lease payment — {tail.Tail}",
+                            LedgerRefType.Rental, ag.Id.ToString(), AircraftInstanceId: tail.Id, DedupeKey: $"lease-rent:{ag.Id}:{stamp}"));
+                    if (ins > 0)
+                        rp.Add(new(LedgerCategory.InsurancePremium, -(ins / 100m), $"Lease hull cover — {tail.Tail}",
+                            LedgerRefType.Rental, ag.Id.ToString(), AircraftInstanceId: tail.Id, DedupeKey: $"lease-ins:{ag.Id}:{stamp}"));
+                    if (rp.Count > 0) { await _ledger.StageBatchAsync(companyId, rp, ct); totalRental += rent + ins; }
+                    ag.LastRentBilledAt = ag.LastRentBilledAt.AddDays(days); // whole days only; remainder carried
+                    ag.RentCreditedCents += rent;                            // rent credits a future buyout
+                    ag.UpdatedAt = now;
+                }
             }
-            ag.LastRentBilledAt = now;
-            ag.HoursLastBilled = tail.AirframeHours;
-            ag.UpdatedAt = now;
+            else
+            {
+                // Rental: a holding fee (fractional day, like base rent) + usage (per accrued flight-hour).
+                long holding = (long)Math.Round(Math.Max(0, (now - ag.LastRentBilledAt).TotalDays) * ag.HoldingPerDayCents);
+                double usageHours = Math.Max(0, tail.AirframeHours - ag.HoursLastBilled);
+                long usage = (long)Math.Round(usageHours * ag.FlightHourRateCents);
+                if (holding > 0)
+                    rp.Add(new(LedgerCategory.AircraftRental, -(holding / 100m), $"Rental holding — {tail.Tail}",
+                        LedgerRefType.Rental, ag.Id.ToString(), AircraftInstanceId: tail.Id, DedupeKey: $"rental-hold:{ag.Id}:{stamp}"));
+                if (usage > 0)
+                    rp.Add(new(LedgerCategory.AircraftRental, -(usage / 100m), $"Rental usage — {tail.Tail} ({usageHours:F1} h)",
+                        LedgerRefType.Rental, ag.Id.ToString(), AircraftInstanceId: tail.Id, DedupeKey: $"rental-use:{ag.Id}:{stamp}"));
+                if (rp.Count > 0) { await _ledger.StageBatchAsync(companyId, rp, ct); totalRental += holding + usage; }
+                ag.LastRentBilledAt = now;
+                ag.HoursLastBilled = tail.AirframeHours;
+                ag.UpdatedAt = now;
+            }
 
+            int warnDays = ag.Kind == RentalKind.Lease ? _cfg.LeaseExpiryWarnDays : _cfg.RentExpiryWarnDays;
             int daysLeft = (int)Math.Ceiling((ag.ExpiresAt - now).TotalDays);
-            if (daysLeft > 0 && daysLeft <= _cfg.RentExpiryWarnDays)
+            if (daysLeft > 0 && daysLeft <= warnDays)
                 rentalsExpiring.Add($"{tail.Tail} in {daysLeft}d");
         }
 

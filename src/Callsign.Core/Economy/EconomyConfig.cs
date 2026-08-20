@@ -548,5 +548,39 @@ public sealed record EconomyConfig
     public long RentHoldingPerDayCents(long stickerCents) => (long)Math.Round(stickerCents * (RentHoldingRateBps / 10_000.0));
     public long RentDepositCents(long stickerCents) => (long)Math.Round(stickerCents * (RentDepositFactor / 100_000.0));
 
+    // --- Aircraft LEASE (Phase 9f-2): the mid-game capital instrument between "buy used" and "take a loan".
+    // A fixed weekly rate (decoupled from usage), a lessee-carried hull-cover line, a minimum term, and a
+    // rent-to-own buyout priced at the tail's OWN used-lot value — never below the used floor, so exercising-
+    // then-flipping always loses. Priced a deliberate premium over financing so leasing never beats owning. ---
+    public int LeaseWeeklyRateBps { get; init; } = 45;      // 0.45%/wk of sticker (~23.4%/yr) — above loan APR
+    public int LeaseMinTermDays { get; init; } = 28;        // a lease is a commitment
+    public int LeaseMaxTermDays { get; init; } = 336;       // 48 weeks
+    public int LeaseUpfrontWeeks { get; init; } = 3;        // first weeks paid at signing — sign-and-abandon is never free
+    public int LeaseDepositFactor { get; init; } = 8_000;   // escrow = 8% of sticker (milli) — sized for an ORDINARY return shortfall
+    public int LeaseInsuranceWeeklyBps { get; init; } = 32; // lessee-carried hull cover, 0.32%/wk (owner economics: 40bps x 80%)
+    public int LeaseCasualtyDeductibleFactor { get; init; } = 8_000; // lessee's bounded write-off cost (8% of sticker, milli)
+    public double LeaseRentCreditFactor { get; init; } = 0.50;       // half of paid rent credits a buyout
+    public int LeaseBuyoutConditionFloorMilli { get; init; } = 50_000; // the landmine: buyout priced through UsedPriceFactor(>=50%) => >=0.74x market > AircraftResaleFactor
+    public int LeaseExpiryWarnDays { get; init; } = 14;     // digest nudge before a lease auto-returns (Law 4)
+
+    /// <summary>The commitment discount on the weekly rate — longer terms are cheaper, capped so the rate stays above ownership carry.</summary>
+    public double LeaseLongTermDiscountPct(int termDays) => termDays switch { >= 336 => 0.15, >= 168 => 0.10, >= 84 => 0.05, _ => 0.0 };
+    public long LeaseWeeklyRateCents(long stickerCents, int termDays)
+        => (long)Math.Round(stickerCents * (LeaseWeeklyRateBps / 10_000.0) * (1 - LeaseLongTermDiscountPct(termDays)));
+    public long LeaseInsuranceWeeklyCents(long stickerCents) => (long)Math.Round(stickerCents * (LeaseInsuranceWeeklyBps / 10_000.0));
+    public long LeaseDepositCents(long stickerCents) => (long)Math.Round(stickerCents * (LeaseDepositFactor / 100_000.0));
+    public long LeaseCasualtyDeductibleCents(long stickerCents) => (long)Math.Round(stickerCents * (LeaseCasualtyDeductibleFactor / 100_000.0));
+
+    /// <summary>The rent-to-own buyout price: the tail's used-lot value (condition floored at 50%), minus a
+    /// rent credit, but NEVER below UsedPriceFactor(50%)xmarket = 0.74xmarket > AircraftResaleFactor(0.70), so a
+    /// buyout-then-sell always loses (the landmine guard).</summary>
+    public long LeaseBuyoutCents(long marketCents, int minConditionMilli, long rentCreditedCents)
+    {
+        long gross = (long)Math.Round(marketCents * UsedPriceFactor(Math.Max(minConditionMilli, LeaseBuyoutConditionFloorMilli)));
+        long credit = (long)Math.Round(rentCreditedCents * LeaseRentCreditFactor);
+        long floor = (long)Math.Round(marketCents * UsedPriceFactor(LeaseBuyoutConditionFloorMilli));
+        return Math.Max(floor, gross - credit);
+    }
+
     public static EconomyConfig Default { get; } = new();
 }

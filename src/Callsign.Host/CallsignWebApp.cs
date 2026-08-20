@@ -796,6 +796,75 @@ public static class CallsignWebApp
             catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
+        // --- Aircraft lease + rent-to-own (Phase 9f-2) ---
+        app.MapGet("/api/leases/offers", async (int? termDays, CallsignDbContext db, AircraftDealerService dealer) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var offers = await dealer.GetLeaseOffersAsync(termDays ?? 0);
+            return Results.Ok(offers.Select(o => new LeaseOfferDto(o.TypeId, o.TypeName, o.Category, o.StickerCents, o.WeeklyRateCents, o.InsuranceWeeklyCents, o.DepositCents, o.UpfrontCents, o.BuyoutCents, o.TermDays)));
+        });
+
+        app.MapGet("/api/leases", async (CallsignDbContext db, AircraftDealerService dealer) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var leases = await dealer.GetActiveLeasesAsync(pilot.CompanyId);
+            return Results.Ok(leases.Select(l => new ActiveLeaseDto(
+                l.Agreement.Id, l.Tail.Id, l.Tail.Tail, l.Type.CanonicalName, l.Tail.LocationIcao,
+                l.Agreement.DepositCents, l.WeeklyRateCents, l.InsuranceWeeklyCents, l.DaysLeft, l.BuyoutCents, l.CasualtyEligible,
+                new RentalReturnQuoteDto(l.Projected.FinalRentCents, l.Projected.DamageCents, l.Projected.DamageReason, l.Projected.RefundCents))));
+        });
+
+        app.MapPost("/api/leases", async (LeaseAircraftRequest req, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, AircraftDealerService dealer) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                var inst = await dealer.LeaseAsync(pilot.CompanyId, req.TypeId, pilot.CurrentIcao, req.TermDays ?? 0, idem);
+                return Results.Ok(new { id = inst.Id, tail = inst.Tail });
+            }
+            catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "Cash changed at the same time — try again." }); }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        app.MapGet("/api/leases/{id:guid}/return-quote", async (Guid id, CallsignDbContext db, AircraftDealerService dealer) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var q = await dealer.ReturnQuoteAsync(pilot.CompanyId, id);
+            return q is null ? Results.NotFound(new { error = "Active lease not found." })
+                             : Results.Ok(new RentalReturnQuoteDto(q.FinalRentCents, q.DamageCents, q.DamageReason, q.RefundCents));
+        });
+
+        app.MapPost("/api/leases/{id:guid}/return", async (Guid id, CallsignDbContext db, AircraftDealerService dealer) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try { return Results.Ok(new { refundCents = await dealer.ReturnAsync(pilot.CompanyId, id) }); }
+            catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "Try again." }); }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        app.MapPost("/api/leases/{id:guid}/buyout", async (Guid id, CallsignDbContext db, AircraftDealerService dealer) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try { return Results.Ok(new { buyoutCents = await dealer.BuyoutAsync(pilot.CompanyId, id) }); }
+            catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "Cash changed at the same time — try again." }); }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        app.MapPost("/api/leases/{id:guid}/casualty", async (Guid id, CallsignDbContext db, AircraftDealerService dealer) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try { return Results.Ok(new { deductibleCents = await dealer.CasualtyAsync(pilot.CompanyId, id) }); }
+            catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "Try again." }); }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
         // --- Staff + standing orders (Phase 2d) ---
         app.MapGet("/api/staff/candidates", async (CallsignDbContext db, OperationsService ops) =>
         {

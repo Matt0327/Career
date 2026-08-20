@@ -226,6 +226,33 @@ export interface ActiveRental {
   dailyHoldingCents: number
   projected: RentalReturnQuote
 }
+// Phase 9f-2 — aircraft lease + rent-to-own
+export interface LeaseOffer {
+  typeId: string
+  typeName: string
+  category: string
+  stickerCents: number
+  weeklyRateCents: number
+  insuranceWeeklyCents: number
+  depositCents: number
+  upfrontCents: number
+  buyoutCents: number
+  termDays: number
+}
+export interface ActiveLease {
+  agreementId: string
+  aircraftInstanceId: string
+  tail: string
+  typeName: string
+  locationIcao: string
+  depositCents: number
+  weeklyRateCents: number
+  insuranceWeeklyCents: number
+  daysLeft: number
+  buyoutCents: number
+  casualtyEligible: boolean
+  projected: RentalReturnQuote
+}
 
 export interface OwnedAircraft {
   id: string
@@ -919,6 +946,12 @@ export const api = {
   rent: (typeId: string, termDays?: number) => POST_IDEM('/api/rentals', { typeId, termDays }).then(ok<{ id: string, tail: string }>),
   rentalReturnQuote: (id: string) => fetch(`/api/rentals/${id}/return-quote`).then(ok<RentalReturnQuote>),
   returnRental: (id: string) => POST_IDEM(`/api/rentals/${id}/return`).then(ok<{ refundCents: number }>),
+  leaseOffers: (termDays?: number) => fetch(`/api/leases/offers${termDays ? `?termDays=${termDays}` : ''}`).then(ok<LeaseOffer[]>),
+  leases: () => fetch('/api/leases').then(ok<ActiveLease[]>),
+  lease: (typeId: string, termDays: number) => POST_IDEM('/api/leases', { typeId, termDays }).then(ok<{ id: string, tail: string }>),
+  returnLease: (id: string) => POST_IDEM(`/api/leases/${id}/return`).then(ok<{ refundCents: number }>),
+  buyoutLease: (id: string) => POST_IDEM(`/api/leases/${id}/buyout`).then(ok<{ buyoutCents: number }>),
+  casualtyLease: (id: string) => POST_IDEM(`/api/leases/${id}/casualty`).then(ok<{ deductibleCents: number }>),
   maintain: (id: string) => POST_IDEM(`/api/aircraft/${id}/maintain`).then(ok),
   inspect: (id: string) => POST_IDEM(`/api/aircraft/${id}/inspect`).then(ok),
   aircraftHistory: (id: string) => fetch(`/api/aircraft/${id}/history`).then(ok<AircraftHistory>),

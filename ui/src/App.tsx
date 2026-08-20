@@ -5,7 +5,7 @@ import {
   type FinancesData, type FinanceDetail, type AttributionLine, type CashPoint, type StatementRow, type FlightLog, type FlightDetail, type FlightTotals, type Insurance, type Inventory, type Job, type LeaderboardRow, type LedgerEntry, type LiveEvent, type Loan, type LoanOffer, type Loans,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
   type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type UsedListing, type VersionInfo, type Weather, type WorldState, type WsEvent,
-  type RentalOffer, type ActiveRental,
+  type RentalOffer, type ActiveRental, type LeaseOffer, type ActiveLease,
 } from './api'
 import { loadPrefs, savePrefs, type Prefs, type Theme } from './prefs'
 import * as L from 'leaflet'
@@ -1993,6 +1993,9 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
   const [used, setUsed] = useState<UsedListing[]>([])
   const [rentalOffers, setRentalOffers] = useState<RentalOffer[]>([])
   const [rentals, setRentals] = useState<ActiveRental[]>([])
+  const [leaseOffers, setLeaseOffers] = useState<LeaseOffer[]>([])
+  const [leases, setLeases] = useState<ActiveLease[]>([])
+  const [leaseTerm, setLeaseTerm] = useState(28)
   const [bases, setBases] = useState<BaseView[]>([])
   const [selId, setSelId] = useState<string | null>(null)
   const [history, setHistory] = useState<AircraftHistory | null>(null)
@@ -2009,11 +2012,14 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
       setUsed(await api.usedMarket())
       setRentalOffers(await api.rentalOffers())
       setRentals(await api.rentals())
+      setLeases(await api.leases())
       setBases(await api.bases())
       setSelId(prev => (prev && h.some(a => a.id === prev)) ? prev : (h[0]?.id ?? null))
     } catch (e) { setMsg(cleanErr(e)) }
   }, [])
   useEffect(() => { void load() }, [load])
+  // Lease offers reprice with the chosen term (longer terms are cheaper) — reload them when it changes.
+  useEffect(() => { api.leaseOffers(leaseTerm).then(setLeaseOffers).catch(() => { /* keep prior */ }) }, [leaseTerm])
 
   // Pull the drill-down whenever the selection changes.
   useEffect(() => {
@@ -2042,6 +2048,26 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
   const returnRentalAgreement = async (r: ActiveRental) => {
     setBusy(true); setMsg(null)
     try { const res = await api.returnRental(r.agreementId); await load(); onChanged(); setMsg(`Returned ${r.tail} — ${money(res.refundCents)} deposit back.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+  const leaseAircraft = async (o: LeaseOffer) => {
+    setBusy(true); setMsg(null)
+    try { await api.lease(o.typeId, o.termDays); await load(); onChanged(); setMsg(`Leased a ${o.typeName} for ${o.termDays} days — it's in your hangar.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+  const returnLeaseAgreement = async (l: ActiveLease) => {
+    setBusy(true); setMsg(null)
+    try { const res = await api.returnLease(l.agreementId); await load(); onChanged(); setMsg(`Returned ${l.tail} — ${money(res.refundCents)} deposit back.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+  const buyoutLeaseAgreement = async (l: ActiveLease) => {
+    setBusy(true); setMsg(null)
+    try { const res = await api.buyoutLease(l.agreementId); await load(); onChanged(); setMsg(`Bought out ${l.tail} for ${money(res.buyoutCents)} — it's yours now.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+  const casualtyLeaseAgreement = async (l: ActiveLease) => {
+    setBusy(true); setMsg(null)
+    try { const res = await api.casualtyLease(l.agreementId); await load(); onChanged(); setMsg(`${l.tail} written off — you paid the ${money(res.deductibleCents)} deductible, deposit refunded.`) }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
   const maintain = async (a: OwnedAircraft) => {
@@ -2250,6 +2276,70 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
                   <div className="job-foot">
                     <span className="hint">{afford ? '' : 'deposit over budget'}</span>
                     <button className="primary" disabled={busy || !afford} onClick={() => rentAircraft(o)}>Rent</button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
+      {leases.length > 0 && (
+        <section className="card">
+          <div className="row-head"><h2>Your leases</h2><span className="hint">Weekly rate + hull cover — return it, buy it out, or (if written off) claim casualty</span></div>
+          <div className="jobs">
+            {leases.map(l => (
+              <div className="card job" key={l.agreementId}>
+                <div className="job-top"><div className="leg"><b>{l.tail}</b> · {l.typeName}</div><div className="tag">{l.daysLeft}d left</div></div>
+                <div className="commodity">at {l.locationIcao}</div>
+                <div className="job-meta">
+                  <Meta label="Weekly" value={money(l.weeklyRateCents)} />
+                  <Meta label="Hull cover" value={`${money(l.insuranceWeeklyCents)}/wk`} />
+                  <Meta label="Deposit" value={money(l.depositCents)} />
+                </div>
+                <div className="price num">{money(l.buyoutCents)} <span className="fair-ref">to buy out</span></div>
+                {l.projected.damageCents > 0 && <div className="hint">return now: −{money(l.projected.damageCents)} condition, {money(l.projected.refundCents)} back</div>}
+                <div className="job-foot">
+                  <span className="hint" />
+                  <div className="relocate-form">
+                    <button disabled={busy} onClick={() => returnLeaseAgreement(l)}>Return</button>
+                    <button className="primary" disabled={busy} onClick={() => buyoutLeaseAgreement(l)}>Buy out</button>
+                    {l.casualtyEligible && <button className="danger-ghost" disabled={busy} onClick={() => casualtyLeaseAgreement(l)}>Write off</button>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {leaseOffers.length > 0 && (
+        <section className="card">
+          <div className="row-head">
+            <h2>Lease an aircraft</h2>
+            <div className="hangar-sort">
+              {[28, 84, 168, 336].map(t => (
+                <button key={t} type="button" className={`hsort ${leaseTerm === t ? 'on' : ''}`} onClick={() => setLeaseTerm(t)}>{t / 7}wk</button>
+              ))}
+            </div>
+          </div>
+          <div className="jobs">
+            {leaseOffers.map(o => {
+              const afford = state.cashCents >= o.upfrontCents
+              return (
+                <div className="card job" key={o.typeId}>
+                  <AircraftImage typeId={o.typeId} category={o.category} />
+                  <div className="job-top"><div className="leg"><b>{o.typeName}</b></div><div className="tag">rent-to-own</div></div>
+                  <div className="commodity">{spaced(o.category)}</div>
+                  <div className="job-meta">
+                    <Meta label="Weekly" value={money(o.weeklyRateCents)} />
+                    <Meta label="Hull cover" value={`${money(o.insuranceWeeklyCents)}/wk`} />
+                    <Meta label="Buyout" value={money(o.buyoutCents)} />
+                  </div>
+                  <div className="price num">{money(o.upfrontCents)} <span className="fair-ref">to sign ({o.termDays / 7}wk)</span></div>
+                  <div className="job-foot">
+                    <span className="hint">{afford ? '' : 'sign-on over budget'}</span>
+                    <button className="primary" disabled={busy || !afford} onClick={() => leaseAircraft(o)}>Lease</button>
                   </div>
                 </div>
               )

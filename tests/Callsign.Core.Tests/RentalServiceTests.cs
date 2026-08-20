@@ -359,4 +359,169 @@ public class RentalServiceTests
         Assert.True(usagePerHour > ownershipWearValuePerHour,
             $"renting a flight-hour ({usagePerHour}) must cost more than the resale value ordinary wear consumes ({ownershipWearValuePerHour}) — else rent-to-earn pumps");
     }
+
+    // ── Phase 9f-2: lease + rent-to-own ───────────────────────────────────────────────────────────
+
+    private static async Task<Guid> LeaseAsync(TestDb tdb, IClock clock, Seed s, int termDays = 28)
+    {
+        using var db = tdb.NewContext();
+        var tail = await Dealer(db, clock).LeaseAsync(s.CompanyId, s.TypeId, "EHAM", termDays);
+        return (await db.RentalAgreements.SingleAsync(a => a.AircraftInstanceId == tail.Id)).Id;
+    }
+
+    private static async Task FlyLease(TestDb tdb, Guid agreementId, double addHours, int hullMilli, int engineMilli)
+    {
+        using var db = tdb.NewContext();
+        var ag = await db.RentalAgreements.FindAsync(agreementId);
+        var tail = await db.AircraftInstances.FindAsync(ag!.AircraftInstanceId);
+        tail!.AirframeHours += addHours;
+        tail.HullConditionMilli = hullMilli;
+        tail.EngineConditionMilli = engineMilli;
+        await db.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task Lease_ChargesDepositPlusUpfrontWeeks_AndOpensALeaseAgreement()
+    {
+        using var tdb = new TestDb(); var clock = new FakeClock();
+        var s = await SeedAsync(tdb, clock, C172());
+        long deposit = Cfg.LeaseDepositCents(s.StickerCents);
+        long upfrontRent = Cfg.LeaseWeeklyRateCents(s.StickerCents, 28) * Cfg.LeaseUpfrontWeeks;
+        var agId = await LeaseAsync(tdb, clock, s);
+
+        using var db = tdb.NewContext();
+        var ag = await db.RentalAgreements.FindAsync(agId);
+        Assert.Equal(RentalKind.Lease, ag!.Kind);
+        Assert.Equal(RentalStatus.Active, ag.Status);
+        Assert.Equal(upfrontRent, ag.RentCreditedCents);  // the up-front weeks pre-credit the buyout
+        var company = await db.Companies.FindAsync(s.CompanyId);
+        Assert.Equal(StartCash - deposit - upfrontRent, company!.CashCents); // deposit escrow + up-front weeks both leave cash
+        Assert.Equal(company.CashCents, await LedgerSum(db, s.CompanyId));
+        var tail = await db.AircraftInstances.FindAsync(ag.AircraftInstanceId);
+        Assert.Equal(OwnershipKind.Rented, tail!.Ownership);
+    }
+
+    [Fact]
+    public async Task Lease_ReconcileBillsWeeklyRentPlusHullCover_Idempotently()
+    {
+        using var tdb = new TestDb(); var clock = new FakeClock();
+        var s = await SeedAsync(tdb, clock, C172());
+        var agId = await LeaseAsync(tdb, clock, s);
+        clock.UtcNow = clock.UtcNow.AddDays(35); // past the 21-day pre-billed window → ~14 billable days
+
+        long afterFirst;
+        using (var db = tdb.NewContext())
+        {
+            var d = await Ops(db, clock).ReconcileAsync(s.CompanyId);
+            Assert.True(d.RentalCents > 0);
+            afterFirst = (await db.Companies.FindAsync(s.CompanyId))!.CashCents;
+        }
+        using (var db = tdb.NewContext())
+        {
+            await Ops(db, clock).ReconcileAsync(s.CompanyId); // same clock → whole billed days already taken
+            Assert.Equal(afterFirst, (await db.Companies.FindAsync(s.CompanyId))!.CashCents);
+        }
+    }
+
+    [Fact]
+    public async Task LeaseReturn_ChargesTheConsumedLifeDeficit_CappedAtTheDeposit()
+    {
+        using var tdb = new TestDb(); var clock = new FakeClock();
+        var s = await SeedAsync(tdb, clock, C172());
+        long deposit = Cfg.LeaseDepositCents(s.StickerCents);
+
+        // Returned at pickup condition → no shortfall → full deposit back.
+        var clean = await LeaseAsync(tdb, clock, s);
+        using (var db = tdb.NewContext())
+            Assert.Equal(deposit, (await Dealer(db, clock).ReturnQuoteAsync(s.CompanyId, clean))!.RefundCents);
+
+        // Returned 10 points below pickup → a partial deficit charge (under the deposit cap), refund > 0.
+        var worn = await LeaseAsync(tdb, clock, s);
+        await FlyLease(tdb, worn, 20, 90_000, 90_000);
+        using (var db = tdb.NewContext())
+        {
+            var q = await Dealer(db, clock).ReturnQuoteAsync(s.CompanyId, worn);
+            Assert.True(q!.DamageCents > 0);
+            Assert.True(q.DamageCents < deposit);        // deficit value 0.70x0.10 = 7% of market < the 8% deposit → uncapped
+            Assert.Equal(deposit - q.DamageCents, q.RefundCents);
+            Assert.True(q.RefundCents > 0);
+        }
+    }
+
+    [Fact]
+    public async Task Buyout_PricesAboveResale_SoBuyoutThenSell_AlwaysLoses()
+    {
+        using var tdb = new TestDb(); var clock = new FakeClock();
+        var s = await SeedAsync(tdb, clock, C172());
+        var agId = await LeaseAsync(tdb, clock, s);
+
+        long buyout, resaleAtBuyout, proceeds;
+        using (var db = tdb.NewContext())
+        {
+            var dealer = Dealer(db, clock);
+            var tail = await db.AircraftInstances.FirstAsync(a => a.CompanyId == s.CompanyId);
+            var type = await db.AircraftTypes.FirstAsync();
+            resaleAtBuyout = dealer.ResaleValueCents(tail, type);
+            buyout = await dealer.BuyoutAsync(s.CompanyId, agId);
+            Assert.True(buyout > resaleAtBuyout, $"buyout {buyout} must exceed resale {resaleAtBuyout} (the landmine guard)");
+        }
+        using (var db = tdb.NewContext())
+        {
+            var tail = await db.AircraftInstances.FirstAsync(a => a.CompanyId == s.CompanyId && !a.IsDeleted);
+            Assert.Equal(OwnershipKind.Owned, tail.Ownership);      // it's yours now
+            Assert.Equal(buyout, tail.PurchasePriceCents);
+            Assert.Equal(RentalStatus.PurchasedOut, (await db.RentalAgreements.FindAsync(agId))!.Status);
+            proceeds = await Dealer(db, clock).SellAsync(s.CompanyId, tail.Id); // sell it straight back
+        }
+        Assert.True(proceeds < buyout, $"selling ({proceeds}) after a buyout ({buyout}) must always lose");
+    }
+
+    [Fact]
+    public async Task LeaseBuyoutFloor_StaysAboveTheResaleFactor()
+        => Assert.True(Cfg.UsedPriceFactor(Cfg.LeaseBuyoutConditionFloorMilli) > Cfg.AircraftResaleFactor,
+            "the buyout is priced through UsedPriceFactor(floor); it must stay above AircraftResaleFactor or a buyout-then-flip could profit");
+
+    [Fact]
+    public async Task Casualty_OnAWriteOff_PaysTheDeductible_RefundsTheDeposit_RetiresTheTail()
+    {
+        using var tdb = new TestDb(); var clock = new FakeClock();
+        var s = await SeedAsync(tdb, clock, C172());
+        long deposit = Cfg.LeaseDepositCents(s.StickerCents);
+        long expectedDeductible = Cfg.LeaseCasualtyDeductibleCents(s.StickerCents);
+
+        // Not a write-off yet → refused.
+        var notLoss = await LeaseAsync(tdb, clock, s);
+        using (var db = tdb.NewContext())
+            await Assert.ThrowsAsync<InvalidOperationException>(() => Dealer(db, clock).CasualtyAsync(s.CompanyId, notLoss));
+
+        // Flown to a total loss (≤ 25%) → pays the deductible only, deposit refunds, tail written off.
+        await FlyLease(tdb, notLoss, 30, 15_000, 15_000);
+        long cashBefore;
+        using (var db = tdb.NewContext()) cashBefore = (await db.Companies.FindAsync(s.CompanyId))!.CashCents;
+        long deductible;
+        using (var db = tdb.NewContext()) deductible = await Dealer(db, clock).CasualtyAsync(s.CompanyId, notLoss);
+
+        Assert.Equal(expectedDeductible, deductible);
+        using var db2 = tdb.NewContext();
+        var ag = await db2.RentalAgreements.FindAsync(notLoss);
+        Assert.Equal(RentalStatus.WrittenOff, ag!.Status);
+        Assert.True((await db2.AircraftInstances.FindAsync(ag.AircraftInstanceId))!.IsDeleted);
+        // Net cash change = deposit refund − deductible (no rent accrued at t0).
+        Assert.Equal(cashBefore + deposit - deductible, (await db2.Companies.FindAsync(s.CompanyId))!.CashCents);
+        Assert.Equal((await db2.Companies.FindAsync(s.CompanyId))!.CashCents, await LedgerSum(db2, s.CompanyId));
+    }
+
+    [Fact]
+    public async Task LeasedTail_IsHandFlyOnly_AndNotAnAsset()
+    {
+        using var tdb = new TestDb(); var clock = new FakeClock();
+        var s = await SeedAsync(tdb, clock, C172());
+        await LeaseAsync(tdb, clock, s);
+        using var db = tdb.NewContext();
+        var tailId = (await db.AircraftInstances.FirstAsync(a => a.CompanyId == s.CompanyId)).Id;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Dealer(db, clock).SellAsync(s.CompanyId, tailId));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Dealer(db, clock).MaintainAsync(s.CompanyId, tailId));
+        var ins = new InsuranceService(db, new LedgerService(db, clock), clock, Cfg);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => ins.InsureAsync(s.CompanyId, tailId, null));
+    }
 }

@@ -100,6 +100,11 @@ public record RentAircraftRequest(Guid TypeId, int? TermDays);
 public record RentalReturnQuoteDto(long FinalRentCents, long DamageCents, string? DamageReason, long RefundCents);
 public record ActiveRentalDto(Guid AgreementId, Guid AircraftInstanceId, string Tail, string TypeName, string LocationIcao, long DepositCents, long AccruedRentCents, int DaysLeft, long FlightHourCents, long DailyHoldingCents, RentalReturnQuoteDto Projected);
 
+// --- Phase 9f-2: aircraft lease + rent-to-own ---
+public record LeaseOfferDto(Guid TypeId, string TypeName, string Category, long StickerCents, long WeeklyRateCents, long InsuranceWeeklyCents, long DepositCents, long UpfrontCents, long BuyoutCents, int TermDays);
+public record LeaseAircraftRequest(Guid TypeId, int? TermDays);
+public record ActiveLeaseDto(Guid AgreementId, Guid AircraftInstanceId, string Tail, string TypeName, string LocationIcao, long DepositCents, long WeeklyRateCents, long InsuranceWeeklyCents, int DaysLeft, long BuyoutCents, bool CasualtyEligible, RentalReturnQuoteDto Projected);
+
 // --- Phase 2d: staff + standing orders ---
 public record StaffCandidateDto(int Seed, string Name, long WagePerDayCents, int SkillMilli);
 public record StaffDto(Guid Id, string Name, long WagePerDayCents, int SkillMilli);
