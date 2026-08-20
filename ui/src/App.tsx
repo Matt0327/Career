@@ -2259,8 +2259,8 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
       )}
 
       {rentalOffers.length > 0 && (
-        <section className="card">
-          <div className="row-head"><h2>Rent an aircraft</h2><span className="hint">Capital-free — a deposit + rent, flown by hand</span></div>
+        <details className="card shop">
+          <summary className="row-head shop-head"><h2>Rent an aircraft</h2><span className="hint">Capital-free — {rentalOffers.length} types · click to browse</span></summary>
           <div className="jobs">
             {rentalOffers.map(o => {
               const afford = state.cashCents >= o.depositCents
@@ -2283,7 +2283,7 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
               )
             })}
           </div>
-        </section>
+        </details>
       )}
 
       {leases.length > 0 && (
@@ -2316,14 +2316,12 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
       )}
 
       {leaseOffers.length > 0 && (
-        <section className="card">
-          <div className="row-head">
-            <h2>Lease an aircraft</h2>
-            <div className="hangar-sort">
-              {[28, 84, 168, 336].map(t => (
-                <button key={t} type="button" className={`hsort ${leaseTerm === t ? 'on' : ''}`} onClick={() => setLeaseTerm(t)}>{t / 7}wk</button>
-              ))}
-            </div>
+        <details className="card shop">
+          <summary className="row-head shop-head"><h2>Lease an aircraft</h2><span className="hint">Rent-to-own — {leaseOffers.length} types · click to browse</span></summary>
+          <div className="hangar-sort shop-term">
+            {[28, 84, 168, 336].map(t => (
+              <button key={t} type="button" className={`hsort ${leaseTerm === t ? 'on' : ''}`} onClick={() => setLeaseTerm(t)}>{t / 7}wk</button>
+            ))}
           </div>
           <div className="jobs">
             {leaseOffers.map(o => {
@@ -2347,7 +2345,7 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
               )
             })}
           </div>
-        </section>
+        </details>
       )}
     </div>
   )

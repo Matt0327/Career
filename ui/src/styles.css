@@ -613,6 +613,15 @@ input { font: inherit; }
 .dbf-note-head{font-size:13px;font-weight:600;color:var(--ink)}
 .dbf-dim{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--faint);margin-left:6px}
 .dbf-note-detail{font-size:12.5px;line-height:1.45;color:color-mix(in srgb,var(--ink) 78%,transparent);margin-top:2px}
+
+/* Phase 9f — the aircraft catalogs (rent/lease) collapse so the hangar leads with YOUR fleet, not 71 offer cards */
+details.card.shop{padding-bottom:0}
+details.card.shop[open]{padding-bottom:14px}
+details.card.shop>summary.shop-head{cursor:pointer;list-style:none;margin:0}
+details.card.shop>summary.shop-head::-webkit-details-marker{display:none}
+details.card.shop>summary.shop-head::after{content:'▸';margin-left:8px;color:var(--faint);transition:transform .15s}
+details.card.shop[open]>summary.shop-head::after{transform:rotate(90deg)}
+.shop-term{margin:8px 0}
 .flog-row.warn .flog-text{color:color-mix(in srgb,#d99a1c 85%,var(--ink))}
 .flog-row.bad .flog-text{color:color-mix(in srgb,var(--neg) 80%,var(--ink))}
 @media (prefers-reduced-motion:reduce){.flog-dotlive{animation:none}}
