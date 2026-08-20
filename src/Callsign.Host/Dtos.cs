@@ -149,7 +149,7 @@ public record BaseOfferDto(string Icao, string Name, string Kind, double Distanc
 public record OpenBaseRequest(string AirportIcao);
 
 // --- Phase 2g: trade ---
-public record MarketQuoteDto(string Good, string Name, long BuyCents, long SellCents, int UnitWeightLbs, string? Region, int PressurePct);
+public record MarketQuoteDto(string Good, string Name, long BuyCents, long SellCents, int UnitWeightLbs, string? Region, int PressurePct, int WeatherPct);
 public record WeatherDto(string Icao, string Name, int WindDirDeg, int WindKts, int GustKts, double VisibilitySm, int CeilingFt, int TempC, string Condition, string Summary);
 public record WorldStateDto(string DateIso, string DayOfWeek, string Season, int CareerDays,
     string EconomyLabel, int EconomyRewardPct);

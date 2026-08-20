@@ -1129,7 +1129,7 @@ public static class CallsignWebApp
             if (pilot is null) return Results.NotFound();
             var quotes = await trade.GetMarketAsync(pilot.CompanyId, pilot.CurrentIcao);
             return Results.Ok(quotes
-                .Select(q => new MarketQuoteDto(q.Good, q.Name, q.BuyCents, q.SellCents, q.UnitWeightLbs, q.Region, q.PressurePct)));
+                .Select(q => new MarketQuoteDto(q.Good, q.Name, q.BuyCents, q.SellCents, q.UnitWeightLbs, q.Region, q.PressurePct, q.WeatherPct)));
         });
 
         app.MapGet("/api/trade/inventory", async (CallsignDbContext db, TradeService trade) =>

@@ -290,6 +290,28 @@ public sealed record EconomyConfig
     /// <summary>Fatness of the wind tail — higher means calm most days with rarer, stronger blows.</summary>
     public double WeatherWindTailExp { get; init; } = 2.4;
 
+    // --- Weather → market demand (Phase 8f): foul conditions lift a field's commodity prices ---
+    /// <summary>The most foul weather lifts a field's commodity prices (fraction on the mid) — supply is
+    /// disrupted and local demand spikes, so a storm-hit field pays dearer to sell into (and costs more to buy).
+    /// INVARIANT: keep this at or below the round-trip dealer cost (2 × <see cref="TradeSpreadPct"/>). The lift is
+    /// ONE-SIDED (weather only ever raises the price), and foul weather is a recurring event, so a larger swing
+    /// would let a patient trader buy a good in clear weather, hold it at the field, and sell it once a storm
+    /// arrives for a risk-free same-field profit. At/below 2×spread that round trip always loses.</summary>
+    public double WeatherDemandSwing { get; init; } = 0.10;
+    /// <summary>At or above this visibility (sm) the weather is "clear" and lifts nothing; the lift ramps in as
+    /// visibility falls toward zero.</summary>
+    public double WeatherDemandClearVisSm { get; init; } = 6.0;
+
+    /// <summary>The local-demand price factor from the weather (Phase 8f): 1.0 in clear air, ramping to
+    /// 1 + <see cref="WeatherDemandSwing"/> as visibility falls to zero. A pure function of visibility, so a
+    /// caller with no weather data (factor left at 1.0) prices the market unchanged.</summary>
+    public double WeatherDemandFactor(double visibilitySm)
+    {
+        double clear = Math.Max(0.1, WeatherDemandClearVisSm);
+        double badness = Math.Clamp((clear - visibilitySm) / clear, 0.0, 1.0);
+        return 1.0 + WeatherDemandSwing * badness;
+    }
+
     // --- Economy cycle (Phase 8c): a slow boom↔bust that swings what clients pay for work ---
     /// <summary>How long one full boom→bust→recovery cycle takes (real wall-clock, the pace the calendar runs).</summary>
     public TimeSpan EconomyCyclePeriod { get; init; } = TimeSpan.FromDays(45);

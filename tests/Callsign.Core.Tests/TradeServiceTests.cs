@@ -2,6 +2,7 @@ using Callsign.Core.Data;
 using Callsign.Core.Domain;
 using Callsign.Core.Economy;
 using Callsign.Core.Time;
+using Callsign.Core.World;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
@@ -12,7 +13,7 @@ public class TradeServiceTests
     private static readonly EconomyConfig Cfg = EconomyConfig.Default;
 
     private static TradeService Trade(CallsignDbContext db, IClock clock)
-        => new(db, new LedgerService(db, clock), new MarketService(clock, Cfg), clock, Cfg);
+        => new(db, new LedgerService(db, clock), new MarketService(clock, Cfg), clock, Cfg, new WorldOracle(Cfg));
 
     // Seed a company with cash and (optionally) one owned airframe whose type sets the carry cap.
     private static async Task<Guid> SeedAsync(TestDb tdb, IClock clock, long cashCents, int? usefulLoad = 5000)
@@ -415,6 +416,93 @@ public class TradeServiceTests
             long expected = new MarketService(clock, Cfg)
                 .Quote("EHAM", TradeCatalog.Find("coffee")!, 50L * 60).BuyCents; // oracle at +3,000 lb pressure
             Assert.Equal(expected, q.BuyCents);
+        }
+    }
+
+    // ── Phase 8f: weather → market demand ────────────────────────────────────────────────────────
+
+    // Find a field whose synthetic weather is foul (low visibility) at time t — deterministic, so stable.
+    private static (double lat, double lon, double visSm) FoulField(WorldOracle world, DateTimeOffset t)
+    {
+        for (double lat = 20; lat < 70; lat += 0.7)
+        {
+            double vis = world.WeatherAt(lat, 5.0, t).VisibilitySm;
+            if (vis < 2.0) return (lat, 5.0, vis);
+        }
+        throw new Xunit.Sdk.XunitException("no foul-weather cell found in the scan range");
+    }
+
+    [Fact]
+    public async Task Market_WithoutAnAirport_IsWeatherNeutral()
+    {
+        // Isolation: an icao with no Airport row (no geography) prices exactly as the plain market — the
+        // weather factor stays 1.0. This is why existing trade tests (which seed no airports) don't churn.
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var companyId = await SeedAsync(tdb, clock, 10_000_000);
+
+        using var db = tdb.NewContext();
+        var market = await Trade(db, clock).GetMarketAsync(companyId, "NOAP");
+        Assert.All(market, q => Assert.Equal(0, q.WeatherPct));
+        var g = TradeCatalog.Goods[0];
+        var plain = new MarketService(clock, Cfg).Quote("NOAP", g);
+        Assert.Equal(plain.SellCents, market.Single(q => q.Good == g.Key).SellCents);
+    }
+
+    [Fact]
+    public async Task Market_AtAFoulWeatherField_LiftsPrices_AndMatchesTheFormula()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var world = new WorldOracle(Cfg);
+        var (lat, lon, visSm) = FoulField(world, clock.UtcNow);
+        var companyId = await SeedAsync(tdb, clock, 10_000_000);
+        using (var db = tdb.NewContext())
+        {
+            db.Airports.Add(new Airport { Ident = "FOUL", IcaoCode = "FOUL", Name = "Foul Field", Latitude = lat, Longitude = lon, Kind = AirportKind.MediumAirport });
+            await db.SaveChangesAsync();
+        }
+
+        using (var db = tdb.NewContext())
+        {
+            var g = TradeCatalog.Goods[0];
+            var q = (await Trade(db, clock).GetMarketAsync(companyId, "FOUL")).Single(m => m.Good == g.Key);
+            // Same icao, weather off, isolates the lift: FOUL's foul weather sells dearer than its own clear price.
+            var neutral = new MarketService(clock, Cfg).Quote("FOUL", g);
+            Assert.True(q.WeatherPct > 0);
+            Assert.True(q.SellCents > neutral.SellCents);
+            // And it equals the pricing oracle at exactly this field's weather factor.
+            var expected = new MarketService(clock, Cfg).Quote("FOUL", g, 0, Cfg.WeatherDemandFactor(visSm));
+            Assert.Equal(expected.SellCents, q.SellCents);
+        }
+    }
+
+    [Fact]
+    public async Task Sell_AtAFoulField_RealisesTheWeatherLiftedPrice_DisplayMatchesSettlement()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var world = new WorldOracle(Cfg);
+        var (lat, lon, visSm) = FoulField(world, clock.UtcNow);
+        var companyId = await SeedAsync(tdb, clock, 10_000_000);
+        using (var db = tdb.NewContext())
+        {
+            db.Airports.Add(new Airport { Ident = "FOUL", IcaoCode = "FOUL", Name = "Foul Field", Latitude = lat, Longitude = lon, Kind = AirportKind.MediumAirport });
+            var g = TradeCatalog.Goods[0];
+            db.InventoryLots.Add(new InventoryLot
+            {
+                Id = Guid.NewGuid(), CompanyId = companyId, Good = g.Key, Quantity = 10,
+                UnitCostCents = 1, LocationIcao = "FOUL", AcquiredAt = clock.UtcNow, UpdatedAt = clock.UtcNow,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var good = TradeCatalog.Goods[0];
+        long expectedSell = new MarketService(clock, Cfg).Quote("FOUL", good, 0, Cfg.WeatherDemandFactor(visSm)).SellCents;
+        using (var db = tdb.NewContext())
+        {
+            var result = await Trade(db, clock).SellAsync(companyId, "FOUL", good.Key, 10);
+            Assert.Equal(expectedSell * 10, result.ProceedsCents); // settlement paid the weather-lifted price shown on the board
         }
     }
 }

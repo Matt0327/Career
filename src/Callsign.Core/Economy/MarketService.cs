@@ -12,6 +12,10 @@ public sealed record MarketQuote(string Good, string Name, long BuyCents, long S
     /// <summary>How far YOUR own trading has moved this price off neutral (Phase 7g), signed percent:
     /// positive = you've bid it up by buying, negative = you've softened it by selling. Decays back to 0.</summary>
     public int PressurePct { get; init; }
+
+    /// <summary>How far the local WEATHER has lifted this price (Phase 8f), percent: foul conditions
+    /// disrupt supply and lift demand, so a storm-hit field pays dearer — 0 in clear weather.</summary>
+    public int WeatherPct { get; init; }
 }
 
 /// <summary>
@@ -38,19 +42,22 @@ public sealed class MarketService
     /// <summary>
     /// The live quote for one good at one airport. <paramref name="effectivePressureLbs"/> is the caller's
     /// own already-decayed trading footprint here (0 = untouched market): positive lifts the price, negative
-    /// softens it, on top of the fixed region tilt and the time-window swing.
+    /// softens it, on top of the fixed region tilt and the time-window swing. <paramref name="weatherDemandFactor"/>
+    /// is the local weather's demand lift (Phase 8f; 1.0 = clear/neutral), so callers with no weather data price
+    /// the market unchanged.
     /// </summary>
-    public MarketQuote Quote(string icao, TradeGood g, long effectivePressureLbs = 0)
+    public MarketQuote Quote(string icao, TradeGood g, long effectivePressureLbs = 0, double weatherDemandFactor = 1.0)
     {
         double region = RegionBias(icao, g.Key);                        // fixed structural tilt (Phase 7g)
         double pressure = PressureFactor(effectivePressureLbs);         // your own footprint (Phase 7g)
-        long mid = (long)Math.Round(g.BasePriceCents * region * Multiplier(icao, g.Key, Epoch()) * pressure);
+        long mid = (long)Math.Round(g.BasePriceCents * region * Multiplier(icao, g.Key, Epoch()) * pressure * weatherDemandFactor);
         long buy = (long)Math.Round(mid * (1m + _cfg.TradeSpreadPct), MidpointRounding.AwayFromZero);
         long sell = (long)Math.Round(mid * (1m - _cfg.TradeSpreadPct), MidpointRounding.AwayFromZero);
         string? hint = region <= 1 - _cfg.RegionBiasSwing * 0.5 ? "export"
                      : region >= 1 + _cfg.RegionBiasSwing * 0.5 ? "demand" : null;
         int pressurePct = (int)Math.Round((pressure - 1) * 100);
-        return new MarketQuote(g.Key, g.Name, buy, sell, g.UnitWeightLbs) { Region = hint, PressurePct = pressurePct };
+        int weatherPct = (int)Math.Round((weatherDemandFactor - 1) * 100);
+        return new MarketQuote(g.Key, g.Name, buy, sell, g.UnitWeightLbs) { Region = hint, PressurePct = pressurePct, WeatherPct = weatherPct };
     }
 
     /// <summary>The price factor from a trading footprint: neutral at 0, ramping linearly to ±<see

@@ -686,6 +686,8 @@ input { font: inherit; }
 .pressure-tag{margin-left:8px;font-size:11px;font-weight:600;padding:1px 7px;border-radius:5px;white-space:nowrap;cursor:help}
 .pressure-tag.up{color:var(--neg);background:color-mix(in srgb,var(--neg) 12%,transparent)}
 .pressure-tag.down{color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent)}
+/* Phase 8f — foul weather lifting local commodity prices */
+.weather-tag{margin-left:8px;font-size:11px;font-weight:600;padding:1px 7px;border-radius:5px;white-space:nowrap;cursor:help;color:#d99a1c;background:color-mix(in srgb,#d99a1c 12%,transparent)}
 .markup-sel{padding:2px 4px;font-size:12px}
 .fill-hint{margin-left:7px;font-size:11px;color:var(--muted)}
 .fill-hint.warn{color:#d99a1c}

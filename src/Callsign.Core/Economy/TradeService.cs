@@ -1,6 +1,7 @@
 using Callsign.Core.Data;
 using Callsign.Core.Domain;
 using Callsign.Core.Time;
+using Callsign.Core.World;
 using Microsoft.EntityFrameworkCore;
 
 namespace Callsign.Core.Economy;
@@ -26,14 +27,26 @@ public sealed class TradeService
     private readonly MarketService _market;
     private readonly IClock _clock;
     private readonly EconomyConfig _cfg;
+    private readonly WorldOracle _world;
 
-    public TradeService(CallsignDbContext db, LedgerService ledger, MarketService market, IClock clock, EconomyConfig cfg)
+    public TradeService(CallsignDbContext db, LedgerService ledger, MarketService market, IClock clock, EconomyConfig cfg, WorldOracle world)
     {
         _db = db;
         _ledger = ledger;
         _market = market;
         _clock = clock;
         _cfg = cfg;
+        _world = world;
+    }
+
+    /// <summary>The local weather's demand lift for a field (Phase 8f): foul conditions there lift its prices.
+    /// Neutral (1.0) when the airport is unknown — so callers/tests without geography price the market unchanged.</summary>
+    private async Task<double> WeatherFactorAsync(string icao, DateTimeOffset now, CancellationToken ct)
+    {
+        var airport = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == icao, ct);
+        if (airport is null) return 1.0;
+        var w = _world.WeatherAt(airport.Latitude, airport.Longitude, now);
+        return _cfg.WeatherDemandFactor(w.VisibilitySm);
     }
 
     /// <summary>The market at <paramref name="icao"/> priced through <paramref name="companyId"/>'s own
@@ -47,7 +60,8 @@ public sealed class TradeService
         long Eff(string good) => rows.FirstOrDefault(r => string.Equals(r.Good, good, StringComparison.OrdinalIgnoreCase)) is { } r
             ? MarketService.DecayPressureLbs(r.PressureLbs, now - r.UpdatedAt, _cfg.MarketPressureHalfLife)
             : 0;
-        return TradeCatalog.Goods.Select(g => _market.Quote(icao, g, Eff(g.Key))).ToList();
+        double weather = await WeatherFactorAsync(icao, now, ct);
+        return TradeCatalog.Goods.Select(g => _market.Quote(icao, g, Eff(g.Key), weather)).ToList();
     }
 
     // The company's own decayed trading footprint on one market cell, plus the live row to fold into.
@@ -94,12 +108,16 @@ public sealed class TradeService
             r => r.Icao == icao && string.Equals(r.Good, good, StringComparison.OrdinalIgnoreCase)) is { } r
             ? MarketService.DecayPressureLbs(r.PressureLbs, now - r.UpdatedAt, _cfg.MarketPressureHalfLife)
             : 0;
+        // Each lot is valued at the weather-adjusted sell price where it sits — compute the factor once per field.
+        var weatherByIcao = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        foreach (var loc in lots.Select(l => l.LocationIcao).Distinct(StringComparer.OrdinalIgnoreCase))
+            weatherByIcao[loc] = await WeatherFactorAsync(loc, now, ct);
 
         var views = new List<InventoryView>(lots.Count);
         foreach (var l in lots)
         {
             var g = TradeCatalog.Find(l.Good);
-            long sell = g is null ? 0 : _market.Quote(l.LocationIcao, g, Eff(l.LocationIcao, l.Good)).SellCents;
+            long sell = g is null ? 0 : _market.Quote(l.LocationIcao, g, Eff(l.LocationIcao, l.Good), weatherByIcao.GetValueOrDefault(l.LocationIcao, 1.0)).SellCents;
             long unrealized = (sell - l.UnitCostCents) * l.Quantity;
             views.Add(new InventoryView(l.Id, l.Good, g?.Name ?? l.Good, l.Quantity, l.UnitCostCents,
                 sell, unrealized, g?.UnitWeightLbs ?? 0, l.LocationIcao));
@@ -138,7 +156,8 @@ public sealed class TradeService
 
         var now = _clock.UtcNow;
         var (pRow, effPressure) = await LoadPressureAsync(companyId, icao, good.Key, now, ct);
-        var quote = _market.Quote(icao, good, effPressure);   // priced at your footprint *before* this order
+        double weather = await WeatherFactorAsync(icao, now, ct);
+        var quote = _market.Quote(icao, good, effPressure, weather);   // priced at your footprint + local weather, before this order
         long cost = quote.BuyCents * (long)qty;
         if (company.CashCents < cost)
             throw new InvalidOperationException(
@@ -219,7 +238,8 @@ public sealed class TradeService
 
         var now = _clock.UtcNow;
         var (pRow, effPressure) = await LoadPressureAsync(companyId, icao, good.Key, now, ct);
-        var quote = _market.Quote(icao, good, effPressure);   // priced at your footprint *before* this sale
+        double weather = await WeatherFactorAsync(icao, now, ct);
+        var quote = _market.Quote(icao, good, effPressure, weather);   // priced at your footprint + local weather, before this sale
         long proceeds = quote.SellCents * (long)qty;
         long costBasis = lot.UnitCostCents * (long)qty;
         long pnl = proceeds - costBasis;

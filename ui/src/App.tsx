@@ -2592,6 +2592,7 @@ function Trade({ state, onChanged }: { state: State; onChanged: () => void }) {
                   {m.region === 'export' ? <span className="region-tag exp">produced here</span> : m.region === 'demand' ? <span className="region-tag dem">in demand</span> : null}
                   {m.pressurePct >= 1 ? <span className="pressure-tag up" title="Your buying has bid this market up. It drifts back to normal once you stop.">you bid +{m.pressurePct}%</span>
                     : m.pressurePct <= -1 ? <span className="pressure-tag down" title="Your selling has flooded this market. It drifts back to normal once you stop.">you softened −{Math.abs(m.pressurePct)}%</span> : null}
+                  {m.weatherPct >= 1 ? <span className="weather-tag" title="Foul weather here has lifted local prices — sell into it dear, but the landing is harder.">weather +{m.weatherPct}%</span> : null}
                 </td>
                 <td className="r num">{money(m.buyCents)}</td>
                 <td className="r num muted">{money(m.sellCents)}</td>
