@@ -630,6 +630,25 @@ input { font: inherit; }
 .jd-client{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;margin-top:-4px}
 .loyal-tag{font-size:11px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
 .loyal-tag.on{color:#e0b23c;border-color:color-mix(in srgb,#e0b23c 40%,var(--line));background:color-mix(in srgb,#e0b23c 10%,transparent)}
+
+/* Phase 8e — operating certificates (in the Airline tab) */
+.cert-card{grid-column:1/-1}
+.cert-list{display:flex;flex-direction:column;gap:10px;margin-top:6px}
+.cert-row{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--panel-2)}
+.cert-row.valid{border-color:color-mix(in srgb,var(--pos) 35%,var(--line))}
+.cert-row.expired{border-color:color-mix(in srgb,#d99a1c 40%,var(--line))}
+.cert-main{min-width:220px;flex:1}
+.cert-name{font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.cert-badge{font-size:11px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);font-weight:500}
+.cert-badge.valid{color:var(--pos);border-color:color-mix(in srgb,var(--pos) 40%,var(--line));background:color-mix(in srgb,var(--pos) 10%,transparent)}
+.cert-badge.expired{color:#d99a1c;border-color:color-mix(in srgb,#d99a1c 40%,var(--line));background:color-mix(in srgb,#d99a1c 10%,transparent)}
+.cert-blurb{font-size:12.5px;margin-top:3px;line-height:1.45}
+.cert-gates{font-size:12px;margin-top:4px}
+.cert-action{display:flex;flex-direction:column;align-items:flex-end;gap:6px;min-width:170px}
+.cert-bar{display:flex;flex-direction:column;gap:2px;font-size:11.5px;text-align:right}
+.cert-bar .ok{color:var(--pos)}
+.cert-bar .no{color:var(--muted)}
+.cert-blocker{font-size:11px;color:#d99a1c;text-align:right}
 .jobs-side{display:flex;flex-direction:column;gap:14px}
 .jdetail{display:flex;flex-direction:column;gap:12px}
 .jd-dest{font-size:14px;font-weight:600;margin-top:-2px}

@@ -38,6 +38,13 @@ public sealed class JobAssignmentService
                 $"Reputation {def.MinReputationMilli / 1000.0:0.0} required — yours is {pilot.ReputationMilli / 1000.0:0.0}.");
 
         var now = _clock.UtcNow;
+
+        // Operating certificate gate (Phase 8e): premium categories (VIP charter, hazmat) demand a valid
+        // company certificate. Enforced here too — not just on the board — so a stale offer can't slip through.
+        if (CertificateCatalog.RequiredFor(job.Type) is { } reqCert
+            && !await _db.OperatingCertificates.AnyAsync(c => c.CompanyId == accountId && c.Kind == reqCert && c.ExpiresAt > now, ct))
+            throw new InvalidOperationException(
+                $"{CertificateCatalog.Def(reqCert).DisplayName} required — apply in the Airline tab.");
         var assignment = new JobAssignment
         {
             Id = Guid.NewGuid(),

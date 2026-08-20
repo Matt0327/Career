@@ -93,6 +93,7 @@ public static class CallsignWebApp
         builder.Services.AddScoped<FinanceService>();
         builder.Services.AddScoped<InsuranceService>();
         builder.Services.AddScoped<RouteService>();
+        builder.Services.AddScoped<CertificateService>();
         builder.Services.AddScoped<ProgressMetricsService>();
         builder.Services.AddScoped<AchievementService>();
         builder.Services.AddScoped<CampaignService>();
@@ -384,13 +385,16 @@ public static class CallsignWebApp
             return Results.Ok(new { origin = icao, generated = n });
         });
 
-        app.MapGet("/api/jobs", async (string? origin, CallsignDbContext db, JobBoardService board, EconomyConfig cfg) =>
+        app.MapGet("/api/jobs", async (string? origin, CallsignDbContext db, JobBoardService board, EconomyConfig cfg, IClock clock) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             var icao = string.IsNullOrWhiteSpace(origin) ? pilot.CurrentIcao : origin!;
             var jobs = await board.GetAvailableAsync(icao);
             var ports = await AirportsByIdentAsync(db, jobs.SelectMany(j => new[] { j.OriginIcao, j.DestIcao }));
+            // Operating-certificate gate (Phase 8e): premium categories lock unless the company holds a valid cert.
+            var validCerts = (await db.OperatingCertificates
+                .Where(c => c.CompanyId == pilot.CompanyId && c.ExpiresAt > clock.UtcNow).Select(c => c.Kind).ToListAsync()).ToHashSet();
             // Your standing with the clients behind these offers (Phase 8d) — so the board can show the repeat
             // premium a loyal client will pay, turning "whose job to fly" into a real choice.
             var clientKeys = jobs.Where(j => j.ClientKey != null).Select(j => j.ClientKey!).Distinct().ToList();
@@ -403,9 +407,12 @@ public static class CallsignWebApp
                 var def = MissionCatalog.Def(j.Type);
                 bool rankLocked = pilot.Rank < j.RequiredRank;
                 bool repLocked = pilot.ReputationMilli < def.MinReputationMilli;
+                var reqCert = Callsign.Core.Economy.CertificateCatalog.RequiredFor(j.Type);
+                bool certLocked = reqCert is { } rk && !validCerts.Contains(rk);
                 var reqName = RankTiers.Def(j.RequiredRank).DisplayName;
                 string? reason = rankLocked ? $"Requires {reqName}"
                     : repLocked ? $"Requires reputation {def.MinReputationMilli / 1000.0:0.0}"
+                    : certLocked ? $"Requires {Callsign.Core.Economy.CertificateCatalog.Def(reqCert!.Value).DisplayName}"
                     : null;
                 ports.TryGetValue(j.OriginIcao, out var o);
                 ports.TryGetValue(j.DestIcao, out var d);
@@ -414,7 +421,7 @@ public static class CallsignWebApp
                 long expBonus = (long)Math.Round(j.RewardCents * (decimal)cfg.ClientLoyaltyBonusPct(clientLoyalty));
                 return new JobDto(j.Id, j.Type.ToString(), j.OriginIcao, j.DestIcao,
                     d?.Name ?? j.DestIcao, j.Commodity, j.WeightLbs, j.Pax, j.DistanceNm,
-                    j.RewardCents, j.Xp, reqName, rankLocked || repLocked, reason, j.ExpiresAt,
+                    j.RewardCents, j.Xp, reqName, rankLocked || repLocked || certLocked, reason, j.ExpiresAt,
                     o?.Latitude ?? 0, o?.Longitude ?? 0, d?.Latitude ?? 0, d?.Longitude ?? 0,
                     kind.ToString(), d?.LongestRunwayFt, cfg.LandingFeeCents(kind),
                     j.ClientName, clientLoyalty, expBonus);
@@ -804,7 +811,7 @@ public static class CallsignWebApp
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             var d = await ops.ReconcileAsync(pilot.CompanyId);
-            return Results.Ok(new ReconcileDto(d.Trips, d.GrossIncomeCents, d.FeesCents, d.WagesCents, d.RentCents, d.LoanCents, d.InsuranceCents, d.NetCents, d.Incidents, d.Grounded, d.DutyMaxed, d.EmptyLegs, d.LoanWarnings ?? [], d.Defaults ?? []));
+            return Results.Ok(new ReconcileDto(d.Trips, d.GrossIncomeCents, d.FeesCents, d.WagesCents, d.RentCents, d.LoanCents, d.InsuranceCents, d.NetCents, d.Incidents, d.Grounded, d.DutyMaxed, d.EmptyLegs, d.LoanWarnings ?? [], d.Defaults ?? [], d.CertLapsed ?? []));
         });
 
         // --- Loans (Phase 4a) ---
@@ -1091,6 +1098,28 @@ public static class CallsignWebApp
             var w = world.WeatherAt(airport.Latitude, airport.Longitude, clock.UtcNow);
             return Results.Ok(new WeatherDto(airport.Ident, airport.Name, w.WindDirDeg, w.WindKts, w.GustKts,
                 w.VisibilitySm, w.CeilingFt, w.TempC, w.Condition, w.Summary));
+        });
+
+        // --- Operating certificates (Phase 8e): earn/renew the licences that gate premium categories ---
+        app.MapGet("/api/certificates", async (CallsignDbContext db, CertificateService certs) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            return Results.Ok(await certs.GetStatusAsync(pilot.CompanyId));
+        });
+
+        app.MapPost("/api/certificates/{kind}/apply", async (string kind, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, CertificateService certs) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            if (!Enum.TryParse<CertificateKind>(kind, ignoreCase: true, out var k))
+                return Results.BadRequest(new { error = $"Unknown certificate '{kind}'." });
+            try
+            {
+                var cert = await certs.ApplyAsync(pilot.CompanyId, k, idem);
+                return Results.Ok(new { kind = cert.Kind.ToString(), issuedAt = cert.IssuedAt, expiresAt = cert.ExpiresAt });
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
         // --- Trade (Phase 2g): the market is priced at your current airport ---

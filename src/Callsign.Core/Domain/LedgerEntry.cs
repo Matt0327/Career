@@ -20,6 +20,7 @@ public enum LedgerCategory
     BaseRent,
     StaffWage,
     CheckFlightFee,
+    CertificateFee,  // Phase 8e — the fee to earn/renew an operating certificate
     LoanPrincipal,
     LoanInterest,
     LoanPayment,

@@ -415,6 +415,7 @@ export interface ReconcileResult {
   emptyLegs: number // Phase 7g — legs that flew empty because a marked-up line priced out the client
   loanWarnings: string[] // Phase 7g — loans in forbearance, warned before they default (Law 4)
   defaults: string[] // Phase 7g — loans that defaulted this pass (charged off, credit wrecked)
+  certLapsed: string[] // Phase 8e — routes held because their operating certificate lapsed (renew to resume)
 }
 
 export interface InsurancePolicy {
@@ -606,6 +607,31 @@ export interface WorldState {
   careerDays: number // whole days the company has operated
   economyLabel: string // Boom | Bust | Recovery | Slowing (the macro cycle, Phase 8c)
   economyRewardPct: number // signed % the cycle adds to fresh job pay (e.g. +12, -8)
+}
+
+// An operating certificate's standing (Phase 8e) — held/valid + the standards bar to earn it.
+export interface CertificateStatus {
+  kind: string
+  displayName: string
+  blurb: string
+  gatesLabels: string[]
+  held: boolean
+  valid: boolean
+  issuedAt?: string | null
+  expiresAt?: string | null
+  daysLeft?: number | null
+  feeCents: number
+  validityDays: number
+  minReputationMilli: number
+  minCompletedFlights: number
+  reputationMilli: number
+  completedFlights: number
+  cashCents: number
+  meetsReputation: boolean
+  meetsRecord: boolean
+  canAfford: boolean
+  canApply: boolean
+  blocker?: string | null
 }
 
 export interface Weather {
@@ -862,6 +888,8 @@ export const api = {
   upgradeFuelFarm: (id: string) => POST_IDEM(`/api/bases/${id}/upgrade-fuel-farm`).then(ok<{ fuelFarmLevel: number }>),
   world: () => fetch('/api/world').then(ok<WorldState>),
   weather: (icao?: string) => fetch('/api/weather' + (icao ? `?icao=${encodeURIComponent(icao)}` : '')).then(ok<Weather>),
+  certificates: () => fetch('/api/certificates').then(ok<CertificateStatus[]>),
+  applyCertificate: (kind: string) => POST_IDEM(`/api/certificates/${encodeURIComponent(kind)}/apply`).then(ok<{ kind: string; issuedAt: string; expiresAt: string }>),
   tradeMarket: () => fetch('/api/trade/market').then(ok<MarketQuote[]>),
   inventory: () => fetch('/api/trade/inventory').then(ok<Inventory[]>),
   buyGood: (good: string, qty: number) => POST_IDEM('/api/trade/buy', { good, qty }).then(ok),

@@ -44,6 +44,13 @@ public sealed class RouteService
         if (def.MinReputationMilli != 0 || def.ReputationMilliReward < 0)
             throw new InvalidOperationException($"{def.DisplayName} work can't be run as a scheduled route.");
 
+        // Operating certificate gate (Phase 8e): a scheduled route is a second path to fly premium categories
+        // (VIP charter, hazmat), so it needs the SAME valid certificate the manual accept path requires —
+        // otherwise it would be a fee-free, gate-free way to earn the premium reconcile after reconcile.
+        if (CertificateCatalog.RequiredFor(mission) is { } reqCert
+            && !await _db.OperatingCertificates.AnyAsync(c => c.CompanyId == companyId && c.Kind == reqCert && c.ExpiresAt > _clock.UtcNow, ct))
+            throw new InvalidOperationException($"{CertificateCatalog.Def(reqCert).DisplayName} required — apply in the Airline tab.");
+
         var aircraft = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == aircraftId && a.CompanyId == companyId && !a.IsDeleted, ct)
                        ?? throw new InvalidOperationException("Aircraft not found in your fleet.");
         if (aircraft.Availability != AircraftAvailability.Available)

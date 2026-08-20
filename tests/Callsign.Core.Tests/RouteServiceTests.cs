@@ -71,6 +71,77 @@ public class RouteServiceTests
     }
 
     [Fact]
+    public async Task Create_CertificateGatedMission_WithoutCert_Throws()
+    {
+        // Phase 8e regression: a scheduled route is a second path to premium work and must honour the same
+        // certificate gate as the manual accept path — no fee-free VIP/Hazardous route without the licence.
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var (companyId, aircraftId, staffId) = await SeedAsync(tdb, clock);
+        using var db = tdb.NewContext();
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => Routes(db, clock).CreateRouteAsync(companyId, "x", "EHAM", "EHRD", aircraftId, staffId, MissionType.Vip));
+        Assert.Empty(await db.Routes.ToListAsync()); // nothing created
+    }
+
+    [Fact]
+    public async Task Create_CertificateGatedMission_WithValidCert_Succeeds()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var (companyId, aircraftId, staffId) = await SeedAsync(tdb, clock);
+        using (var db = tdb.NewContext())
+        {
+            db.OperatingCertificates.Add(new OperatingCertificate
+            {
+                Id = Guid.NewGuid(), CompanyId = companyId, Kind = CertificateKind.Charter,
+                IssuedAt = clock.UtcNow, ExpiresAt = clock.UtcNow.AddDays(120), UpdatedAt = clock.UtcNow,
+            });
+            await db.SaveChangesAsync();
+        }
+        using (var db = tdb.NewContext())
+        {
+            var r = await Routes(db, clock).CreateRouteAsync(companyId, "VIP line", "EHAM", "EHRD", aircraftId, staffId, MissionType.Vip);
+            Assert.Equal(MissionType.Vip, r.Mission);
+        }
+    }
+
+    [Fact]
+    public async Task Reconcile_HoldsPremiumRoute_WhenCertificateLapsed_NoIncome_ForfeitsWindow()
+    {
+        // Phase 8e regression: a VIP route set up while certified must STOP paying once the cert lapses — the
+        // reconcile loop holds it, books no income, and forfeits the unauthorised window (watermark -> now) so
+        // the lapse can't be banked and reaped with one cheap renewal.
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var (companyId, aircraftId, staffId) = await SeedAsync(tdb, clock);
+        using (var db = tdb.NewContext())
+        {
+            // A route whose Charter cert has since lapsed (none present now); 48h of trips would otherwise accrue.
+            db.Routes.Add(new Route
+            {
+                Id = Guid.NewGuid(), CompanyId = companyId, Name = "VIP line", OriginIcao = "EHAM", DestIcao = "EHRD",
+                Mission = MissionType.Vip, DistanceNm = 30, RoundTripHours = 1, RewardPerTripCents = 500_000, PriceMultiplierMilli = 1000,
+                AircraftInstanceId = aircraftId, StaffId = staffId, Active = true,
+                StartedAt = clock.UtcNow.AddHours(-48), LastReconciledAt = clock.UtcNow.AddHours(-48), UpdatedAt = clock.UtcNow,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        ReconcileDigest digest;
+        using (var db = tdb.NewContext())
+            digest = await Ops(db, clock).ReconcileAsync(companyId);
+
+        Assert.Contains(digest.CertLapsed!, s => s.Contains("VIP line")); // surfaced (Law 4)
+        using (var db = tdb.NewContext())
+        {
+            Assert.Empty(await db.LedgerEntries.Where(e => e.Category == LedgerCategory.JobPayout).ToListAsync()); // no premium paid
+            var r = await db.Routes.FirstAsync();
+            Assert.Equal(clock.UtcNow, r.LastReconciledAt); // window forfeited, not banked
+        }
+    }
+
+    [Fact]
     public async Task Reconcile_BooksRouteTrips_FeeFree()
     {
         using var tdb = new TestDb();

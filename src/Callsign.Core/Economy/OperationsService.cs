@@ -10,7 +10,7 @@ namespace Callsign.Core.Economy;
 public sealed record StaffCandidate(int Seed, string Name, long WagePerDayCents, int SkillMilli);
 
 /// <summary>What a reconcile produced (for the reopen digest).</summary>
-public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed, int EmptyLegs = 0, IReadOnlyList<string>? LoanWarnings = null, IReadOnlyList<string>? Defaults = null);
+public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed, int EmptyLegs = 0, IReadOnlyList<string>? LoanWarnings = null, IReadOnlyList<string>? Defaults = null, IReadOnlyList<string>? CertLapsed = null);
 
 /// <summary>
 /// Staff + standing orders (Phase 2d): hire pilots, set repeating autonomous routes, and reconcile the
@@ -183,6 +183,7 @@ public sealed class OperationsService
         int totalEmpty = 0;                // legs that flew empty because a marked-up line priced out the client (Phase 7g)
         var grounded = new List<string>(); // tails that couldn't fly their autonomous work — surfaced in the digest
         var dutyMaxed = new List<string>();// tails whose lone crew hit the duty limit — hire more crew to fly them harder
+        var certLapsed = new List<string>();// routes held because their operating certificate lapsed (Phase 8e)
         var loanWarnings = new List<string>(); // loans in forbearance — pay down before the grace runs out (Phase 7g)
         var defaults = new List<string>();  // loans that defaulted this pass — a charged-off, credit-wrecking event
 
@@ -295,12 +296,28 @@ public sealed class OperationsService
         }
 
         // Routes (Phase 4d): base-to-base scheduled trips — fee-free (both ends are your bases).
+        var validCertKinds = (await _db.OperatingCertificates
+            .Where(c => c.CompanyId == companyId && c.ExpiresAt > now).Select(c => c.Kind).ToListAsync(ct)).ToHashSet();
         foreach (var route in await _db.Routes.Where(r => r.CompanyId == companyId && r.Active && !r.IsDeleted).ToListAsync(ct))
         {
             double elapsedH = (now - route.LastReconciledAt).TotalHours;
             int rawTrips = route.RoundTripHours > 0 ? (int)Math.Floor(elapsedH / route.RoundTripHours) : 0;
             if (rawTrips <= 0)
                 continue;
+
+            // Operating-certificate hold (Phase 8e): autonomous route income is only realised at reconcile, and
+            // a route's authority is checked HERE, as of now. If the required certificate has lapsed, the route
+            // pays nothing this pass and its whole unsettled window is forfeit — the watermark advances to now (as
+            // the duty cap does), so a lapse can't be banked and reaped with one cheap renewal. Reconcile before
+            // the cert expires to bank authorised trips; the route resumes once renewed. Surfaced so the hold is
+            // visible (Law 4). (8e-2 may split the window at the expiry instant to pay the authorised pre-lapse part.)
+            if (CertificateCatalog.RequiredFor(route.Mission) is { } routeCert && !validCertKinds.Contains(routeCert))
+            {
+                route.LastReconciledAt = now;
+                route.UpdatedAt = now;
+                certLapsed.Add($"{route.Name} — {CertificateCatalog.Def(routeCert).DisplayName} lapsed");
+                continue;
+            }
 
             var rtAircraft = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == route.AircraftInstanceId, ct);
             if (rtAircraft is not null && AircraftDealerService.AirworthinessOf(rtAircraft, _cfg, now) is { Airworthy: false } rtAw)
@@ -418,7 +435,7 @@ public sealed class OperationsService
         await _db.SaveChangesAsync(ct);
         return new ReconcileDigest(totalTrips, grossIncome, totalFees, totalWages, totalRent, totalLoan, totalInsurance,
             grossIncome - totalFees - totalWages - totalRent - totalLoan - totalInsurance, totalIncidents, grounded, dutyMaxed, totalEmpty,
-            loanWarnings, defaults);
+            loanWarnings, defaults, certLapsed);
     }
 
     /// <summary>

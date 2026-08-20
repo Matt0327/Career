@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import {
   api, money,
-  type Achievement, type AircraftHistory, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type CheckFlightDone, type CloudSaveMeta, type CloudStatus, type Diverted,
+  type Achievement, type AircraftHistory, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type CertificateStatus, type CheckFlightDone, type CloudSaveMeta, type CloudStatus, type Diverted,
   type FinancesData, type FinanceDetail, type AttributionLine, type CashPoint, type StatementRow, type FlightLog, type FlightDetail, type FlightTotals, type Insurance, type Inventory, type Job, type LeaderboardRow, type LedgerEntry, type LiveEvent, type Loan, type LoanOffer, type Loans,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
   type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type UsedListing, type VersionInfo, type Weather, type WorldState, type WsEvent,
@@ -2243,7 +2243,8 @@ function Ops({ onChanged }: { onChanged: () => void }) {
         : ''
       const owed = d.loanWarnings.length > 0 ? ` · ⚠ Can't cover loans (${d.loanWarnings.join('; ')}) — earn or pay down before they default.` : ''
       const def = d.defaults.length > 0 ? ` · ✖ Defaulted: ${d.defaults.join('; ')}.` : ''
-      setMsg(base + inc + empty + duty + warn + owed + def)
+      const cert = d.certLapsed.length > 0 ? ` · ⚠ Held (certificate lapsed): ${d.certLapsed.join('; ')} — renew in the Airline tab to resume.` : ''
+      setMsg(base + inc + empty + duty + warn + owed + def + cert)
     } catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
 
@@ -3601,6 +3602,62 @@ function Airline({ onSaved }: { onSaved: () => void }) {
         )}
         <p className="hint">Standing reads your whole operation — reputation, fleet, network, wealth, and campaigns — into a tier. Computed live, never stored.</p>
       </section>
+
+      <Certificates />
+    </div>
+  )
+}
+
+// Operating certificates (Phase 8e): the regulated licences that gate premium categories of work.
+function Certificates() {
+  const [certs, setCerts] = useState<CertificateStatus[] | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  const load = useCallback(async () => { setCerts(await api.certificates()) }, [])
+  useEffect(() => { load().catch(e => setMsg(cleanErr(e))) }, [load])
+
+  const apply = async (kind: string) => {
+    setBusy(kind); setMsg(null)
+    try { await api.applyCertificate(kind); await load(); setMsg('Certificate issued.') }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(null) }
+  }
+
+  if (!certs) return null
+  return (
+    <section className="card cert-card">
+      <h2>Operating certificates</h2>
+      <p className="hint">Regulated licences that authorise premium work. Earn one with a fee and a standards bar — then renew it before it lapses.</p>
+      {msg && <div className="banner">{msg}</div>}
+      <div className="cert-list">
+        {certs.map(c => <CertRow key={c.kind} c={c} busy={busy === c.kind} onApply={() => apply(c.kind)} />)}
+      </div>
+    </section>
+  )
+}
+
+function CertRow({ c, busy, onApply }: { c: CertificateStatus; busy: boolean; onApply: () => void }) {
+  const state = c.valid ? 'valid' : c.held ? 'expired' : 'none'
+  const badge = state === 'valid' ? `Valid · ${c.daysLeft}d left` : state === 'expired' ? 'Expired — renew' : 'Not held'
+  return (
+    <div className={`cert-row ${state}`}>
+      <div className="cert-main">
+        <div className="cert-name">{c.displayName} <span className={`cert-badge ${state}`}>{badge}</span></div>
+        <div className="cert-blurb muted">{c.blurb}</div>
+        <div className="cert-gates"><span className="muted">Unlocks</span> {c.gatesLabels.join(', ')}</div>
+      </div>
+      <div className="cert-action">
+        {!c.valid && (
+          <div className="cert-bar">
+            <span className={c.meetsReputation ? 'ok' : 'no'}>Rep {(c.reputationMilli / 1000).toFixed(1)} / {(c.minReputationMilli / 1000).toFixed(1)}</span>
+            <span className={c.meetsRecord ? 'ok' : 'no'}>{c.completedFlights} / {c.minCompletedFlights} deliveries</span>
+          </div>
+        )}
+        <button className="primary" disabled={busy || !c.canApply} onClick={onApply}>
+          {busy ? '…' : `${c.valid ? 'Renew' : 'Apply'} · ${money(c.feeCents)}`}
+        </button>
+        {!c.canApply && c.blocker && <div className="cert-blocker">{c.blocker}</div>}
+      </div>
     </div>
   )
 }

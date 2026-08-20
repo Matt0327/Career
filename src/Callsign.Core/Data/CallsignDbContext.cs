@@ -35,6 +35,7 @@ public sealed class CallsignDbContext : DbContext
     public DbSet<AchievementAward> AchievementAwards => Set<AchievementAward>();
     public DbSet<CampaignProgress> CampaignProgress => Set<CampaignProgress>();
     public DbSet<Client> Clients => Set<Client>();
+    public DbSet<OperatingCertificate> OperatingCertificates => Set<OperatingCertificate>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -230,6 +231,13 @@ public sealed class CallsignDbContext : DbContext
         client.Property(c => c.HomeIcao).IsRequired().HasMaxLength(12);
         client.HasIndex(c => new { c.CompanyId, c.ClientKey }).IsUnique(); // one loyalty row per client per company
         client.HasOne<Company>().WithMany().HasForeignKey(c => c.CompanyId).OnDelete(DeleteBehavior.Restrict);
+
+        // --- Operating certificates (Phase 8e): the regulated licences gating premium work ---
+        var cert = model.Entity<OperatingCertificate>();
+        cert.HasKey(c => c.Id);
+        cert.Property(c => c.Kind).HasConversion<string>().HasMaxLength(20);
+        cert.HasIndex(c => new { c.CompanyId, c.Kind }).IsUnique(); // one certificate row per kind per company (renewed in place)
+        cert.HasOne<Company>().WithMany().HasForeignKey(c => c.CompanyId).OnDelete(DeleteBehavior.Restrict);
 
         // --- Pilot licence classes (Phase 3c) ---
         var qual = model.Entity<PilotQualification>();
