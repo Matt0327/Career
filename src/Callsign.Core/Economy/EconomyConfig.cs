@@ -582,5 +582,17 @@ public sealed record EconomyConfig
         return Math.Max(floor, gross - credit);
     }
 
+    // --- Live weather (Phase 9b): OPTIONAL real METAR above the synthetic model. Master default OFF ⇒
+    // EconomyConfig.Default is byte-identical to Phase 8 (NullWeatherSource ⇒ every surface reads synthetic).
+    // "Off" and "feed down" are the same code path; live never gates a flight/contract/launch (L8/L10). ---
+    public bool LiveWeatherEnabled { get; init; } = false;      // master; OFF ⇒ all reads synthetic
+    public bool LiveWeatherFeedsMarket { get; init; } = false;  // even when master ON, the market stays synthetic unless this is ON (9b-2 opt-in)
+    public TimeSpan LiveWeatherTtl { get; init; } = TimeSpan.FromMinutes(30);  // reuse a cached obs within this window
+    public TimeSpan LiveWeatherMaxAge { get; init; } = TimeSpan.FromMinutes(90); // an obs older than this ⇒ miss ⇒ synthetic (never stale-as-live for mechanics)
+    public TimeSpan LiveWeatherTimeout { get; init; } = TimeSpan.FromSeconds(3); // hard per-fetch cap ⇒ timeout falls to synthetic
+    public double LiveWeatherMaxStationNm { get; init; } = 30;  // nearest reporting station cap; beyond ⇒ synthetic
+    public string LiveWeatherBaseUrl { get; init; } = "https://aviationweather.gov/api/data/";
+    public string LiveWeatherUserAgent { get; init; } = "Callsign/9b (+https://callsign.app)"; // the API filters generic UAs
+
     public static EconomyConfig Default { get; } = new();
 }

@@ -128,6 +128,7 @@ input { font: inherit; }
 .ctx .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pos); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pos) 18%, transparent); }
 .ctx .chip.wx { cursor: help; }
 .ctx .chip.wx.rough { color: #d99a1c; border-color: color-mix(in srgb, #d99a1c 40%, var(--line)); } /* Phase 8 — weather worth noting before you launch */
+.ctx .chip.wx .wx-live { margin-left: 6px; padding: 0 4px; border-radius: 3px; font-size: 0.72em; font-weight: 700; letter-spacing: 0.04em; color: var(--pos); background: color-mix(in srgb, var(--pos) 16%, transparent); } /* Phase 9b — a real METAR is driving the chip */
 .ctx .chip.econ { cursor: help; } /* Phase 8c — where the macro economy sits, and what it's doing to job pay */
 .ctx .chip.econ.up { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 40%, var(--line)); }
 .ctx .chip.econ.down { color: #d99a1c; border-color: color-mix(in srgb, #d99a1c 40%, var(--line)); }

@@ -721,6 +721,10 @@ export interface Weather {
   tempC: number
   condition: string // Clear | Cloudy | Rain | Snow | Fog | Storm
   summary: string
+  // Phase 9b — live-METAR provenance (default = modeled/synthetic)
+  live?: boolean
+  observedIso?: string | null
+  stationIcao?: string | null
 }
 
 export interface Inventory {

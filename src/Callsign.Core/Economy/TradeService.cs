@@ -27,25 +27,30 @@ public sealed class TradeService
     private readonly MarketService _market;
     private readonly IClock _clock;
     private readonly EconomyConfig _cfg;
-    private readonly WorldOracle _world;
+    private readonly WeatherProvider _weather;
 
-    public TradeService(CallsignDbContext db, LedgerService ledger, MarketService market, IClock clock, EconomyConfig cfg, WorldOracle world)
+    // WeatherProvider is optional so every existing construction (tests + pre-9b callers) keeps compiling and
+    // runs on the pure synthetic model; DI injects the real (live-capable) provider. Phase 9b-2 lights up the
+    // weather→market shading only when LiveWeatherFeedsMarket is on — otherwise the provider returns synthetic.
+    public TradeService(CallsignDbContext db, LedgerService ledger, MarketService market, IClock clock, EconomyConfig cfg, WorldOracle world, WeatherProvider? weather = null)
     {
         _db = db;
         _ledger = ledger;
         _market = market;
         _clock = clock;
         _cfg = cfg;
-        _world = world;
+        _weather = weather ?? new WeatherProvider(world, NullWeatherSource.Instance, cfg);
     }
 
     /// <summary>The local weather's demand lift for a field (Phase 8f): foul conditions there lift its prices.
-    /// Neutral (1.0) when the airport is unknown — so callers/tests without geography price the market unchanged.</summary>
+    /// Neutral (1.0) when the airport is unknown — so callers/tests without geography price the market unchanged.
+    /// Phase 9b-2: reads the window-pinned <see cref="WeatherProvider.MarketWeather"/> so a live METAR can shade
+    /// the market at the field you're trading, with display==settlement held exact by the per-window pin.</summary>
     private async Task<double> WeatherFactorAsync(string icao, DateTimeOffset now, CancellationToken ct)
     {
         var airport = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == icao, ct);
         if (airport is null) return 1.0;
-        var w = _world.WeatherAt(airport.Latitude, airport.Longitude, now);
+        var w = _weather.MarketWeather(airport.Latitude, airport.Longitude, now, airport.Ident);
         return _cfg.WeatherDemandFactor(w.VisibilitySm);
     }
 

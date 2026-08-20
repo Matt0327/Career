@@ -162,7 +162,8 @@ public record OpenBaseRequest(string AirportIcao);
 
 // --- Phase 2g: trade ---
 public record MarketQuoteDto(string Good, string Name, long BuyCents, long SellCents, int UnitWeightLbs, string? Region, int PressurePct, int WeatherPct);
-public record WeatherDto(string Icao, string Name, int WindDirDeg, int WindKts, int GustKts, double VisibilitySm, int CeilingFt, int TempC, string Condition, string Summary);
+public record WeatherDto(string Icao, string Name, int WindDirDeg, int WindKts, int GustKts, double VisibilitySm, int CeilingFt, int TempC, string Condition, string Summary,
+    bool Live = false, string? ObservedIso = null, string? StationIcao = null); // Phase 9b — live-METAR provenance (default = modeled)
 public record WorldStateDto(string DateIso, string DayOfWeek, string Season, int CareerDays,
     string EconomyLabel, int EconomyRewardPct);
 public record InventoryDto(

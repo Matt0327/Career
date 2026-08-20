@@ -112,6 +112,26 @@ public static class CallsignWebApp
         builder.Services.AddSingleton<MarketService>(); // pure pricing (IClock + EconomyConfig)
         builder.Services.AddSingleton<Callsign.Core.World.WorldOracle>(); // pure synthetic world model (Phase 8)
 
+        // Live weather (Phase 9b): a real-METAR seam ABOVE the pure WorldOracle. When OFF (the default), a
+        // NullWeatherSource makes every read synthetic — "off" and "feed down" are the same code path. The live
+        // adapter is Host-only (owns HttpClient), so Core never gains a System.Net.Http reference (firewall lock).
+        bool liveWeatherOn = builder.Configuration.GetValue<bool?>("LiveWeather:Enabled") ?? EconomyConfig.Default.LiveWeatherEnabled;
+        if (liveWeatherOn)
+        {
+            builder.Services.AddHttpClient(Callsign.Host.World.AviationWeatherSource.HttpClientName, c =>
+            {
+                c.BaseAddress = new Uri(builder.Configuration["LiveWeather:BaseUrl"] ?? EconomyConfig.Default.LiveWeatherBaseUrl);
+                c.Timeout = EconomyConfig.Default.LiveWeatherTimeout;
+                c.DefaultRequestHeaders.UserAgent.ParseAdd(builder.Configuration["LiveWeather:UserAgent"] ?? EconomyConfig.Default.LiveWeatherUserAgent);
+            });
+            builder.Services.AddSingleton<Callsign.Core.World.IWeatherSource, Callsign.Host.World.AviationWeatherSource>();
+        }
+        else
+        {
+            builder.Services.AddSingleton<Callsign.Core.World.IWeatherSource>(Callsign.Core.World.NullWeatherSource.Instance);
+        }
+        builder.Services.AddSingleton<Callsign.Core.World.WeatherProvider>(); // resolver: live-if-fresh-else-synthetic
+
         builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
         var app = builder.Build();
@@ -1222,16 +1242,20 @@ public static class CallsignWebApp
         });
 
         // --- Weather (Phase 8): the synthetic world model at a field (current airport, or ?icao=) ---
-        app.MapGet("/api/weather", async (string? icao, CallsignDbContext db, Callsign.Core.World.WorldOracle world, IClock clock) =>
+        app.MapGet("/api/weather", async (string? icao, CallsignDbContext db, Callsign.Core.World.WeatherProvider weather, IClock clock) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             var ident = string.IsNullOrWhiteSpace(icao) ? pilot.CurrentIcao : icao;
             var airport = await db.Airports.FirstOrDefaultAsync(a => a.Ident == ident);
             if (airport is null) return Results.NotFound();
-            var w = world.WeatherAt(airport.Latitude, airport.Longitude, clock.UtcNow);
+            // Phase 9b: the freshest live METAR if the seam has one, else the synthetic model (byte-identical to
+            // Phase 8 when live weather is off). Never blocks — a dead feed just yields the synthetic value.
+            var r = weather.Observed(airport.Latitude, airport.Longitude, clock.UtcNow, airport.Ident);
+            var w = r.Weather;
             return Results.Ok(new WeatherDto(airport.Ident, airport.Name, w.WindDirDeg, w.WindKts, w.GustKts,
-                w.VisibilitySm, w.CeilingFt, w.TempC, w.Condition, w.Summary));
+                w.VisibilitySm, w.CeilingFt, w.TempC, w.Condition, w.Summary,
+                r.IsLive, r.IsLive ? r.AsOf.ToString("o") : null, r.IsLive ? airport.Ident : null));
         });
 
         // --- Clients (Phase 8d-2): your named relationships and where each stands now (loyalty decayed) ---
