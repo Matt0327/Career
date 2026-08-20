@@ -436,4 +436,189 @@ public class OperationsServiceTests
         Assert.True(control > 0);           // trips actually accrued and paid out
         Assert.Equal(control, repriced);    // repricing booked the pending trips at the OLD fair rate, not +50%
     }
+
+    // ── Phase 11a — autonomous legs ease the airline's OPERATING reputation toward the competence of the crew
+    // that flew (L12): a sharp crew lifts the name, a green crew drags it down, bounded per pass, money-neutral. ──
+
+    // A company running one standing order EHAM↔EHRD with a crew of the given skill, starting at startRepMilli.
+    private static async Task<Guid> SeedRunningOrderAsync(TestDb tdb, FakeClock clock, int crewSkillMilli, int startRepMilli = 0)
+    {
+        using var db = tdb.NewContext();
+        var company = new Company { Id = Guid.NewGuid(), Name = "Co", OperatingReputationMilli = startRepMilli };
+        db.Companies.Add(company);
+        db.Airports.AddRange(A("EHAM", 52.3086, 4.7639), A("EHRD", 51.9569, 4.4372));
+        var type = new AircraftType { Id = Guid.NewGuid(), Key = "C172", CanonicalName = "C172", Category = AircraftCategory.LightSingle, CruiseKtas = 150, UsefulLoadLbs = 900 };
+        db.AircraftTypes.Add(type);
+        var inst = new AircraftInstance { Id = Guid.NewGuid(), TypeId = type.Id, CompanyId = company.Id, Tail = "CS-1", LocationIcao = "EHAM" };
+        db.AircraftInstances.Add(inst);
+        var staff = new Staff { Id = Guid.NewGuid(), CompanyId = company.Id, Name = "Pilot", SkillMilli = crewSkillMilli, WagePerDayCents = 10_000, IsActive = true, HiredAt = clock.UtcNow, LastPaidAt = clock.UtcNow };
+        db.Staff.Add(staff);
+        await db.SaveChangesAsync();
+        await new LedgerService(db, clock).PostAsync(company.Id, LedgerCategory.StartingBalance, 100_000m, "start");
+        await new OperationsService(db, new LedgerService(db, clock), clock, Cfg).CreateStandingOrderAsync(company.Id, staff.Id, inst.Id, "EHRD");
+        return company.Id;
+    }
+
+    [Fact]
+    public async Task Autonomous_PullsReputationTowardCrewSkill()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var companyId = await SeedRunningOrderAsync(tdb, clock, crewSkillMilli: 60_000, startRepMilli: 20_000);
+        clock.UtcNow = clock.UtcNow.AddDays(2);
+
+        ReconcileDigest digest;
+        using (var db = tdb.NewContext())
+            digest = await new OperationsService(db, new LedgerService(db, clock), clock, Cfg).ReconcileAsync(companyId);
+
+        using (var db = tdb.NewContext())
+        {
+            int rep = (await db.Companies.FindAsync(companyId))!.OperatingReputationMilli;
+            Assert.True(rep > 20_000);                                            // a sharper crew than the name lifts it
+            Assert.True(rep <= 20_000 + Cfg.OperatingRepAutoMaxStepPerPassMilli); // but only by the per-pass step
+            var ev = await db.AirlineReputationEvents.SingleAsync(e => e.CompanyId == companyId);
+            Assert.Equal(AirlineRepSource.Crew, ev.Source);                       // tagged as crew-driven
+            Assert.True(ev.DeltaMilli > 0);
+        }
+    }
+
+    [Fact]
+    public async Task Autonomous_CheapCrew_DragsReputationDown()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var companyId = await SeedRunningOrderAsync(tdb, clock, crewSkillMilli: 45_000, startRepMilli: 80_000);
+        clock.UtcNow = clock.UtcNow.AddDays(2);
+
+        using (var db = tdb.NewContext())
+            await new OperationsService(db, new LedgerService(db, clock), clock, Cfg).ReconcileAsync(companyId);
+
+        using (var db = tdb.NewContext())
+            Assert.True((await db.Companies.FindAsync(companyId))!.OperatingReputationMilli < 80_000); // the name falls toward the greener crew (L12)
+    }
+
+    [Fact]
+    public async Task Autonomous_PerPassStep_IsCapped()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var companyId = await SeedRunningOrderAsync(tdb, clock, crewSkillMilli: 90_000, startRepMilli: 0);
+        clock.UtcNow = clock.UtcNow.AddDays(10); // a huge backlog of trips
+
+        using (var db = tdb.NewContext())
+            await new OperationsService(db, new LedgerService(db, clock), clock, Cfg).ReconcileAsync(companyId);
+
+        using (var db = tdb.NewContext())
+            Assert.Equal(Cfg.OperatingRepAutoMaxStepPerPassMilli, (await db.Companies.FindAsync(companyId))!.OperatingReputationMilli); // one pass moves it by at most the cap — no teleport
+    }
+
+    [Fact]
+    public async Task Autonomous_RepMove_IsIdempotentOnReplay()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var companyId = await SeedRunningOrderAsync(tdb, clock, crewSkillMilli: 60_000, startRepMilli: 20_000);
+        clock.UtcNow = clock.UtcNow.AddDays(2);
+
+        int repAfterFirst;
+        using (var db = tdb.NewContext())
+            await new OperationsService(db, new LedgerService(db, clock), clock, Cfg).ReconcileAsync(companyId);
+        using (var db = tdb.NewContext())
+            repAfterFirst = (await db.Companies.FindAsync(companyId))!.OperatingReputationMilli;
+
+        // Reconcile again with no elapsed time — 0 trips flew, so the name must not move and no event is written.
+        ReconcileDigest again;
+        using (var db = tdb.NewContext())
+            again = await new OperationsService(db, new LedgerService(db, clock), clock, Cfg).ReconcileAsync(companyId);
+
+        Assert.Equal(0, again.Trips);
+        Assert.Equal(0, again.OperatingRepDeltaMilli);
+        using (var db = tdb.NewContext())
+        {
+            Assert.Equal(repAfterFirst, (await db.Companies.FindAsync(companyId))!.OperatingReputationMilli);
+            Assert.Single(await db.AirlineReputationEvents.Where(e => e.CompanyId == companyId).ToListAsync()); // still just the first
+        }
+    }
+
+    [Fact]
+    public async Task Reconcile_ReputationMove_IsMoneyNeutral()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var companyId = await SeedRunningOrderAsync(tdb, clock, crewSkillMilli: 60_000, startRepMilli: 20_000);
+        clock.UtcNow = clock.UtcNow.AddDays(2);
+
+        ReconcileDigest digest;
+        using (var db = tdb.NewContext())
+            digest = await new OperationsService(db, new LedgerService(db, clock), clock, Cfg).ReconcileAsync(companyId);
+
+        Assert.NotEqual(0, digest.OperatingRepDeltaMilli); // the reputation engine ran this pass...
+        using (var db = tdb.NewContext())
+        {
+            var company = await db.Companies.FindAsync(companyId);
+            var ledgerSum = await db.LedgerEntries.Where(e => e.AccountId == companyId).SumAsync(e => e.AmountCents);
+            Assert.Equal(ledgerSum, company!.CashCents); // ...yet the cash invariant holds — no ledger row moved for it
+        }
+    }
+
+    [Fact]
+    public async Task Digest_ReportsOperatingRepMovement()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var companyId = await SeedRunningOrderAsync(tdb, clock, crewSkillMilli: 60_000, startRepMilli: 20_000);
+        clock.UtcNow = clock.UtcNow.AddDays(2);
+
+        ReconcileDigest digest;
+        using (var db = tdb.NewContext())
+            digest = await new OperationsService(db, new LedgerService(db, clock), clock, Cfg).ReconcileAsync(companyId);
+
+        using (var db = tdb.NewContext())
+        {
+            int rep = (await db.Companies.FindAsync(companyId))!.OperatingReputationMilli;
+            Assert.Equal(rep - 20_000, digest.OperatingRepDeltaMilli); // the digest reports exactly the net move (L4)
+            Assert.True(digest.OperatingRepDeltaMilli > 0);
+        }
+    }
+
+    [Fact]
+    public async Task Autonomous_MultipleLines_NeverOvershootsCrewSkill()
+    {
+        // Two autonomous lines, each flown by its own ceiling-skill (95%) crew, with the name sitting just below
+        // that skill. Each line's per-batch pull is bounded, but their SUM (pre-fix) would carry the name PAST 95%
+        // — the L12 upper bound. The trip-weighted-target clamp holds it AT the crews' competence, never above.
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Guid companyId;
+        using (var db = tdb.NewContext())
+        {
+            var company = new Company { Id = Guid.NewGuid(), Name = "Co", OperatingReputationMilli = 94_000 };
+            db.Companies.Add(company);
+            db.Airports.AddRange(A("EHAM", 52.3086, 4.7639), A("EHRD", 51.9569, 4.4372));
+            var type = new AircraftType { Id = Guid.NewGuid(), Key = "C172", CanonicalName = "C172", Category = AircraftCategory.LightSingle, CruiseKtas = 150, UsefulLoadLbs = 900 };
+            db.AircraftTypes.Add(type);
+            var i1 = new AircraftInstance { Id = Guid.NewGuid(), TypeId = type.Id, CompanyId = company.Id, Tail = "CS-1", LocationIcao = "EHAM" };
+            var i2 = new AircraftInstance { Id = Guid.NewGuid(), TypeId = type.Id, CompanyId = company.Id, Tail = "CS-2", LocationIcao = "EHAM" };
+            db.AircraftInstances.AddRange(i1, i2);
+            var s1 = new Staff { Id = Guid.NewGuid(), CompanyId = company.Id, Name = "Ace1", SkillMilli = 95_000, WagePerDayCents = 10_000, IsActive = true, HiredAt = clock.UtcNow, LastPaidAt = clock.UtcNow };
+            var s2 = new Staff { Id = Guid.NewGuid(), CompanyId = company.Id, Name = "Ace2", SkillMilli = 95_000, WagePerDayCents = 10_000, IsActive = true, HiredAt = clock.UtcNow, LastPaidAt = clock.UtcNow };
+            db.Staff.AddRange(s1, s2);
+            await db.SaveChangesAsync();
+            await new LedgerService(db, clock).PostAsync(company.Id, LedgerCategory.StartingBalance, 100_000m, "start");
+            var ops = new OperationsService(db, new LedgerService(db, clock), clock, Cfg);
+            await ops.CreateStandingOrderAsync(company.Id, s1.Id, i1.Id, "EHRD");
+            await ops.CreateStandingOrderAsync(company.Id, s2.Id, i2.Id, "EHRD"); // one crew per line — two lines, two crews
+            companyId = company.Id;
+        }
+        clock.UtcNow = clock.UtcNow.AddDays(2);
+        using (var db = tdb.NewContext())
+            await new OperationsService(db, new LedgerService(db, clock), clock, Cfg).ReconcileAsync(companyId);
+
+        using (var db = tdb.NewContext())
+        {
+            int rep = (await db.Companies.FindAsync(companyId))!.OperatingReputationMilli;
+            Assert.True(rep > 94_000);   // the name rose toward the crews...
+            Assert.True(rep <= 95_000);  // ...but never PAST their 95% competence, even summing two full lines (L12)
+        }
+    }
 }

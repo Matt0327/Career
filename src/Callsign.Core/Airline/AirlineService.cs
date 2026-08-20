@@ -95,6 +95,10 @@ public sealed class AirlineService
         var contributions = new List<StandingContribution>
         {
             new("Pilot reputation", m.ReputationMilli / 1000),
+            // Phase 11a — the airline's own operating reputation is now a real lever (was always 0 before this
+            // engine existed), at parity weight with pilot reputation. A fresh company reads 0 and the
+            // "hide zero levers" filter below drops it, so seeded-at-0 tests are unchanged.
+            new("Airline reputation", m.OperatingReputationMilli / 1000),
             new("Fleet", m.Aircraft * 5),
             new("Bases", m.Bases * 8),
             new("Routes", m.Routes * 6),

@@ -29,6 +29,7 @@ public sealed class CallsignDbContext : DbContext
     public DbSet<MarketPressure> MarketPressures => Set<MarketPressure>();
     public DbSet<PilotQualification> PilotQualifications => Set<PilotQualification>();
     public DbSet<ReputationEvent> ReputationEvents => Set<ReputationEvent>();
+    public DbSet<AirlineReputationEvent> AirlineReputationEvents => Set<AirlineReputationEvent>();
     public DbSet<Loan> Loans => Set<Loan>();
     public DbSet<InsurancePolicy> InsurancePolicies => Set<InsurancePolicy>();
     public DbSet<Route> Routes => Set<Route>();
@@ -264,6 +265,15 @@ public sealed class CallsignDbContext : DbContext
         rep.Property(e => e.Reason).IsRequired().HasMaxLength(120);
         rep.HasIndex(e => new { e.PilotId, e.At });
         rep.HasOne<Pilot>().WithMany().HasForeignKey(e => e.PilotId).OnDelete(DeleteBehavior.Cascade);
+
+        // --- Airline operating-reputation log (Phase 11a), append-only, company-scoped ---
+        var airRep = model.Entity<AirlineReputationEvent>();
+        airRep.HasKey(e => e.Id);
+        airRep.Property(e => e.Id).ValueGeneratedOnAdd();
+        airRep.Property(e => e.Source).HasDefaultValue(AirlineRepSource.Player); // legacy/back-filled rows read as Player
+        airRep.Property(e => e.Reason).IsRequired().HasMaxLength(120);
+        airRep.HasIndex(e => new { e.CompanyId, e.At });
+        airRep.HasOne<Company>().WithMany().HasForeignKey(e => e.CompanyId).OnDelete(DeleteBehavior.Cascade);
 
         // --- Loans (Phase 4a): a liability, distinct from the cash ledger ---
         var loan = model.Entity<Loan>();

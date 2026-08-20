@@ -216,6 +216,45 @@ public sealed record EconomyConfig
     public int CrewProficiencyGainMilliPerTrip { get; init; } = 40;  // a hired pilot sharpens ~0.04%/trip flown — hire green cheap, they improve
     public int CrewSkillCeilingMilli { get; init; } = 95_000;        // experience tops out at 95% (nobody is perfect)
 
+    // --- Airline operating reputation (Phase 11a) — the operation's own name, distinct from pilot reputation.
+    // Money-neutral in 11a: these tunables move Company.OperatingReputationMilli only; no cash path is touched.
+    // L12: the name moves TOWARD the competence of the crew you chose (autonomous legs) and by your own
+    // telemetry score (player legs), so it can never be farmed above the operation you actually run. ---
+    public const int OperatingReputationMax = 100_000;               // 0..100.0, same scale as pilot rep
+    public double OperatingRepConvergePerTrip { get; init; } = 0.04; // fraction of the (crewSkill − rep) gap closed per trip
+    public int OperatingRepAutoMaxStepPerPassMilli { get; init; } = 1_500; // most one reconcile pass moves it (±1.5 pts) — no teleport
+    public int OperatingRepPlayerHighScore { get; init; } = 90;      // at/above → the name builds
+    public int OperatingRepPlayerLowScore { get; init; } = 40;       // below → the name dings
+    public int OperatingRepPlayerGainMilli { get; init; } = 250;     // a great player leg builds the name
+    public int OperatingRepPlayerDingMilli { get; init; } = -400;    // a poor leg costs more than a great one gains
+    public int OperatingRepPlayerCheatMilli { get; init; } = -800;   // an invalidated (cheated) leg is the worst move
+
+    /// <summary>Player-flown scored leg → airline-rep move. A cheated leg costs the most; a great leg builds;
+    /// an ordinary leg (in the coaching band) neither builds nor dings (L9); an unscored legacy/manual leg
+    /// moves nothing (L10 — no score, no judgement).</summary>
+    public int OperatingRepPlayerDeltaMilli(int overallScore, bool scored, bool valid)
+        => !scored ? 0
+         : !valid  ? OperatingRepPlayerCheatMilli
+         : overallScore >= OperatingRepPlayerHighScore ? OperatingRepPlayerGainMilli
+         : overallScore <  OperatingRepPlayerLowScore  ? OperatingRepPlayerDingMilli
+         : 0;
+
+    /// <summary>The fraction of the gap toward crew competence a batch of <paramref name="trips"/> closes this
+    /// pass — proportional to trips, saturating at 1.0 (a single batch never moves PAST crew skill). Also the
+    /// weight the caller uses to derive the trip-weighted convergence target when several lines fly. Pure.</summary>
+    public double OperatingRepConvergeFrac(int trips)
+        => trips <= 0 ? 0.0 : Math.Min(1.0, OperatingRepConvergePerTrip * trips);
+
+    /// <summary>Self-balancing pull of one batch of <paramref name="trips"/> flown by a
+    /// <paramref name="crewSkillMilli"/> crew on an airline currently at <paramref name="currentRepMilli"/>:
+    /// a fraction of the gap TOWARD crew competence, proportional to trips (a poorer crew than your name pulls
+    /// it DOWN — the L12 cap). The CALLER sums pulls across all batches in a pass, caps the net step to
+    /// ±<see cref="OperatingRepAutoMaxStepPerPassMilli"/>, AND bounds the result to the trip-weighted crew-skill
+    /// target (via <see cref="OperatingRepConvergeFrac"/>) so the summed move never overshoots the operation
+    /// that flew. Pure.</summary>
+    public int OperatingRepCrewPullMilli(int currentRepMilli, int crewSkillMilli, int trips)
+        => (int)Math.Round((crewSkillMilli - currentRepMilli) * OperatingRepConvergeFrac(trips));
+
     /// <summary>Skill a hired pilot needs to be trusted with a category (their "type rating", Phase 7f) — a
     /// green crew flies light singles; bigger, faster iron demands a sharper pilot. Assignment is gated on it.</summary>
     public int MinSkillMilliForCategory(AircraftCategory category) => category switch

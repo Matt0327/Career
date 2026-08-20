@@ -2452,7 +2452,11 @@ function Ops({ onChanged }: { onChanged: () => void }) {
       const cx = d.certExpiring.length > 0 ? ` · ⚠ Renew soon: ${d.certExpiring.join('; ')} — renew in the Airline tab before it lapses.` : ''
       const rtn = d.rentalsAutoReturned.length > 0 ? ` · Rental${d.rentalsAutoReturned.length === 1 ? '' : 's'} returned at term end: ${d.rentalsAutoReturned.join(', ')}.` : ''
       const rx = d.rentalsExpiring.length > 0 ? ` · ⚠ Rental ending: ${d.rentalsExpiring.join('; ')} — return it or it auto-returns.` : ''
-      setMsg(base + inc + empty + duty + warn + owed + def + cert + wx + cx + rtn + rx)
+      // Phase 11a — the airline's own reputation moved by how well your crews flew (never a silent surprise, Law 4).
+      const airep = d.operatingRepDeltaMilli !== 0
+        ? ` · Airline reputation ${d.operatingRepDeltaMilli > 0 ? 'rose' : 'slipped'} ${(Math.abs(d.operatingRepDeltaMilli) / 1000).toFixed(1)} — ${d.operatingRepDeltaMilli > 0 ? 'your crews are flying well' : 'greener crews are dragging your name'}.`
+        : ''
+      setMsg(base + inc + empty + duty + warn + owed + def + cert + wx + cx + rtn + rx + airep)
     } catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
 
@@ -3774,6 +3778,41 @@ function EmblemMark({ k }: { k: string }) {
   }
 }
 
+// Phase 11a — the airline's operating reputation: the name your operation earns, moved by your own flying
+// (by score) and your crews' (toward their skill). A two-source split + a short log; a fall is coached, never
+// a red penalty (the Fun Dial, L9). It feeds the airline standing above; later phases make it pay.
+function AirlineReputationCard({ rep, color }: { rep: AirlineData['reputation']; color: string }) {
+  const val = rep.operatingReputationMilli / 1000
+  const fmt = (m: number) => `${m >= 0 ? '+' : '-'}${(Math.abs(m) / 1000).toFixed(1)}`
+  const crewDragging = rep.recentCrewDeltaMilli < 0 && rep.recentCrewDeltaMilli <= rep.recentPlayerDeltaMilli
+  return (
+    <section className="card">
+      <div className="row-head"><h2>Airline reputation</h2><span className="hint">the name your operation earns</span></div>
+      <div className="airep-head">
+        <div className="airep-score num" style={{ color }}>{val.toFixed(1)}<span className="airep-max"> / 100</span></div>
+        <div className="airep-split">
+          <span className="airep-src">From your flying <b className="num">{fmt(rep.recentPlayerDeltaMilli)}</b></span>
+          <span className="airep-src">From your crew <b className="num">{fmt(rep.recentCrewDeltaMilli)}</b></span>
+        </div>
+      </div>
+      <div className="rank-bar"><div className="rank-fill" style={{ width: `${Math.min(100, val)}%`, background: color }} /></div>
+      {rep.recent.length > 0 && (
+        <table className="tbl" style={{ marginTop: 12 }}>
+          <tbody>{rep.recent.map((e, i) => (
+            <tr key={i}>
+              <td><span className={`airep-tag airep-${e.source.toLowerCase()}`}>{e.source === 'Player' ? 'You' : 'Crew'}</span> {e.reason}</td>
+              <td className={`r num ${e.deltaMilli >= 0 ? 'pos' : 'airep-neg'}`}>{fmt(e.deltaMilli)}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      )}
+      <p className={crewDragging ? 'airep-coach' : 'hint'}>{crewDragging
+        ? 'Greener crews are dragging your name down — invest in sharper crew, or fly the marquee legs yourself to lift it.'
+        : 'Your own legs move it by their score; your crews’ by their skill. A stronger name lifts your airline standing.'}</p>
+    </section>
+  )
+}
+
 function Airline({ onSaved }: { onSaved: () => void }) {
   const [data, setData] = useState<AirlineData | null>(null)
   const [name, setName] = useState('')
@@ -3840,6 +3879,8 @@ function Airline({ onSaved }: { onSaved: () => void }) {
         )}
         <p className="hint">Standing reads your whole operation — reputation, fleet, network, wealth, and campaigns — into a tier. Computed live, never stored.</p>
       </section>
+
+      <AirlineReputationCard rep={data.reputation} color={color} />
 
       <Certificates />
     </div>

@@ -12,7 +12,9 @@ namespace Callsign.Core.Progression;
 /// </summary>
 public sealed record ProgressMetrics(
     int Flights, int SmoothLandings, int RankIndex, int Qualifications, int ReputationMilli,
-    int Aircraft, int Bases, int Routes, int LoansPaidOff, int Policies, long NetWorthCents);
+    int Aircraft, int Bases, int Routes, int LoansPaidOff, int Policies, long NetWorthCents,
+    // Phase 11a — the airline's own operating reputation (0–100000), distinct from the pilot's ReputationMilli.
+    int OperatingReputationMilli = 0);
 
 public sealed class ProgressMetricsService
 {
@@ -30,6 +32,7 @@ public sealed class ProgressMetricsService
     public async Task<ProgressMetrics> SnapshotAsync(Guid companyId, Guid pilotId, CancellationToken ct = default)
     {
         var pilot = await _db.Pilots.FirstOrDefaultAsync(p => p.Id == pilotId, ct);
+        var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId, ct);
 
         var flights = await _db.Flights.CountAsync(ct);
         var smooth = await _db.Flights.CountAsync(f => f.TouchdownFpm >= -60 && f.TouchdownFpm <= 60, ct);
@@ -52,6 +55,7 @@ public sealed class ProgressMetricsService
             Routes: routes,
             LoansPaidOff: loansPaid,
             Policies: policies,
-            NetWorthCents: netWorth);
+            NetWorthCents: netWorth,
+            OperatingReputationMilli: company?.OperatingReputationMilli ?? 0);
     }
 }

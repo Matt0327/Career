@@ -973,7 +973,7 @@ public static class CallsignWebApp
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             var d = await ops.ReconcileAsync(pilot.CompanyId);
-            return Results.Ok(new ReconcileDto(d.Trips, d.GrossIncomeCents, d.FeesCents, d.WagesCents, d.RentCents, d.LoanCents, d.InsuranceCents, d.NetCents, d.Incidents, d.Grounded, d.DutyMaxed, d.EmptyLegs, d.LoanWarnings ?? [], d.Defaults ?? [], d.CertLapsed ?? [], d.WeatheredOut, d.CertExpiring ?? [], d.RentalCents, d.RentalsExpiring ?? [], d.RentalsAutoReturned ?? []));
+            return Results.Ok(new ReconcileDto(d.Trips, d.GrossIncomeCents, d.FeesCents, d.WagesCents, d.RentCents, d.LoanCents, d.InsuranceCents, d.NetCents, d.Incidents, d.Grounded, d.DutyMaxed, d.EmptyLegs, d.LoanWarnings ?? [], d.Defaults ?? [], d.CertLapsed ?? [], d.WeatheredOut, d.CertExpiring ?? [], d.RentalCents, d.RentalsExpiring ?? [], d.RentalsAutoReturned ?? [], d.OperatingRepDeltaMilli));
         });
 
         // --- Loans (Phase 4a) ---
@@ -1570,10 +1570,22 @@ public static class CallsignWebApp
             if (pilot is null) return Results.NotFound();
             var id = await airline.GetIdentityAsync(pilot.CompanyId);
             var st = await airline.GetStandingAsync(pilot.CompanyId, pilot.Id);
+            // Phase 11a — the operating-reputation figure + a two-source ("your flying / your crew") split over the
+            // recent log, so the tab can show what's moving the name and coach a fall (never a red penalty).
+            var company = await db.Companies.FirstAsync(c => c.Id == pilot.CompanyId);
+            var recent = await db.AirlineReputationEvents
+                .Where(e => e.CompanyId == pilot.CompanyId)
+                .OrderByDescending(e => e.Id).Take(8).ToListAsync();
+            var reputation = new AirlineReputationDto(
+                company.OperatingReputationMilli,
+                recent.Where(e => e.Source == AirlineRepSource.Player).Sum(e => e.DeltaMilli),
+                recent.Where(e => e.Source == AirlineRepSource.Crew).Sum(e => e.DeltaMilli),
+                recent.Select(e => new AirlineRepEventDto(e.DeltaMilli, e.BalanceMilli, e.Source.ToString(), e.Reason, e.At)).ToList());
             return Results.Ok(new AirlineDto(
                 new AirlineIdentityDto(id.Name, id.TailCode, id.AccentColorHex, id.EmblemKey, id.Customised),
                 new AirlineStandingDto(st.Tier, st.TierName, st.Score, st.NextTierScore,
                     st.Contributions.Select(c => new StandingContributionDto(c.Label, c.Points)).ToList()),
+                reputation,
                 AirlineEmblems.All));
         });
 

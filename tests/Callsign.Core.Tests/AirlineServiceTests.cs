@@ -112,6 +112,33 @@ public class AirlineServiceTests
         Assert.DoesNotContain(standing.Contributions, c => c.Points == 0); // zero levers are hidden
     }
 
+    [Fact]
+    public async Task Standing_IncludesAirlineReputationContribution()
+    {
+        using var tdb = new TestDb();
+        using var db = tdb.NewContext();
+        var (company, pilot) = Seed(db);
+        company.OperatingReputationMilli = 40_000; // Phase 11a — an earned airline name → 40 points
+        await db.SaveChangesAsync();
+
+        var standing = await Svc(db).GetStandingAsync(company.Id, pilot.Id);
+
+        Assert.Contains(standing.Contributions, c => c.Label == "Airline reputation" && c.Points == 40);
+    }
+
+    [Fact]
+    public async Task Standing_FreshCompany_HidesTheAirlineReputationLever()
+    {
+        using var tdb = new TestDb();
+        using var db = tdb.NewContext();
+        var (company, pilot) = Seed(db); // OperatingReputationMilli defaults to 0
+        await db.SaveChangesAsync();
+
+        var standing = await Svc(db).GetStandingAsync(company.Id, pilot.Id);
+
+        Assert.DoesNotContain(standing.Contributions, c => c.Label == "Airline reputation"); // a 0 lever is hidden, as before
+    }
+
     private static async Task<(Guid CompanyId, Guid PilotId)> SeedSavedAsync(TestDb tdb)
     {
         using var db = tdb.NewContext();

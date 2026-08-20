@@ -499,6 +499,7 @@ export interface ReconcileResult {
   rentalCents: number // Phase 9f-1 — holding + usage rent billed on active rentals this pass
   rentalsExpiring: string[] // Phase 9f-1 — rentals nearing auto-return, warned first (Law 4)
   rentalsAutoReturned: string[] // Phase 9f-1 — rentals auto-returned at expiry this pass
+  operatingRepDeltaMilli: number // Phase 11a — net move in the airline's operating reputation this pass (milli; ± )
 }
 
 export interface InsurancePolicy {
@@ -825,9 +826,19 @@ export interface AirlineStanding {
   contributions: StandingContribution[]
 }
 
+// Phase 11a — the airline's operating reputation, with a two-source ("your flying / your crew") split + a log.
+export interface AirlineRepEvent { deltaMilli: number; balanceMilli: number; source: 'Player' | 'Crew'; reason: string; at: string }
+export interface AirlineReputation {
+  operatingReputationMilli: number
+  recentPlayerDeltaMilli: number
+  recentCrewDeltaMilli: number
+  recent: AirlineRepEvent[]
+}
+
 export interface AirlineData {
   identity: AirlineIdentity
   standing: AirlineStanding
+  reputation: AirlineReputation
   emblems: string[]
 }
 

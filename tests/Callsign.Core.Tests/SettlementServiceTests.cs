@@ -876,4 +876,166 @@ public class SettlementServiceTests
     [InlineData(-1500, -0.30)]
     public void LandingModifier_Bands(double fpm, double expected)
         => Assert.Equal(expected, (double)EconomyConfig.Default.LandingModifierPct(fpm), 3);
+
+    // ── Phase 11a — a leg you fly YOURSELF moves the airline's own OPERATING reputation by its score.
+    // Separate from the pilot reputation above; money-neutral (no ledger row); logged with Source=Player. ──
+
+    private static async Task SetOperatingRepAsync(TestDb tdb, Guid companyId, int milli)
+    {
+        using var db = tdb.NewContext();
+        (await db.Companies.FindAsync(companyId))!.OperatingReputationMilli = milli;
+        await db.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task PlayerLeg_GreatScore_RaisesOperatingReputation()
+    {
+        var cfg = EconomyConfig.Default;
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Seed s;
+        Guid assignmentId;
+        using (var db = tdb.NewContext())
+        {
+            s = await SeedAsync(db);
+            assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, s.PilotId)).Id;
+        }
+        using (var db = tdb.NewContext())
+            await new SettlementService(db, new LedgerService(db, clock), clock, cfg)
+                .SettleAsync(assignmentId, Flown(-40) with { Scored = true, OverallScore = 96, ScoreValid = true });
+
+        using (var db = tdb.NewContext())
+        {
+            Assert.Equal(cfg.OperatingRepPlayerGainMilli, (await db.Companies.FindAsync(s.CompanyId))!.OperatingReputationMilli);
+            var ev = await db.AirlineReputationEvents.SingleAsync(e => e.CompanyId == s.CompanyId);
+            Assert.Equal(AirlineRepSource.Player, ev.Source);
+            Assert.Equal(cfg.OperatingRepPlayerGainMilli, ev.DeltaMilli);
+            Assert.Equal(cfg.OperatingRepPlayerGainMilli, ev.BalanceMilli);
+            Assert.Contains("score 96", ev.Reason);
+        }
+    }
+
+    [Fact]
+    public async Task PlayerLeg_CoachingBand_MovesNothing()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Seed s;
+        Guid assignmentId;
+        using (var db = tdb.NewContext())
+        {
+            s = await SeedAsync(db);
+            assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, s.PilotId)).Id;
+        }
+        using (var db = tdb.NewContext())
+            await new SettlementService(db, new LedgerService(db, clock), clock, EconomyConfig.Default)
+                .SettleAsync(assignmentId, Flown(-40) with { Scored = true, OverallScore = 65, ScoreValid = true }); // ordinary → no move (L9)
+
+        using (var db = tdb.NewContext())
+        {
+            Assert.Equal(0, (await db.Companies.FindAsync(s.CompanyId))!.OperatingReputationMilli);
+            Assert.Empty(await db.AirlineReputationEvents.Where(e => e.CompanyId == s.CompanyId).ToListAsync());
+        }
+    }
+
+    [Fact]
+    public async Task PlayerLeg_CheatedFlight_DingsOperatingReputation()
+    {
+        var cfg = EconomyConfig.Default;
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Seed s;
+        Guid assignmentId;
+        using (var db = tdb.NewContext())
+        {
+            s = await SeedAsync(db);
+            assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, s.PilotId)).Id;
+        }
+        await SetOperatingRepAsync(tdb, s.CompanyId, 5_000); // an established name, so the ding is visible
+        using (var db = tdb.NewContext())
+            await new SettlementService(db, new LedgerService(db, clock), clock, cfg)
+                .SettleAsync(assignmentId, Flown(-40) with { Scored = true, OverallScore = 96, ScoreValid = false }); // a perfect score, but cheated
+
+        using (var db = tdb.NewContext())
+        {
+            Assert.Equal(5_000 + cfg.OperatingRepPlayerCheatMilli, (await db.Companies.FindAsync(s.CompanyId))!.OperatingReputationMilli); // 5000 − 800
+            var ev = await db.AirlineReputationEvents.SingleAsync(e => e.CompanyId == s.CompanyId);
+            Assert.Equal(cfg.OperatingRepPlayerCheatMilli, ev.DeltaMilli); // the worst move — worse than a poor honest leg
+            Assert.Equal(AirlineRepSource.Player, ev.Source);
+        }
+    }
+
+    [Fact]
+    public async Task PlayerLeg_Unscored_MovesNothing()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Seed s;
+        Guid assignmentId;
+        using (var db = tdb.NewContext())
+        {
+            s = await SeedAsync(db);
+            assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, s.PilotId)).Id;
+        }
+        await SetOperatingRepAsync(tdb, s.CompanyId, 5_000);
+        using (var db = tdb.NewContext())
+            await new SettlementService(db, new LedgerService(db, clock), clock, EconomyConfig.Default)
+                .SettleAsync(assignmentId, Flown(-40)); // no telemetry → Scored=false → no judgement (L10)
+
+        using (var db = tdb.NewContext())
+        {
+            Assert.Equal(5_000, (await db.Companies.FindAsync(s.CompanyId))!.OperatingReputationMilli); // untouched
+            Assert.Empty(await db.AirlineReputationEvents.Where(e => e.CompanyId == s.CompanyId).ToListAsync());
+        }
+    }
+
+    [Fact]
+    public async Task PlayerLeg_ClampsAtBounds()
+    {
+        var cfg = EconomyConfig.Default;
+
+        // Near 0, a ding floors at 0 (never negative).
+        using (var tdb = new TestDb())
+        {
+            var clock = new FakeClock();
+            Seed s;
+            Guid assignmentId;
+            using (var db = tdb.NewContext())
+            {
+                s = await SeedAsync(db);
+                assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, s.PilotId)).Id;
+            }
+            await SetOperatingRepAsync(tdb, s.CompanyId, 300); // less than the 800 ding
+            using (var db = tdb.NewContext())
+                await new SettlementService(db, new LedgerService(db, clock), clock, cfg)
+                    .SettleAsync(assignmentId, Flown(-40) with { Scored = true, OverallScore = 96, ScoreValid = false });
+            using (var db = tdb.NewContext())
+            {
+                Assert.Equal(0, (await db.Companies.FindAsync(s.CompanyId))!.OperatingReputationMilli); // floored, not −500
+                Assert.Equal(0, (await db.AirlineReputationEvents.SingleAsync(e => e.CompanyId == s.CompanyId)).BalanceMilli);
+            }
+        }
+
+        // Near the ceiling, a gain caps at the max (never overshoots 100.0).
+        using (var tdb = new TestDb())
+        {
+            var clock = new FakeClock();
+            Seed s;
+            Guid assignmentId;
+            using (var db = tdb.NewContext())
+            {
+                s = await SeedAsync(db);
+                assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, s.PilotId)).Id;
+            }
+            await SetOperatingRepAsync(tdb, s.CompanyId, EconomyConfig.OperatingReputationMax - 100); // 100 below the ceiling
+            using (var db = tdb.NewContext())
+                await new SettlementService(db, new LedgerService(db, clock), clock, cfg)
+                    .SettleAsync(assignmentId, Flown(-40) with { Scored = true, OverallScore = 96, ScoreValid = true }); // +250, but only 100 of headroom
+            using (var db = tdb.NewContext())
+            {
+                Assert.Equal(EconomyConfig.OperatingReputationMax, (await db.Companies.FindAsync(s.CompanyId))!.OperatingReputationMilli);
+                Assert.Equal(100, (await db.AirlineReputationEvents.SingleAsync(e => e.CompanyId == s.CompanyId)).DeltaMilli); // the actual applied move
+            }
+        }
+    }
 }

@@ -614,6 +614,18 @@ input { font: inherit; }
 .dbf-dim{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--faint);margin-left:6px}
 .dbf-note-detail{font-size:12.5px;line-height:1.45;color:color-mix(in srgb,var(--ink) 78%,transparent);margin-top:2px}
 
+/* Phase 11a — the airline operating-reputation readout (two-source split + log, coached not penalised) */
+.airep-head{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;margin:2px 0 10px}
+.airep-score{font-size:34px;font-weight:700;line-height:1}
+.airep-max{font-size:14px;font-weight:500;color:var(--faint)}
+.airep-split{display:flex;flex-direction:column;gap:2px;text-align:right;font-size:12.5px;color:var(--muted)}
+.airep-split b{margin-left:6px;color:var(--ink)}
+.airep-tag{display:inline-block;min-width:34px;text-align:center;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;border-radius:5px;padding:1px 5px;margin-right:6px}
+.airep-tag.airep-player{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
+.airep-tag.airep-crew{background:color-mix(in srgb,#3fa9bf 18%,transparent);color:#3fa9bf}
+.airep-neg{color:var(--neg)}
+.airep-coach{font-size:13px;line-height:1.5;color:color-mix(in srgb,#3fa9bf 72%,var(--ink))} /* the Fun Dial: coach a fall, never a red penalty */
+
 /* Phase 9f — the aircraft catalogs (rent/lease) collapse so the hangar leads with YOUR fleet, not 71 offer cards */
 details.card.shop{padding-bottom:0}
 details.card.shop[open]{padding-bottom:14px}

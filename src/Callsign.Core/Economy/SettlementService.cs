@@ -277,6 +277,30 @@ public sealed class SettlementService
             }
         }
 
+        // Airline operating reputation (Phase 11a): the leg you flew YOURSELF moves the airline's own name by
+        // its telemetry score — a great leg builds it, a poor one dings it, a cheated one costs the most, and an
+        // ordinary (coaching-band) or unscored leg leaves it untouched (L9/L10). A SEPARATE figure from the pilot
+        // reputation above, on the owning Company, so autonomous crew competence never leaks into the pilot gate.
+        // Applied in THIS same settlement transaction, guarded by the once-only Status==Settled gate below.
+        int airRepDelta = _cfg.OperatingRepPlayerDeltaMilli(
+            flight.OverallScore, flight.Scored, flight.Scored && flight.ScoreValid);
+        if (airRepDelta != 0)
+        {
+            var company = await _db.Companies.FirstAsync(c => c.Id == a.AccountId, ct);
+            int beforeAir = company.OperatingReputationMilli;
+            int afterAir = Math.Clamp(beforeAir + airRepDelta, 0, EconomyConfig.OperatingReputationMax);
+            if (afterAir != beforeAir)
+            {
+                company.OperatingReputationMilli = afterAir;
+                _db.AirlineReputationEvents.Add(new AirlineReputationEvent
+                {
+                    CompanyId = a.AccountId, DeltaMilli = afterAir - beforeAir, BalanceMilli = afterAir,
+                    Source = AirlineRepSource.Player,
+                    Reason = $"{a.Type} to {a.DestIcao}, score {flight.OverallScore}", At = now,
+                });
+            }
+        }
+
         // Move the client bond (Phase 8d): a clean delivery builds loyalty (a sharper flight a little more), a
         // partial dings it, a failure sours it. Applied once, in this same transaction, after the premium above
         // has already been paid from the pre-delivery loyalty.

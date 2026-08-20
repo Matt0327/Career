@@ -11,7 +11,7 @@ namespace Callsign.Core.Economy;
 public sealed record StaffCandidate(int Seed, string Name, long WagePerDayCents, int SkillMilli);
 
 /// <summary>What a reconcile produced (for the reopen digest).</summary>
-public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed, int EmptyLegs = 0, IReadOnlyList<string>? LoanWarnings = null, IReadOnlyList<string>? Defaults = null, IReadOnlyList<string>? CertLapsed = null, int WeatheredOut = 0, IReadOnlyList<string>? CertExpiring = null, long RentalCents = 0, IReadOnlyList<string>? RentalsExpiring = null, IReadOnlyList<string>? RentalsAutoReturned = null);
+public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed, int EmptyLegs = 0, IReadOnlyList<string>? LoanWarnings = null, IReadOnlyList<string>? Defaults = null, IReadOnlyList<string>? CertLapsed = null, int WeatheredOut = 0, IReadOnlyList<string>? CertExpiring = null, long RentalCents = 0, IReadOnlyList<string>? RentalsExpiring = null, IReadOnlyList<string>? RentalsAutoReturned = null, int OperatingRepDeltaMilli = 0);
 
 /// <summary>
 /// Staff + standing orders (Phase 2d): hire pilots, set repeating autonomous routes, and reconcile the
@@ -214,6 +214,15 @@ public sealed class OperationsService
         var baseIcaos = (await _db.Bases.Where(b => b.CompanyId == companyId && b.IsActive && !b.IsDeleted)
             .Select(b => b.AirportIcao).ToListAsync(ct)).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+        // The one tracked company row (Phase 11a): StageBatchAsync mutates its cash on this same instance (EF
+        // identity map), so the loan solvency check below reads postings-so-far, and we reuse it for the operating-
+        // reputation move. repStartMilli is the name AS OF pass start, so summing crew pulls across batches is
+        // order-independent and deterministic.
+        var company = await _db.Companies.FirstAsync(c => c.Id == companyId, ct);
+        int repStartMilli = company.OperatingReputationMilli;
+        long repPullRaw = 0;    // summed crew pull (milli); step-capped, then bounded to the target, before the terminal save
+        double repFracSum = 0;  // summed convergence fraction — the denominator of the trip-weighted crew-skill target
+
         foreach (var o in await _db.StandingOrders.Where(o => o.CompanyId == companyId && o.IsActive && !o.IsDeleted).ToListAsync(ct))
         {
             double elapsedH = (now - o.LastReconciledAt).TotalHours;
@@ -288,6 +297,8 @@ public sealed class OperationsService
             totalWeatheredOut += scrubbed;
             if (dutyCapped) dutyMaxed.Add(soAircraft?.Tail ?? $"{o.OriginIcao}↔{o.DestIcao}");
             SharpenCrew(soCrew, flown, now);
+            repPullRaw += _cfg.OperatingRepCrewPullMilli(repStartMilli, soCrew?.SkillMilli ?? 50_000, flown); // Phase 11a
+            repFracSum += _cfg.OperatingRepConvergeFrac(flown);
         }
 
         foreach (var s in await _db.Staff.Where(s => s.CompanyId == companyId && s.IsActive && !s.IsDeleted).ToListAsync(ct))
@@ -407,6 +418,8 @@ public sealed class OperationsService
             totalWeatheredOut += scrubbed;
             if (dutyCapped) dutyMaxed.Add(rtAircraft?.Tail ?? route.Name);
             SharpenCrew(rtCrew, flown, now);
+            repPullRaw += _cfg.OperatingRepCrewPullMilli(repStartMilli, rtCrew?.SkillMilli ?? 50_000, flown); // Phase 11a
+            repFracSum += _cfg.OperatingRepConvergeFrac(flown);
         }
 
         // Insurance premiums (Phase 4c): the running cost of coverage, prorated by whole days.
@@ -511,7 +524,7 @@ public sealed class OperationsService
         // (billing pauses so the hole doesn't deepen) and is WARNED; if it stays underwater past the grace
         // window the loan defaults — billing stops for good, the charged-off balance stays on the books (still
         // counted in net worth) and the black mark wrecks its credit. Law 4: warn before the disaster executes.
-        var borrower = await _db.Companies.FirstAsync(c => c.Id == companyId, ct); // tracked; cash reflects the postings so far
+        // (company was loaded at pass start; its cash reflects the postings staged above — EF identity map.)
         // Oldest debt first, so when cash covers some-but-not-all loans the cascade (which one forbears/defaults)
         // is deterministic and fair, not left to the provider's row order.
         foreach (var loan in await _db.Loans.Where(l => l.CompanyId == companyId && l.Status == LoanStatus.Active && !l.IsDeleted).OrderBy(l => l.TakenAt).ToListAsync(ct))
@@ -520,7 +533,7 @@ public sealed class OperationsService
             if (days <= 0)
                 continue;
 
-            if (borrower.CashCents < _cfg.LoanDelinquencyCashFloorCents) // can't service the debt this period
+            if (company.CashCents < _cfg.LoanDelinquencyCashFloorCents) // can't service the debt this period
             {
                 loan.DelinquentSinceAt ??= now; // first miss — start the grace clock
                 if ((now - loan.DelinquentSinceAt.Value).TotalDays >= _cfg.LoanDefaultGraceDays)
@@ -559,10 +572,47 @@ public sealed class OperationsService
             totalLoan += interest + principal;
         }
 
+        // Airline operating reputation (Phase 11a): fold this pass's autonomous legs into the company's own name.
+        // It eases TOWARD the competence of the crew that flew (L12) — a sharp crew lifts it, a green crew drags
+        // it down. Three bounds, in order: (1) a per-pass step cap so a huge backlog can't teleport the name; (2)
+        // the trip-weighted crew-skill TARGET the pulls converge to, so summing several lines can never carry the
+        // name PAST the operation that actually flew (the L12 upper/lower bound); (3) the hard [0, max] range. A
+        // no-elapsed replay flew 0 trips → pull 0 → no move, no event (idempotent). Money-neutral: no ledger row.
+        int operatingRepDelta = 0;
+        if (repPullRaw != 0)
+        {
+            // (1) step cap — clamp the summed pull in long space BEFORE narrowing to int, so no order count overflows.
+            int repStep = (int)Math.Clamp(repPullRaw,
+                                          -(long)_cfg.OperatingRepAutoMaxStepPerPassMilli,
+                                           _cfg.OperatingRepAutoMaxStepPerPassMilli);
+            int afterRep = repStartMilli + repStep;
+            // (2) never overshoot the weighted target: repStart + Σpull/Σfrac is the crew-skill the pulls converge
+            // to; clamp the move into [repStart, target] so it can approach but not cross it (repPull and the target
+            // share a sign, so this only ever trims an overshoot — it never reverses the move).
+            if (repFracSum > 0)
+            {
+                int target = (int)Math.Round(repStartMilli + repPullRaw / repFracSum);
+                afterRep = Math.Clamp(afterRep, Math.Min(repStartMilli, target), Math.Max(repStartMilli, target));
+            }
+            // (3) hard bounds.
+            afterRep = Math.Clamp(afterRep, 0, EconomyConfig.OperatingReputationMax);
+            operatingRepDelta = afterRep - repStartMilli;
+            if (operatingRepDelta != 0)
+            {
+                company.OperatingReputationMilli = afterRep;
+                _db.AirlineReputationEvents.Add(new AirlineReputationEvent
+                {
+                    CompanyId = companyId, DeltaMilli = operatingRepDelta, BalanceMilli = afterRep,
+                    Source = AirlineRepSource.Crew,
+                    Reason = $"Scheduled operations ×{totalTrips} trips", At = now,
+                });
+            }
+        }
+
         await _db.SaveChangesAsync(ct);
         return new ReconcileDigest(totalTrips, grossIncome, totalFees, totalWages, totalRent, totalLoan, totalInsurance,
             grossIncome - totalFees - totalWages - totalRent - totalLoan - totalInsurance - totalRental + totalRentalRefund, totalIncidents, grounded, dutyMaxed, totalEmpty,
-            loanWarnings, defaults, certLapsed, totalWeatheredOut, certExpiring, totalRental, rentalsExpiring, rentalsReturned);
+            loanWarnings, defaults, certLapsed, totalWeatheredOut, certExpiring, totalRental, rentalsExpiring, rentalsReturned, operatingRepDelta);
     }
 
     /// <summary>

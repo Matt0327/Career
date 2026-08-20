@@ -115,7 +115,7 @@ public record StandingOrderDto(
     int PriceMultiplierMilli, int FillPct, long FairRewardPerTripCents);
 public record StandingOrderRequest(Guid StaffId, Guid AircraftInstanceId, string DestIcao, int? PriceMultiplierMilli);
 public record OrderPriceRequest(int PriceMultiplierMilli);
-public record ReconcileDto(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed, int EmptyLegs, IReadOnlyList<string> LoanWarnings, IReadOnlyList<string> Defaults, IReadOnlyList<string> CertLapsed, int WeatheredOut, IReadOnlyList<string> CertExpiring, long RentalCents, IReadOnlyList<string> RentalsExpiring, IReadOnlyList<string> RentalsAutoReturned);
+public record ReconcileDto(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed, int EmptyLegs, IReadOnlyList<string> LoanWarnings, IReadOnlyList<string> Defaults, IReadOnlyList<string> CertLapsed, int WeatheredOut, IReadOnlyList<string> CertExpiring, long RentalCents, IReadOnlyList<string> RentalsExpiring, IReadOnlyList<string> RentalsAutoReturned, int OperatingRepDeltaMilli = 0);
 
 // --- Phase 4a: loans ---
 public record LoanOfferDto(int Tier, string Name, long MinPrincipalCents, long MaxPrincipalCents, int AprBps, int EffectiveAprBps);
@@ -234,5 +234,8 @@ public record CampaignDto(
 public record AirlineIdentityDto(string Name, string TailCode, string AccentColorHex, string EmblemKey, bool Customised);
 public record StandingContributionDto(string Label, int Points);
 public record AirlineStandingDto(int Tier, string TierName, int Score, int? NextTierScore, IReadOnlyList<StandingContributionDto> Contributions);
-public record AirlineDto(AirlineIdentityDto Identity, AirlineStandingDto Standing, IReadOnlyList<string> Emblems);
+// --- Phase 11a: the airline's operating reputation, with a two-source ("your flying / your crew") split and a log ---
+public record AirlineRepEventDto(int DeltaMilli, int BalanceMilli, string Source, string Reason, DateTimeOffset At);
+public record AirlineReputationDto(int OperatingReputationMilli, int RecentPlayerDeltaMilli, int RecentCrewDeltaMilli, IReadOnlyList<AirlineRepEventDto> Recent);
+public record AirlineDto(AirlineIdentityDto Identity, AirlineStandingDto Standing, AirlineReputationDto Reputation, IReadOnlyList<string> Emblems);
 public record SetAirlineRequest(string? Name, string? TailCode, string? AccentColorHex, string? EmblemKey);

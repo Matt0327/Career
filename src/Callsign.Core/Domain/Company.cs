@@ -23,6 +23,16 @@ public sealed class Company : ISyncable
     public string? AccentColorHex { get; set; }
     public string? EmblemKey { get; set; }
 
+    /// <summary>
+    /// The airline's OPERATING reputation (Phase 11a), in thousandths (0–100000 = 0.0–100.0) so tiny
+    /// per-leg moves don't round away — the exact scale of <see cref="Pilot.ReputationMilli"/>, but a
+    /// SEPARATE figure: the name of the operation you run (your flying + your crew's flying), never the
+    /// pilot's personal airmanship. A fresh company starts at 0 — an unearned reputation. Moved only by
+    /// <c>SettlementService</c> (player legs, by score) and <c>OperationsService.ReconcileAsync</c>
+    /// (autonomous legs, toward crew competence); logged to <see cref="AirlineReputationEvent"/>.
+    /// </summary>
+    public int OperatingReputationMilli { get; set; }
+
     /// <summary>Cached balance in integer cents. Mutated only via <see cref="ApplyCashDelta"/>.</summary>
     public long CashCents { get; private set; }
 
