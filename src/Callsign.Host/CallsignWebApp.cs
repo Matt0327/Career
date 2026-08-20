@@ -420,7 +420,9 @@ public static class CallsignWebApp
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             var icao = string.IsNullOrWhiteSpace(origin) ? pilot.CurrentIcao : origin!;
-            var n = await board.RefreshAsync(icao, pilot.Rank, count ?? 8, Environment.TickCount);
+            // Phase 11c — pass the company so a board at one of our HUBS (a base) reflects the airline's operating
+            // reputation (more offers, better pay), frozen at posting. Off-hub boards are unaffected.
+            var n = await board.RefreshAsync(icao, pilot.Rank, count ?? 8, Environment.TickCount, pilot.CompanyId);
             return Results.Ok(new { origin = icao, generated = n });
         });
 

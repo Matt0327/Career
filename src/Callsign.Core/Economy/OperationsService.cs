@@ -110,7 +110,13 @@ public sealed class OperationsService
         double cruise = type?.CruiseKtas ?? 150;
         double rtHours = 2 * dist / Math.Max(60, cruise);
         int weight = Math.Min(type?.UsefulLoadLbs ?? 1_000, 1_000);
-        long reward = _cfg.CargoRewardCents(dist, weight); // economy-frozen FAIR rate; your markup rides on top
+        // Phase 11c — if this line departs one of MY bases (a hub), the airline's operating reputation lifts its
+        // frozen per-trip pay (1.0× off-hub / at rep 0). Baked in here at creation, like the route above.
+        bool originIsHub = await _db.Bases.AnyAsync(b => b.CompanyId == companyId && b.IsActive && !b.IsDeleted && b.AirportIcao == origin, ct);
+        int repMilli = originIsHub
+            ? await _db.Companies.Where(c => c.Id == companyId).Select(c => c.OperatingReputationMilli).FirstOrDefaultAsync(ct)
+            : 0;
+        long reward = (long)Math.Round(_cfg.CargoRewardCents(dist, weight) * _cfg.HubReputationPayFactor(repMilli)); // economy-frozen FAIR rate; your markup rides on top
         int markup = Math.Clamp(priceMultiplierMilli, 1000, _cfg.MaxContractMarkupMilli);
 
         var now = _clock.UtcNow;

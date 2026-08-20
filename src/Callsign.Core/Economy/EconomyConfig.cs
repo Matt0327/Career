@@ -255,6 +255,53 @@ public sealed record EconomyConfig
     public int OperatingRepCrewPullMilli(int currentRepMilli, int crewSkillMilli, int trips)
         => (int)Math.Round((crewSkillMilli - currentRepMilli) * OperatingRepConvergeFrac(trips));
 
+    // --- Airline reputation → hub demand (Phase 11c): your operating name PAYS at the fields you've based at.
+    // Reputation (Company.OperatingReputationMilli, 0..100_000) lifts income-only surfaces at your HUBS:
+    // job pay + job offer count on a board originating at a base, and the frozen per-trip pay of a route /
+    // standing order flown from one. Frozen at posting (jobs) / creation (routes+orders) exactly like the 8c
+    // DemandMult, so settlement/reconcile read the frozen rate and pumping the name after accepting changes
+    // nothing owed (L5/L6). It stacks multiplicatively on the DemandMult (a boom and a strong name compound).
+    //
+    // INVARIANT (why no spread cap, unlike WeatherDemandSwing / MarketPressureSwing): every lifted surface is
+    // income-only — a one-way delivery fee (jobs) or a one-directional frozen annuity (routes/orders) — with NO
+    // buy-back and NO counterparty, so no same-field round trip exists to pump and NO ≤2×spread ceiling is
+    // needed. Reputation is NEVER passed to MarketService.Quote (its signature has no rep parameter — a compile-
+    // time guarantee), so the two-sided commodity market's WeatherDemandSwing (0.10) ≤ 2×TradeSpreadPct (0.10)
+    // guard is preserved BYTE-IDENTICALLY: rep contributes exactly 0.0 to every buy/sell there. Weather is read
+    // ONLY by the market, rep ONLY by these income surfaces — they live on disjoint surfaces and never stack.
+    //
+    // NEUTRAL FLOOR (L8): HubReputationPayFactor(0) == 1.0 and HubReputationOfferCount(c,0) == c. Reputation 0,
+    // OR an off-hub board, OR a company with no bases → byte-identical to pre-11c economics. A low name earns a
+    // SMALLER lift down to the 1.0x baseline, never a penalty below it. ---
+
+    /// <summary>The most a flawless (100.0) operating reputation lifts PAY at your hubs (fraction on the frozen
+    /// base reward). In family with its reward-bonus siblings (weather +0.10, loyalty +0.12, comfort +0.08).</summary>
+    public double HubReputationPaySwing { get; init; } = 0.15;
+
+    /// <summary>The most a flawless operating reputation widens a hub's job board (fraction of extra offers) — a
+    /// strong name draws MORE work to the fields you've invested in. NON-MONEY: count is offer QUANTITY, not
+    /// per-unit pay; each extra offer still requires a flown, telemetry-scored leg to earn, and the board is
+    /// destructively regenerated each refresh (holds ≤ the computed count, never accumulating), so a generous
+    /// swing is pump-free. Neutral (×1) at reputation 0 and off-hub.</summary>
+    public double HubReputationCountSwing { get; init; } = 0.50;
+
+    /// <summary>The shared 0→1 reputation ramp: 0.0 at reputation 0 (the neutral floor), linear to 1.0 at 100.0.
+    /// Every hub-reputation lift rides this one shape, so they build together and neutralise together. Pure.</summary>
+    private double HubReputationRamp(int reputationMilli)
+        => Math.Clamp(reputationMilli / (double)OperatingReputationMax, 0.0, 1.0);
+
+    /// <summary>The PAY lift (×) for a job originating at a hub, or a route/standing order flown from one, at this
+    /// operating reputation — 1.0 at rep 0 (neutral), ramping to 1 + <see cref="HubReputationPaySwing"/> at 100.0.
+    /// A pure rep→factor function: the CALLER does the hub scoping and passes reputation 0 for an off-hub surface,
+    /// which prices it unchanged. Frozen into the reward at posting/creation.</summary>
+    public double HubReputationPayFactor(int reputationMilli)
+        => 1.0 + HubReputationPaySwing * HubReputationRamp(reputationMilli);
+
+    /// <summary>The reputation-widened offer count for a hub board — the caller's base count at rep 0, ramping to
+    /// (1 + <see cref="HubReputationCountSwing"/>)× at full reputation, rounded to whole offers. Pure.</summary>
+    public int HubReputationOfferCount(int baseCount, int reputationMilli)
+        => (int)Math.Round(baseCount * (1.0 + HubReputationCountSwing * HubReputationRamp(reputationMilli)));
+
     /// <summary>Skill a hired pilot needs to be trusted with a category (their "type rating", Phase 7f) — a
     /// green crew flies light singles; bigger, faster iron demands a sharper pilot. Assignment is gated on it.</summary>
     public int MinSkillMilliForCategory(AircraftCategory category) => category switch
