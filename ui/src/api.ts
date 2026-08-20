@@ -153,6 +153,24 @@ export interface FlightDetail {
   // Phase 7d — mission completion grade (2 = Partial, 3 = Failed; null = an ordinary job).
   outcomeGrade: number | null
   outcomeReason: string | null
+  debrief: Debrief // Phase 10a — the post-flight coaching debrief
+}
+
+// Phase 10a — coaching debrief
+export interface DebriefNote {
+  tone: string // Strength | Coaching | Consequence
+  dimension: string
+  headline: string
+  detail: string
+}
+export interface Debrief {
+  scored: boolean
+  scoreValid: boolean
+  overallScore: number
+  grade: string
+  headline: string
+  strengths: DebriefNote[]
+  toImprove: DebriefNote[]
 }
 
 export interface FlightTotals {

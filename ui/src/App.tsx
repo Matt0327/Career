@@ -3640,6 +3640,34 @@ function FlightDetail({ id }: { id: string }) {
           </div>
         </div>
       )}
+      {d.debrief.scored && (d.debrief.strengths.length > 0 || d.debrief.toImprove.length > 0) && (
+        <div className="flt-debrief">
+          <div className="metalabel flt-pay-head">Debrief · {d.debrief.grade}</div>
+          <p className="dbf-headline">{d.debrief.headline}</p>
+          {d.debrief.strengths.length > 0 && (
+            <div className="dbf-group">
+              <div className="dbf-grouphead pos">What went well</div>
+              {d.debrief.strengths.map((n, i) => (
+                <div className="dbf-note strength" key={i}>
+                  <div className="dbf-note-head">{n.headline} <span className="dbf-dim">{n.dimension}</span></div>
+                  {n.detail && <div className="dbf-note-detail">{n.detail}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+          {d.debrief.toImprove.length > 0 && (
+            <div className="dbf-group">
+              <div className="dbf-grouphead">To improve</div>
+              {d.debrief.toImprove.map((n, i) => (
+                <div className={`dbf-note ${n.tone.toLowerCase()}`} key={i}>
+                  <div className="dbf-note-head">{n.headline} <span className="dbf-dim">{n.dimension}</span></div>
+                  {n.detail && <div className="dbf-note-detail">{n.detail}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       <div className="jd-pay flt-pay">
         <div className="metalabel flt-pay-head">Payout breakdown</div>
         {d.lines.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>No itemised breakdown recorded.</div>

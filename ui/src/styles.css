@@ -599,6 +599,20 @@ input { font: inherit; }
 .flog-row.coach .flog-mark{background:#3fa9bf} /* Phase 9 — the Fun Dial: a calm, friendly coaching nudge */
 .flog-row.coach .flog-text{color:color-mix(in srgb,#3fa9bf 72%,var(--ink))}
 .flog-text{color:var(--ink)}
+
+/* Phase 10a — the post-flight coaching debrief */
+.flt-debrief{margin-top:14px}
+.dbf-headline{margin:2px 0 10px;font-size:14px;line-height:1.45;color:var(--ink)}
+.dbf-group{margin-bottom:10px}
+.dbf-grouphead{font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--faint);margin-bottom:5px}
+.dbf-grouphead.pos{color:var(--pos)}
+.dbf-note{border-left:2px solid var(--line);padding:4px 0 4px 10px;margin-bottom:7px}
+.dbf-note.strength{border-left-color:var(--pos)}
+.dbf-note.coaching{border-left-color:#3fa9bf}
+.dbf-note.consequence{border-left-color:#d99a1c}
+.dbf-note-head{font-size:13px;font-weight:600;color:var(--ink)}
+.dbf-dim{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--faint);margin-left:6px}
+.dbf-note-detail{font-size:12.5px;line-height:1.45;color:color-mix(in srgb,var(--ink) 78%,transparent);margin-top:2px}
 .flog-row.warn .flog-text{color:color-mix(in srgb,#d99a1c 85%,var(--ink))}
 .flog-row.bad .flog-text{color:color-mix(in srgb,var(--neg) 80%,var(--ink))}
 @media (prefers-reduced-motion:reduce){.flog-dotlive{animation:none}}

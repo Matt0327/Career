@@ -193,7 +193,13 @@ public record FlightDetailDto(
     IReadOnlyList<FlightEventDto> Events,
     int? OverallScore, int? LandingScore, int? ApproachScore,
     double? TouchdownG, bool? StabilizedApproach, int? ViolationPoints, bool? ScoreValid,
-    int? OutcomeGrade, string? OutcomeReason);
+    int? OutcomeGrade, string? OutcomeReason,
+    DebriefDto Debrief); // Phase 10a — the post-flight coaching debrief
+
+// --- Phase 10a: the post-flight coaching debrief ---
+public record DebriefNoteDto(string Tone, string Dimension, string Headline, string Detail);
+public record DebriefDto(bool Scored, bool ScoreValid, int OverallScore, string Grade, string Headline,
+    IReadOnlyList<DebriefNoteDto> Strengths, IReadOnlyList<DebriefNoteDto> ToImprove);
 
 public record FlightTotalsDto(
     int Flights, double TotalHours, double TotalDistanceNm, double TotalFuelLbs,

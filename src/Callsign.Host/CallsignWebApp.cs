@@ -1431,6 +1431,16 @@ public static class CallsignWebApp
             var events = await db.FlightEvents.Where(e => e.FlightId == f.Id).OrderBy(e => e.Seq)
                 .Select(e => new FlightEventDto(e.At, e.Severity, e.Message)).ToListAsync();
 
+            // Phase 10a — distil the scored flight + its recorded events into a coaching debrief (pure; no economic effect).
+            var report = Callsign.Core.Debrief.FlightDebrief.Build(new Callsign.Core.Debrief.DebriefInput(
+                f.OverallScore.HasValue, f.ScoreValid ?? true, f.OverallScore ?? 0, f.LandingScore ?? 0, f.ApproachScore ?? 0,
+                f.TouchdownFpmWorst3 ?? f.TouchdownFpm, f.TouchdownG ?? 1.0, f.StabilizedApproach ?? false, f.ViolationPoints ?? 0,
+                f.OutcomeGrade, f.OutcomeReason,
+                events.Select(e => new Callsign.Core.Debrief.DebriefEvent(e.Severity, e.Message)).ToList()));
+            static DebriefNoteDto Note(Callsign.Core.Debrief.DebriefNote n) => new(n.Tone.ToString(), n.Dimension, n.Headline, n.Detail);
+            var debrief = new DebriefDto(report.Scored, report.ScoreValid, report.OverallScore, report.Grade, report.Headline,
+                report.Strengths.Select(Note).ToList(), report.ToImprove.Select(Note).ToList());
+
             double dur = Math.Max(0, (f.ArrivedAt - f.DepartedAt).TotalHours);
             return Results.Ok(new FlightDetailDto(
                 f.Id, f.AircraftTitle, f.AircraftTypeId, tail, acName, acCat,
@@ -1441,7 +1451,7 @@ public static class CallsignWebApp
                 o?.Latitude ?? 0, o?.Longitude ?? 0, d?.Latitude ?? 0, d?.Longitude ?? 0,
                 a?.Pax, a?.WeightLbs, a?.Commodity, lines, events,
                 f.OverallScore, f.LandingScore, f.ApproachScore, f.TouchdownG, f.StabilizedApproach, f.ViolationPoints, f.ScoreValid,
-                f.OutcomeGrade, f.OutcomeReason));
+                f.OutcomeGrade, f.OutcomeReason, debrief));
         });
 
         // --- Live flight: begin tracking an accepted assignment; the next landing auto-settles it ---
