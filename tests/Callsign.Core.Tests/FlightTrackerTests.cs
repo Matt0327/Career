@@ -14,7 +14,8 @@ public class FlightTrackerTests
         double bank = 0, double g = 1.0, bool stall = false, bool overspeed = false, double? agl = null,
         double simRate = 1.0, bool slew = false,
         double windKts = 0, double windDir = 0, double heading = 0, double visSm = 10,
-        double tdNormalFps = 0, double tdLateralFps = 0)
+        double tdNormalFps = 0, double tdLateralFps = 0,
+        double totalWt = 0, double maxGross = 0, double cg = 0, double cgFwd = 0, double cgAft = 0)
         => new()
         {
             Sequence = sec,
@@ -41,6 +42,11 @@ public class FlightTrackerTests
             SlewActive = slew,
             TouchdownNormalVelocityFps = tdNormalFps,
             TouchdownLateralVelocityFps = tdLateralFps,
+            TotalWeightLbs = totalWt,
+            MaxGrossWeightLbs = maxGross,
+            CgPercent = cg,
+            CgFwdLimit = cgFwd,
+            CgAftLimit = cgAft,
         };
 
     private static FlightTracker FlyStandardLeg()
@@ -194,6 +200,60 @@ public class FlightTrackerTests
 
         Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Coaching && e.Message.Contains("Side-load"));
         Assert.Equal(0, t.Result!.ViolationPoints); // technique note, not a penalty (L9)
+    }
+
+    // ── Phase 9d: weight & balance at takeoff, on the Fun Dial ────────────────────────────────────
+
+    // A minimal leg whose TAKEOFF frame carries the weight & balance under test.
+    private static FlightTracker WbLeg(double totalWt = 0, double maxGross = 0, double cg = 0, double cgFwd = 0, double cgAft = 0)
+    {
+        var t = new FlightTracker();
+        t.Observe(Snap(0, 0, 0, 0, onGround: true));
+        t.Observe(Snap(10, 50, 70, 500, onGround: false, totalWt: totalWt, maxGross: maxGross, cg: cg, cgFwd: cgFwd, cgAft: cgAft)); // liftoff
+        t.Observe(Snap(60, 30, 60, -120, onGround: false));
+        t.Observe(Snap(61, 0, 55, 0, onGround: true));
+        t.Observe(Snap(120, 0, 0, 0, onGround: true));
+        return t;
+    }
+
+    [Fact]
+    public void WeightBalance_GrossOverweight_WarnsAndScores()
+    {
+        var t = WbLeg(totalWt: 2700, maxGross: 2500); // 8% over MTOW — a real overload
+        Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Warning && e.Message.Contains("Overweight"));
+        Assert.True(t.Result!.ViolationPoints > 0);
+    }
+
+    [Fact]
+    public void WeightBalance_SlightlyOver_Coaches_WithNoPenalty()
+    {
+        var t = WbLeg(totalWt: 2560, maxGross: 2500); // ~2% over — a nudge only
+        Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Coaching && e.Message.Contains("MTOW"));
+        Assert.DoesNotContain(t.Events, e => e.Severity == FlightEventSeverity.Warning && e.Message.Contains("Overweight"));
+        Assert.Equal(0, t.Result!.ViolationPoints); // a hair over is never a straf (L9)
+    }
+
+    [Fact]
+    public void WeightBalance_WithinLimits_AndUnreported_AreSilent()
+    {
+        Assert.DoesNotContain(WbLeg(totalWt: 2300, maxGross: 2500).Events, e => e.Message.Contains("MTOW") || e.Message.Contains("Overweight"));
+        Assert.DoesNotContain(WbLeg().Events, e => e.Message.Contains("MTOW") || e.Message.Contains("CG")); // no sim data → no check (L10)
+    }
+
+    [Fact]
+    public void WeightBalance_GrossCgOutOfEnvelope_WarnsAndScores()
+    {
+        var t = WbLeg(cg: 45, cgFwd: 15, cgAft: 35); // 10% past the aft limit, envelope width 20 → gross (>5)
+        Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Warning && e.Message.Contains("CG"));
+        Assert.True(t.Result!.ViolationPoints > 0);
+    }
+
+    [Fact]
+    public void WeightBalance_CgNearTheEdge_Coaches_WithNoPenalty()
+    {
+        var t = WbLeg(cg: 37, cgFwd: 15, cgAft: 35); // just past the aft limit, within the gross margin
+        Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Coaching && e.Message.Contains("CG"));
+        Assert.Equal(0, t.Result!.ViolationPoints);
     }
 
     [Fact]

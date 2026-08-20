@@ -35,6 +35,10 @@ public sealed class FlightTracker
     private const double CoachBankDeg = 35;              // steep-ish, but not an exceedance
     private const double CoachGHigh = 1.8, CoachGLow = -0.3; // firm, but not an exceedance
     private const double CoachLateralFps = 4;            // a firm de-crab side-load at touchdown → a nudge (Phase 9c)
+    // Weight & balance (Phase 9d, on the Fun Dial): a hair over coaches; a gross excess is a warned consequence.
+    private const double OverweightGrossFactor = 1.05;   // >5% over MTOW at takeoff = a real overload
+    private const double CgGrossEnvelopeFrac = 0.25;     // beyond a CG limit by >25% of the envelope width = gross
+    private const int PtsOverweight = 15, PtsCg = 12;    // scored only for the GROSS case
 
     // Phase 8 — tough conditions earn a landing back some grade: a firm touchdown in a 25 kt crosswind or
     // low visibility is a better piece of flying than the same numbers in calm, clear air.
@@ -111,6 +115,7 @@ public sealed class FlightTracker
                 _depLon = t.LongitudeDeg;
                 _depFuel = t.FuelQuantityLbs;
                 _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Info, "Takeoff"));
+                CheckWeightAndBalance(t); // Phase 9d — judge the load at the moment of liftoff
             }
             else
             {
@@ -268,6 +273,46 @@ public sealed class FlightTracker
         {
             _gCoached = true;
             _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Coaching, $"Load {t.GForce:F1} g — smooth it out"));
+        }
+    }
+
+    // Weight & balance at takeoff (Phase 9d), on the Fun Dial (L9). Both checks run ONLY when the sim reports
+    // the limit (default 0 = not reported → nothing happens, L10). Comparisons are relative to the aircraft's
+    // OWN limits, so they're correct whatever percent scale the sim uses.
+    private void CheckWeightAndBalance(TelemetrySnapshot t)
+    {
+        if (t.MaxGrossWeightLbs > 0 && t.TotalWeightLbs > 0)
+        {
+            double overLbs = t.TotalWeightLbs - t.MaxGrossWeightLbs;
+            if (t.TotalWeightLbs > t.MaxGrossWeightLbs * OverweightGrossFactor) // gross overload — a real, warned consequence
+            {
+                _violationPoints += PtsOverweight;
+                _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Warning,
+                    $"Overweight takeoff — {overLbs:F0} lb over MTOW"));
+            }
+            else if (overLbs > 0) // a hair over — a nudge, not a straf
+            {
+                _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Coaching,
+                    $"A touch over MTOW — {overLbs:F0} lb; watch the loading"));
+            }
+        }
+
+        if (t.CgAftLimit > t.CgFwdLimit) // a real envelope reported
+        {
+            double margin = CgGrossEnvelopeFrac * (t.CgAftLimit - t.CgFwdLimit);
+            bool grosslyOut = t.CgPercent > t.CgAftLimit + margin || t.CgPercent < t.CgFwdLimit - margin;
+            bool outside = t.CgPercent > t.CgAftLimit || t.CgPercent < t.CgFwdLimit;
+            if (grosslyOut)
+            {
+                _violationPoints += PtsCg;
+                _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Warning,
+                    "Out of CG limits — recheck the load sheet"));
+            }
+            else if (outside)
+            {
+                _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Coaching,
+                    "CG near the edge of the envelope — trim will feel it"));
+            }
         }
     }
 

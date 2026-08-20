@@ -92,4 +92,18 @@ public sealed record TelemetrySnapshot
     public double TouchdownNormalVelocityFps { get; init; }
     /// <summary>Lateral (side-load) velocity at touchdown (feet per second) — a firm crab-on-touchdown de-crab tell.</summary>
     public double TouchdownLateralVelocityFps { get; init; }
+
+    // --- Weight & balance (Phase 9d): checked once at takeoff. All default 0 = not reported → no W&B check runs
+    // (L10). Comparisons are relative (weight vs its own MTOW, CG vs its own envelope), so the scoring is
+    // correct regardless of the sim's percent scale.
+    /// <summary>Current gross weight, pounds.</summary>
+    public double TotalWeightLbs { get; init; }
+    /// <summary>Maximum gross (takeoff) weight, pounds — the MTOW limit to compare against.</summary>
+    public double MaxGrossWeightLbs { get; init; }
+    /// <summary>Longitudinal centre of gravity (percent MAC, sim scale).</summary>
+    public double CgPercent { get; init; }
+    /// <summary>Forward CG limit (same scale as <see cref="CgPercent"/>). 0 = not reported.</summary>
+    public double CgFwdLimit { get; init; }
+    /// <summary>Aft CG limit (same scale as <see cref="CgPercent"/>). 0 = not reported.</summary>
+    public double CgAftLimit { get; init; }
 }

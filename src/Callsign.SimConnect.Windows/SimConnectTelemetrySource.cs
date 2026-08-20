@@ -54,6 +54,12 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
         // Phase 9c authoritative touchdown — order here MUST match the AddToDataDefinition call order below.
         public double TouchdownNormalVelocityFps;
         public double TouchdownLateralVelocityFps;
+        // Phase 9d weight & balance — order here MUST match the AddToDataDefinition call order below.
+        public double TotalWeightLbs;
+        public double MaxGrossWeightLbs;
+        public double CgPercent;
+        public double CgFwdLimit;
+        public double CgAftLimit;
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
         public string Title;
     }
@@ -236,6 +242,17 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
             SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
         sc.AddToDataDefinition(Definitions.AircraftData, "PLANE TOUCHDOWN LATERAL VELOCITY", "feet per second",
             SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        // Phase 9d — weight & balance (order matches the struct fields above).
+        sc.AddToDataDefinition(Definitions.AircraftData, "TOTAL WEIGHT", "pounds",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "MAX GROSS WEIGHT", "pounds",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "CG PERCENT", "percent",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "CG FWD LIMIT", "percent",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "CG AFT LIMIT", "percent",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
         sc.AddToDataDefinition(Definitions.AircraftData, "TITLE", null,
             SIMCONNECT_DATATYPE.STRING256, 0f, unused);
         sc.RegisterDataDefineStruct<AircraftData>(Definitions.AircraftData);
@@ -280,6 +297,11 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
             AmbientVisibilitySm = d.AmbientVisibilityMeters / 1609.344, // meters → statute miles
             TouchdownNormalVelocityFps = d.TouchdownNormalVelocityFps,
             TouchdownLateralVelocityFps = d.TouchdownLateralVelocityFps,
+            TotalWeightLbs = d.TotalWeightLbs,
+            MaxGrossWeightLbs = d.MaxGrossWeightLbs,
+            CgPercent = d.CgPercent,
+            CgFwdLimit = d.CgFwdLimit,
+            CgAftLimit = d.CgAftLimit,
         });
     }
 
