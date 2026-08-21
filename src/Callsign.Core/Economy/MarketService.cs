@@ -50,7 +50,17 @@ public sealed class MarketService
     {
         double region = RegionBias(icao, g.Key);                        // fixed structural tilt (Phase 7g)
         double pressure = PressureFactor(effectivePressureLbs);         // your own footprint (Phase 7g)
-        long mid = (long)Math.Round(g.BasePriceCents * region * Multiplier(icao, g.Key, Epoch()) * pressure * weatherDemandFactor);
+        // Money-pump invariant: the commodity market is the ONLY two-sided surface, so the UPWARD lift a
+        // player can sell back into — their own PRESSURE (buying bids it up) and the local WEATHER demand
+        // lift — must share ONE budget of 2× the dealer spread. Each alone is tuned ≤ 1+2·spread, but they
+        // multiply on a single quote; without a COMBINED cap, buying (at neutral) then selling back in foul
+        // weather (with your own pressure still positive) can net a same-airport profit. Cap the combined
+        // upside so a same-field round trip always loses. Region/window swings are identical for a buy and a
+        // sell at the same field+window (they cancel in a round trip), so they stay outside this cap.
+        double lift = pressure * weatherDemandFactor;
+        if (lift > 1.0)
+            lift = Math.Min(lift, 1.0 + 2.0 * (double)_cfg.TradeSpreadPct);
+        long mid = (long)Math.Round(g.BasePriceCents * region * Multiplier(icao, g.Key, Epoch()) * lift);
         long buy = (long)Math.Round(mid * (1m + _cfg.TradeSpreadPct), MidpointRounding.AwayFromZero);
         long sell = (long)Math.Round(mid * (1m - _cfg.TradeSpreadPct), MidpointRounding.AwayFromZero);
         string? hint = region <= 1 - _cfg.RegionBiasSwing * 0.5 ? "export"

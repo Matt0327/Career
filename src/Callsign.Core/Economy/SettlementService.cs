@@ -77,8 +77,10 @@ public sealed class SettlementService
         int loyaltyNow = client is null ? 0
             : _cfg.DecayedLoyaltyMilli(client.LoyaltyMilli, now - (client.LastJobAt ?? client.UpdatedAt));
         // The premium rides on the EARNED base (a failed/partial delivery earns a smaller tip too), computed
-        // from pre-delivery loyalty so it rewards the history, not this leg.
-        long loyaltyBonus = client is not null && baseCents > 0
+        // from pre-delivery loyalty so it rewards the history, not this leg. A CHEATED (voided-score) flight
+        // forfeits it, exactly like the landing and comfort bonuses below — a bonus is never paid on a fraud.
+        bool voided = flight.Scored && !flight.ScoreValid;
+        long loyaltyBonus = client is not null && baseCents > 0 && !voided
             ? (long)Math.Round(baseCents * (decimal)_cfg.ClientLoyaltyBonusPct(loyaltyNow), MidpointRounding.AwayFromZero)
             : 0;
 

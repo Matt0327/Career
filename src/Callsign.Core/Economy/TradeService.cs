@@ -185,7 +185,7 @@ public sealed class TradeService
         {
             long blended = lot.UnitCostCents * lot.Quantity + quote.BuyCents * (long)qty;
             lot.Quantity += qty;
-            lot.UnitCostCents = blended / lot.Quantity; // weighted average (integer cents)
+            lot.UnitCostCents = (long)Math.Round(blended / (double)lot.Quantity, MidpointRounding.AwayFromZero); // weighted average, rounded to the nearest cent (integer division truncated down, biasing realized P&L up)
             lot.UpdatedAt = now;
         }
 
@@ -316,6 +316,6 @@ public sealed class TradeService
         int cap = await CarryCapacityLbsAsync(companyId, ct);
         if (held + addingLbs > cap)
             throw new InvalidOperationException(
-                $"Over carry capacity: holding {held:N0} lb + {addingLbs:N0} lb exceeds {cap:N0} lb (your largest aircraft's useful load).");
+                $"Over carry capacity: holding {held:N0} lb + {addingLbs:N0} lb exceeds {cap:N0} lb (your fleet's carry capacity).");
     }
 }

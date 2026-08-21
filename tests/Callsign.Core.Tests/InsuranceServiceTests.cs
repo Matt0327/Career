@@ -40,6 +40,27 @@ public class InsuranceServiceTests
     }
 
     [Fact]
+    public async Task Insure_CoversResaleValue_NotNewPrice_SoAClaimNeverBeatsSelling()
+    {
+        // Regression (audit H2): insuring at the type's NEW price let a cheap used/gifted/worn airframe be
+        // over-insured and deliberately written off for a profit. Coverage is now the tail's condition-adjusted
+        // RESALE value, so a total-loss claim (covered − deductible) is always worth LESS than simply selling it.
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var (companyId, aircraftId) = await SeedAsync(tdb, clock, conditionMilli: 100_000);
+
+        using var db = tdb.NewContext();
+        var type = await db.AircraftTypes.FirstAsync();
+        long newValue = AircraftPricing.Quote(Cfg, type).TotalCents;
+        long resale = (long)System.Math.Round(newValue * Cfg.AircraftResaleFactor); // resale haircut at 100% condition
+
+        var p = await Ins(db, clock).InsureAsync(companyId, aircraftId, null);
+        Assert.True(p.HullValueCents < newValue);            // insured hull is resale, below the (higher) new price
+        Assert.Equal(resale, p.HullValueCents);
+        Assert.True(p.ClaimPayoutCents < resale);            // a total-loss claim pays LESS than the tail's resale — selling always beats a fraud write-off
+    }
+
+    [Fact]
     public async Task Insure_Twice_Throws()
     {
         using var tdb = new TestDb();

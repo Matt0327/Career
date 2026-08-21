@@ -39,6 +39,25 @@ public class WeatherDemandTests
     }
 
     [Fact]
+    public void PressureAndWeather_StackedLift_StillLosesSameFieldRoundTrip_NoPump()
+    {
+        // Regression (audit H1): the mid is base·region·window·pressure·weather. Each of pressure and weather
+        // alone stays within the 2×-spread budget, but they MULTIPLY — stacked (your own buying bids the price
+        // up AND foul weather lifts demand) they once broke the same-field-round-trip-loses invariant: buy in
+        // clear air at neutral pressure, then sell back in fog with your own positive pressure could profit.
+        // Quote now caps the COMBINED upward lift at 1 + 2·TradeSpreadPct, so the worst-case round trip loses.
+        var market = new MarketService(new FakeClock(), Cfg);
+        var g = TradeCatalog.Goods[0];
+
+        var buy = market.Quote("EHAM", g);                                     // neutral pressure, clear weather
+        double foulWeather = Cfg.WeatherDemandFactor(0);                        // 1 + WeatherDemandSwing (zero visibility)
+        var sell = market.Quote("EHAM", g, Cfg.MarketPressureFullScaleLbs, foulWeather); // full positive pressure + foulest weather
+
+        Assert.True(sell.SellCents <= buy.BuyCents,
+            $"stacked pressure+weather same-field round trip must LOSE: sell {sell.SellCents} vs buy {buy.BuyCents}");
+    }
+
+    [Fact]
     public void Quote_WeatherFactor_ScalesTheMid_AndReportsThePct()
     {
         var clock = new FakeClock();

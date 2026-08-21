@@ -41,7 +41,7 @@ public sealed class InsuranceService
         if (inst.Ownership != OwnershipKind.Owned) return null; // no insurable interest in a tail you don't own (Phase 9f)
         var type = await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == inst.TypeId, ct);
         if (type is null) return null;
-        long hull = AircraftPricing.Quote(_cfg, type).TotalCents;
+        long hull = InsurableHullCents(inst, type);
         int cov = Math.Clamp(coverageMilli ?? _cfg.InsuranceDefaultCoverageMilli, 10_000, 100_000);
         long covered = (long)(hull * (cov / 100_000.0));
         long deductible = _cfg.InsuranceDeductibleCents(covered);
@@ -61,7 +61,7 @@ public sealed class InsuranceService
         var type = await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == inst.TypeId, ct)
                    ?? throw new InvalidOperationException("Aircraft type not found.");
 
-        long hull = AircraftPricing.Quote(_cfg, type).TotalCents;
+        long hull = InsurableHullCents(inst, type);
         int cov = Math.Clamp(coverageMilli ?? _cfg.InsuranceDefaultCoverageMilli, 10_000, 100_000);
         long covered = (long)(hull * (cov / 100_000.0));
         var now = _clock.UtcNow;
@@ -128,4 +128,18 @@ public sealed class InsuranceService
     /// <summary>Premium for a whole number of days, prorated from the weekly rate.</summary>
     public static long PremiumForDays(long perWeekCents, int days)
         => days <= 0 ? 0 : (long)Math.Round(perWeekCents * (days / 7.0));
+
+    /// <summary>The hull value a tail can be insured for: what it is actually worth NOW — its
+    /// condition-adjusted RESALE value, not the type's brand-new price. Insuring at new value let a cheap
+    /// used, gifted, or worn airframe be over-insured and then deliberately written off for a profit
+    /// (buy-used-cheap / claim-at-new). Capping coverage at resale keeps a total-loss claim (≈ covered −
+    /// deductible) worth strictly LESS than simply selling the tail, so a fraudulent write-off is never
+    /// rational — while a genuine accident still returns most of the tail's worth. Mirrors
+    /// <c>AircraftDealerService.ResaleValueCents</c> (market × resale haircut × worst condition).</summary>
+    private long InsurableHullCents(AircraftInstance inst, AircraftType type)
+    {
+        long newValue = AircraftPricing.Quote(_cfg, type).TotalCents;
+        double condition = Math.Min(inst.HullConditionMilli, inst.EngineConditionMilli) / 100_000.0;
+        return (long)Math.Round(newValue * _cfg.AircraftResaleFactor * condition);
+    }
 }

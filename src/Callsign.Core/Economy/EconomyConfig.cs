@@ -48,10 +48,6 @@ public sealed record EconomyConfig
     public long PaxRewardCents(double distanceNm, int pax)
         => PaxBaseFeeCents + pax * (PaxPerPaxCents + (long)Math.Round(distanceNm * PaxPerPaxNmCents));
 
-    // --- Board mix: relative shares each local source gets of a refresh (largest-remainder split) ---
-    public double CargoJobShare { get; init; } = 3;
-    public double PassengerJobShare { get; init; } = 2;
-
     // --- Rank gate (Phase 3b): longer, harder legs demand a higher rank. Jobs above your rank are
     //     shown on the board LOCKED with the reason (never hidden); accept is refused server-side. ---
     public double CopilotDistanceNm { get; init; } = 90;
@@ -415,10 +411,14 @@ public sealed record EconomyConfig
 
     // --- Used-aircraft market (Phase 7g): buy pre-owned airframes cheaper, at the cost of hours + condition ---
     public int UsedMarketCount { get; init; } = 6;                            // listings on the used lot at a time
-    /// <summary>Cheapest a used airframe goes, as a fraction of new (at the lowest listed condition, 50%).
-    /// INVARIANT: this must stay ABOVE <see cref="AircraftResaleFactor"/> (0.70) — otherwise you could buy a
-    /// worn bird cheap, restore its condition via a flat-fee service, and resell it at full-condition resale
-    /// for a risk-free profit that scales with the aircraft's value. Kept at 0.74 (a comfortable margin).</summary>
+    /// <summary>The condition-0 INTERCEPT of <see cref="UsedPriceFactor"/>, as a fraction of new — NOT the
+    /// cheapest a bird actually sells for. Used listings are only ever generated at 50%–95% condition
+    /// (AircraftDealerService.MakeUsedListing), so the cheapest a used airframe is actually LISTED is
+    /// UsedPriceFactor(0.50) = 0.64 + 0.50·(0.84−0.64) = 0.74× new.
+    /// INVARIANT: that EFFECTIVE floor (0.74) must stay ABOVE <see cref="AircraftResaleFactor"/> (0.70), or you
+    /// could buy a worn bird cheap, restore its condition with a flat-fee service, and resell at full-condition
+    /// resale for a risk-free profit. At 0.74 vs 0.70 that buy→restore→resell round trip loses ~4% before the
+    /// service fee — so if you retune either factor, keep UsedPriceFactor(0.50) &gt; AircraftResaleFactor.</summary>
     public double UsedMarketFloorFactor { get; init; } = 0.64;
     public double UsedMarketCeilFactor { get; init; } = 0.84;                // a near-pristine used bird tops out here
     /// <summary>What a used airframe costs as a fraction of new, scaled by its condition (0..100000 milli).</summary>

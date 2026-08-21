@@ -308,8 +308,9 @@ public sealed class OperationsService
             totalEmpty += soRoll.Empty;
             totalWeatheredOut += scrubbed;
             if (dutyCapped) dutyMaxed.Add(soAircraft?.Tail ?? $"{o.OriginIcao}↔{o.DestIcao}");
+            int soCrewSkillFlown = soCrew?.SkillMilli ?? 50_000; // capture BEFORE SharpenCrew — L12 converges toward the competence that actually FLEW these trips, not the post-trip skill bump
             SharpenCrew(soCrew, flown, now);
-            repPullRaw += _cfg.OperatingRepCrewPullMilli(repStartMilli, soCrew?.SkillMilli ?? 50_000, flown); // Phase 11a
+            repPullRaw += _cfg.OperatingRepCrewPullMilli(repStartMilli, soCrewSkillFlown, flown); // Phase 11a
             repFracSum += _cfg.OperatingRepConvergeFrac(flown);
         }
 
@@ -435,8 +436,9 @@ public sealed class OperationsService
             totalEmpty += rtRoll.Empty;
             totalWeatheredOut += scrubbed;
             if (dutyCapped) dutyMaxed.Add(rtAircraft?.Tail ?? route.Name);
+            int rtCrewSkillFlown = rtCrew?.SkillMilli ?? 50_000; // capture BEFORE SharpenCrew (see the standing-order loop) — L12 target is the competence that flew
             SharpenCrew(rtCrew, flown, now);
-            repPullRaw += _cfg.OperatingRepCrewPullMilli(repStartMilli, rtCrew?.SkillMilli ?? 50_000, flown); // Phase 11a
+            repPullRaw += _cfg.OperatingRepCrewPullMilli(repStartMilli, rtCrewSkillFlown, flown); // Phase 11a
             repFracSum += _cfg.OperatingRepConvergeFrac(flown);
         }
 
@@ -545,7 +547,7 @@ public sealed class OperationsService
         // (company was loaded at pass start; its cash reflects the postings staged above — EF identity map.)
         // Oldest debt first, so when cash covers some-but-not-all loans the cascade (which one forbears/defaults)
         // is deterministic and fair, not left to the provider's row order.
-        foreach (var loan in await _db.Loans.Where(l => l.CompanyId == companyId && l.Status == LoanStatus.Active && !l.IsDeleted).OrderBy(l => l.TakenAt).ToListAsync(ct))
+        foreach (var loan in await _db.Loans.Where(l => l.CompanyId == companyId && l.Status == LoanStatus.Active && !l.IsDeleted).OrderBy(l => l.TakenAt).ThenBy(l => l.Id).ToListAsync(ct))
         {
             int days = (int)Math.Floor((now - loan.PaymentLastBilledAt).TotalDays);
             if (days <= 0)
