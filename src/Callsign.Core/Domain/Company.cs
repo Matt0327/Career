@@ -15,6 +15,11 @@ public sealed class Company : ISyncable
     public Guid Id { get; set; }
     public string Name { get; set; } = null!;
 
+    /// <summary>Which MSFS 2024 edition the player owns (Phase 12 onboarding): "Standard" / "Premium" /
+    /// "Deluxe". A profile badge only — it records what they fly with and never gates content or money.
+    /// Null on careers created before the choice existed.</summary>
+    public string? MsfsEdition { get; set; }
+
     // --- Airline identity (Phase 5c). Null until the player brands their company; the UI falls back to
     // Name and a derived look. TailCode is a 2–3 letter operator code (e.g. "SBX"); EmblemKey names one of
     // a fixed set of original marks the UI draws. ---

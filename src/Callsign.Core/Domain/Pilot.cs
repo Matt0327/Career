@@ -25,6 +25,11 @@ public sealed class Pilot : ISyncable
     public Guid CompanyId { get; set; }
 
     public string Name { get; set; } = null!;
+
+    /// <summary>The pilot's chosen avatar (Phase 12 onboarding) — a key into a fixed set of marks the
+    /// UI draws. Null on careers created before avatars existed; the UI falls back to the callsign initials.</summary>
+    public string? AvatarKey { get; set; }
+
     public PilotRank Rank { get; set; } = PilotRank.Trainee;
     public int Xp { get; set; }
     public string HomeIcao { get; set; } = null!;

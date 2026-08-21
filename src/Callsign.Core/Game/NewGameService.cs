@@ -25,11 +25,13 @@ public sealed class NewGameService
     }
 
     public async Task<(Company Company, Pilot Pilot)> StartNewCareerAsync(
-        string name, string homeIcao, decimal startingCash, CancellationToken ct = default)
+        string name, string homeIcao, decimal startingCash,
+        string? starterTypeCode = null, string? edition = null, string? avatarKey = null,
+        CancellationToken ct = default)
     {
         var now = _clock.UtcNow;
 
-        var company = new Company { Id = Guid.NewGuid(), Name = name, UpdatedAt = now };
+        var company = new Company { Id = Guid.NewGuid(), Name = name, MsfsEdition = edition, UpdatedAt = now };
         _db.Companies.Add(company);
 
         var pilot = new Pilot
@@ -37,6 +39,7 @@ public sealed class NewGameService
             Id = Guid.NewGuid(),
             CompanyId = company.Id,
             Name = name,
+            AvatarKey = avatarKey,
             Rank = PilotRank.Trainee,
             HomeIcao = homeIcao,
             CurrentIcao = homeIcao,
@@ -65,7 +68,12 @@ public sealed class NewGameService
 
         // Grant a starter airframe so a fresh career can fly straight away (a gifted asset — the
         // ledger tracks CASH, and no cash moves for a gift; buying a real fleet is the Hangar).
-        var starter = await _db.AircraftTypes
+        // The player picks their first plane in onboarding (starterTypeCode); if it's absent or
+        // unrecognised we fall back to the cheapest light single, so an old caller behaves as before.
+        AircraftType? starter = null;
+        if (!string.IsNullOrWhiteSpace(starterTypeCode))
+            starter = await _db.AircraftTypes.FirstOrDefaultAsync(t => t.IcaoTypeDesignator == starterTypeCode, ct);
+        starter ??= await _db.AircraftTypes
                           .Where(t => t.Category == AircraftCategory.LightSingle)
                           .OrderBy(t => t.CanonicalName).FirstOrDefaultAsync(ct)
                       ?? await _db.AircraftTypes.OrderBy(t => t.CanonicalName).FirstOrDefaultAsync(ct);

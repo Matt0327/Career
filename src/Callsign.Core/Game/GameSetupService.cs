@@ -43,10 +43,12 @@ public sealed class GameSetupService
     }
 
     public async Task<(Company Company, Pilot Pilot)> StartNewCareerAsync(
-        string name, string homeIcao, decimal startingCash, CancellationToken ct = default)
+        string name, string homeIcao, decimal startingCash,
+        string? starterTypeCode = null, string? edition = null, string? avatarKey = null,
+        CancellationToken ct = default)
     {
         await EnsureAirportsAsync(ct);
         await RebuildRosterAsync(ct);
-        return await _newGame.StartNewCareerAsync(name, homeIcao, startingCash, ct);
+        return await _newGame.StartNewCareerAsync(name, homeIcao, startingCash, starterTypeCode, edition, avatarKey, ct);
     }
 }

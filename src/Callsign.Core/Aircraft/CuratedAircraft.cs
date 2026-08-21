@@ -28,6 +28,9 @@ public static class DefaultFleetCatalog
     public static IReadOnlyList<CuratedAircraft> Aircraft2024 { get; } =
     [
         new("C152", "Cessna 152", "Cessna", AircraftCategory.LightSingle, 2, 520, 160, 107, 1500, ["Cessna 152 Asobo", "Cessna 152"]),
+        // Starter-pick trio (Phase 12 onboarding): the C152 above plus these two. Specs approximate (retunable).
+        new("DR40", "Robin DR400", "Robin", AircraftCategory.LightSingle, 4, 838, 190, 130, 1400, ["Robin DR400", "DR400", "DR 400", "Robin DR400-140B", "DR400-140B", "Robin DR401"]),
+        new("VL3", "JMB VL3", "JMB", AircraftCategory.LightSingle, 2, 550, 180, 150, 1000, ["JMB VL3", "VL-3", "VL3", "JMB Aircraft VL-3", "JMB VL-3 915", "VL3 915"]),
         new("C172", "Cessna 172 Skyhawk", "Cessna", AircraftCategory.LightSingle, 4, 878, 336, 124, 1600, ["Cessna Skyhawk G1000 Asobo", "Cessna 172 Skyhawk G1000", "Cessna 172 Skyhawk"]),
         new("DA40", "Diamond DA40 NG", "Diamond", AircraftCategory.LightSingle, 4, 838, 200, 150, 1700, ["Diamond DA40-NG Asobo", "DA40 NG"]),
         new("SR22", "Cirrus SR22", "Cirrus", AircraftCategory.LightSingle, 4, 1150, 552, 180, 1600, ["Cirrus SR22 G6 Asobo", "Cirrus SR22"]),

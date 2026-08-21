@@ -1,6 +1,7 @@
 namespace Callsign.Host;
 
-public record NewCareerRequest(string? Name, string? HomeIcao, decimal? StartingCash);
+public record NewCareerRequest(string? Name, string? HomeIcao, decimal? StartingCash,
+    string? StarterTypeCode = null, string? Edition = null, string? AvatarKey = null);
 
 public record StateDto(
     string Name, string Rank, int Xp, int ReputationMilli, string CurrentIcao, string HomeIcao,

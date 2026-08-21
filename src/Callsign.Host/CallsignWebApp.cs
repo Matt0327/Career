@@ -381,7 +381,10 @@ public static class CallsignWebApp
             var (company, pilot) = await setup.StartNewCareerAsync(
                 string.IsNullOrWhiteSpace(req.Name) ? "New Pilot" : req.Name!,
                 string.IsNullOrWhiteSpace(req.HomeIcao) ? "EHAM" : req.HomeIcao!,
-                req.StartingCash ?? 25_000m);
+                req.StartingCash ?? 10_000m,
+                string.IsNullOrWhiteSpace(req.StarterTypeCode) ? null : req.StarterTypeCode,
+                string.IsNullOrWhiteSpace(req.Edition) ? null : req.Edition,
+                string.IsNullOrWhiteSpace(req.AvatarKey) ? null : req.AvatarKey);
             return Results.Ok(new { pilotId = pilot.Id, companyId = company.Id, home = pilot.HomeIcao });
         });
 
