@@ -1,6 +1,7 @@
 using Callsign.Core.Data;
 using Callsign.Core.Domain;
 using Callsign.Core.Geo;
+using Callsign.Core.Text;
 using Callsign.Core.Time;
 using Microsoft.EntityFrameworkCore;
 
@@ -31,6 +32,7 @@ public sealed class RouteService
     public async Task<Route> CreateRouteAsync(
         Guid companyId, string? name, string originIcao, string destIcao, Guid aircraftId, Guid staffId, MissionType mission, int priceMultiplierMilli = 1000, CancellationToken ct = default)
     {
+        NameGuard.Validate(name, "route name"); // Phase 12 — keep offensive names off a route (and anyone's shared world)
         if (string.Equals(originIcao, destIcao, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("A route needs two different airports.");
 
@@ -118,6 +120,7 @@ public sealed class RouteService
     public async Task<Route> CreateScheduledServiceAsync(
         Guid companyId, string? name, string originIcao, string destIcao, Guid aircraftId, Guid staffId, CancellationToken ct = default)
     {
+        NameGuard.Validate(name, "route name"); // Phase 12 — keep offensive names off a scheduled service too
         if (string.Equals(originIcao, destIcao, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("A route needs two different airports.");
 

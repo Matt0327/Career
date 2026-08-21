@@ -1,5 +1,6 @@
 using Callsign.Core.Data;
 using Callsign.Core.Progression;
+using Callsign.Core.Text;
 using Microsoft.EntityFrameworkCore;
 
 namespace Callsign.Core.Airline;
@@ -67,6 +68,7 @@ public sealed class AirlineService
         var trimmed = name?.Trim();
         if (string.IsNullOrWhiteSpace(trimmed) || trimmed.Length > 60)
             throw new InvalidOperationException("An airline name of 1–60 characters is required.");
+        NameGuard.Validate(trimmed, "airline name"); // Phase 12 — your airline is shown on the shared leaderboards
 
         var code = (tailCode ?? "").Trim().ToUpperInvariant();
         if (code.Length is < 2 or > 3 || !code.All(char.IsLetter))

@@ -341,6 +341,9 @@ public static class CallsignWebApp
 
         app.MapPost("/api/cloud/register", async (Callsign.Host.Cloud.CloudCredsDto req, Callsign.Host.Cloud.CloudGateway cloud) =>
         {
+            // Phase 12 — the display name is what other players see on the leaderboards; hold it to the same bar.
+            if (!Callsign.Core.Text.NameGuard.IsAllowed(req.DisplayName))
+                return Results.BadRequest(new { error = "That display name contains language we can't allow — please choose another." });
             var r = await cloud.RegisterAsync(req.Email ?? "", req.DisplayName ?? "", req.Password ?? "");
             return r.Ok ? Results.Ok(new { ok = true }) : Results.BadRequest(new { error = r.Error });
         });
@@ -408,6 +411,8 @@ public static class CallsignWebApp
 
         app.MapPost("/api/game/new", async (NewCareerRequest req, GameSetupService setup) =>
         {
+            if (!Callsign.Core.Text.NameGuard.IsAllowed(req.Name)) // Phase 12 — keep the callsign clean
+                return Results.BadRequest(new { error = "That callsign contains language we can't allow — please choose another." });
             var (company, pilot) = await setup.StartNewCareerAsync(
                 string.IsNullOrWhiteSpace(req.Name) ? "New Pilot" : req.Name!,
                 string.IsNullOrWhiteSpace(req.HomeIcao) ? "EHAM" : req.HomeIcao!,
