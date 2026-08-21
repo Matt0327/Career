@@ -395,6 +395,7 @@ export interface Telemetry {
 export interface Settled {
   type: 'settled'
   assignmentId: string
+  flightId: string // Phase 12 — fetch the flight detail to show the score + coaching debrief at settlement
   payoutCents: number
   xp: number
   payloadMatched: boolean

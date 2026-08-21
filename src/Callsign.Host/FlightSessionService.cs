@@ -243,6 +243,7 @@ public sealed class FlightSessionService : IDisposable
             {
                 type = "settled",
                 assignmentId,
+                flightId = result.FlightId, // Phase 12 — so the end-of-flight card can show the score + coaching debrief
                 payoutCents = result.PayoutCents,
                 xp = result.XpAwarded,
                 payloadMatched = result.PayloadMatched,

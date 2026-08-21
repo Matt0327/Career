@@ -1694,7 +1694,67 @@ function CheckFlightCard({ result }: { result: CheckFlightDone }) {
   )
 }
 
+// Phase 12 — the flight score + coaching debrief, shared by the logbook detail AND the end-of-flight card so the
+// game's best feature (the un-gameable score + instructor debrief) lands at the moment you actually land.
+function FlightScoreDebrief({ d }: { d: FlightDetail }) {
+  return (
+    <>
+      {d.overallScore != null && (
+        <div className="flt-scores">
+          <div className="fs-overall">
+            <span className="metalabel">Flight score{d.scoreValid === false ? ' · voided' : ''}</span>
+            <span className={`fs-big num ${d.scoreValid === false ? 'neg' : scoreTone(d.overallScore)}`}>{d.overallScore}</span>
+          </div>
+          <div className="fs-subs">
+            <div><span className="metalabel">Landing</span><span className={`num ${scoreTone(d.landingScore)}`}>{d.landingScore ?? '—'}</span></div>
+            <div><span className="metalabel">Approach</span><span className={`num ${d.stabilizedApproach === false ? 'neg' : scoreTone(d.approachScore)}`}>{d.approachScore ?? '—'}{d.stabilizedApproach === false ? ' · unstable' : ''}</span></div>
+            {d.comfortScore != null && <div><span className="metalabel">Comfort</span><span className={`num ${scoreTone(d.comfortScore)}`}>{d.comfortScore}</span></div>}
+            {d.touchdownG != null && <div><span className="metalabel">Touchdown g</span><span className="num">{d.touchdownG.toFixed(2)}</span></div>}
+            {d.violationPoints != null && d.violationPoints > 0 && <div><span className="metalabel">Exceedances</span><span className="num neg">−{d.violationPoints}</span></div>}
+          </div>
+        </div>
+      )}
+      {d.debrief.scored && (d.debrief.strengths.length > 0 || d.debrief.toImprove.length > 0) && (
+        <div className="flt-debrief">
+          <div className="metalabel flt-pay-head">Debrief · {d.debrief.grade}</div>
+          <p className="dbf-headline">{d.debrief.headline}</p>
+          {d.debrief.strengths.length > 0 && (
+            <div className="dbf-group">
+              <div className="dbf-grouphead pos">What went well</div>
+              {d.debrief.strengths.map((n, i) => (
+                <div className="dbf-note strength" key={i}>
+                  <div className="dbf-note-head">{n.headline} <span className="dbf-dim">{n.dimension}</span></div>
+                  {n.detail && <div className="dbf-note-detail">{n.detail}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+          {d.debrief.toImprove.length > 0 && (
+            <div className="dbf-group">
+              <div className="dbf-grouphead">To improve</div>
+              {d.debrief.toImprove.map((n, i) => (
+                <div className={`dbf-note ${n.tone.toLowerCase()}`} key={i}>
+                  <div className="dbf-note-head">{n.headline} <span className="dbf-dim">{n.dimension}</span></div>
+                  {n.detail && <div className="dbf-note-detail">{n.detail}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  )
+}
+
 function SettlementCard({ settled }: { settled: Settled }) {
+  // Phase 12 — pull the just-settled flight so the coaching debrief lands right here, at the emotional peak of
+  // the flight, instead of a tab away in the logbook. The debrief is computed on /api/flights/{id} already.
+  const [flight, setFlight] = useState<FlightDetail | null>(null)
+  useEffect(() => {
+    let live = true
+    if (settled.flightId) api.flight(settled.flightId).then(f => { if (live) setFlight(f) }).catch(() => {})
+    return () => { live = false }
+  }, [settled.flightId])
   return (
     <section className="card settled-card">
       <h2>Job settled ✓</h2>
@@ -1705,6 +1765,7 @@ function SettlementCard({ settled }: { settled: Settled }) {
         {settled.payloadMatched && <span className="pos">aircraft bonus</span>}
       </div>
       {settled.promotedTo && <div className="promo">🎖 Promoted to {settled.promotedTo}!</div>}
+      {flight && <FlightScoreDebrief d={flight} />}
     </section>
   )
 }
@@ -3661,49 +3722,7 @@ function FlightDetail({ id }: { id: string }) {
             ? <div><span className="metalabel">Payload</span><span className="num">{d.weightLbs.toLocaleString()} lb</span></div>
             : null}
       </div>
-      {d.overallScore != null && (
-        <div className="flt-scores">
-          <div className="fs-overall">
-            <span className="metalabel">Flight score{d.scoreValid === false ? ' · voided' : ''}</span>
-            <span className={`fs-big num ${d.scoreValid === false ? 'neg' : scoreTone(d.overallScore)}`}>{d.overallScore}</span>
-          </div>
-          <div className="fs-subs">
-            <div><span className="metalabel">Landing</span><span className={`num ${scoreTone(d.landingScore)}`}>{d.landingScore ?? '—'}</span></div>
-            <div><span className="metalabel">Approach</span><span className={`num ${d.stabilizedApproach === false ? 'neg' : scoreTone(d.approachScore)}`}>{d.approachScore ?? '—'}{d.stabilizedApproach === false ? ' · unstable' : ''}</span></div>
-            {d.comfortScore != null && <div><span className="metalabel">Comfort</span><span className={`num ${scoreTone(d.comfortScore)}`}>{d.comfortScore}</span></div>}
-            {d.touchdownG != null && <div><span className="metalabel">Touchdown g</span><span className="num">{d.touchdownG.toFixed(2)}</span></div>}
-            {d.violationPoints != null && d.violationPoints > 0 && <div><span className="metalabel">Exceedances</span><span className="num neg">−{d.violationPoints}</span></div>}
-          </div>
-        </div>
-      )}
-      {d.debrief.scored && (d.debrief.strengths.length > 0 || d.debrief.toImprove.length > 0) && (
-        <div className="flt-debrief">
-          <div className="metalabel flt-pay-head">Debrief · {d.debrief.grade}</div>
-          <p className="dbf-headline">{d.debrief.headline}</p>
-          {d.debrief.strengths.length > 0 && (
-            <div className="dbf-group">
-              <div className="dbf-grouphead pos">What went well</div>
-              {d.debrief.strengths.map((n, i) => (
-                <div className="dbf-note strength" key={i}>
-                  <div className="dbf-note-head">{n.headline} <span className="dbf-dim">{n.dimension}</span></div>
-                  {n.detail && <div className="dbf-note-detail">{n.detail}</div>}
-                </div>
-              ))}
-            </div>
-          )}
-          {d.debrief.toImprove.length > 0 && (
-            <div className="dbf-group">
-              <div className="dbf-grouphead">To improve</div>
-              {d.debrief.toImprove.map((n, i) => (
-                <div className={`dbf-note ${n.tone.toLowerCase()}`} key={i}>
-                  <div className="dbf-note-head">{n.headline} <span className="dbf-dim">{n.dimension}</span></div>
-                  {n.detail && <div className="dbf-note-detail">{n.detail}</div>}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      <FlightScoreDebrief d={d} />
       <div className="jd-pay flt-pay">
         <div className="metalabel flt-pay-head">Payout breakdown</div>
         {d.lines.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>No itemised breakdown recorded.</div>

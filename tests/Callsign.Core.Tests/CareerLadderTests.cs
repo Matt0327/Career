@@ -125,11 +125,14 @@ public class CareerLadderTests
     }
 
     [Fact]
-    public void Unlocks_HorizonFlagsAreHonest()
+    public void Unlocks_AreAllLive_NowThatPhase11Shipped()
     {
+        // 11a–11f are all shipped, so every stage unlock describes a LIVE mechanic — nothing is horizon copy.
+        // (The Live flag stays on the model for any future genuinely-unbuilt unlock.) This guards against the
+        // ladder ever telling a climbing player that a finished feature "isn't switched on".
         var (_, stages, _) = CareerLadder.Evaluate(Metrics(0, 0, 1, 1, 0, 0));
-        Assert.Contains(stages[0].Unlocks, u => u.Live); // shipped mechanics are marked live
-        Assert.Contains(stages[2].Unlocks, u => !u.Live && u.Text.Contains("hub", StringComparison.OrdinalIgnoreCase)); // 11c hub demand is aspirational
-        Assert.Contains(stages[4].Unlocks, u => !u.Live && u.Text.Contains("Air Operator Certificate")); // 11f AOC is aspirational
+        Assert.All(stages, s => Assert.All(s.Unlocks, u => Assert.True(u.Live, $"stale horizon copy: {u.Text}")));
+        Assert.Contains(stages[2].Unlocks, u => u.Text.Contains("hub", StringComparison.OrdinalIgnoreCase)); // 11c hub demand — live
+        Assert.Contains(stages[4].Unlocks, u => u.Text.Contains("Air Operator Certificate")); // 11f AOC — live
     }
 }

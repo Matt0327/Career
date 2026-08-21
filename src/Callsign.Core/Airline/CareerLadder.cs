@@ -52,7 +52,7 @@ public static class CareerLadder
             new[]
             {
                 new StageUnlock("Fly the open job board, own and maintain your own aircraft, hire your first crew, and set autonomous standing orders that fly while you're away.", true),
-                new StageUnlock("Contract-for-a-carrier legs — steady, lower-margin work flying the majors' overflow, the distinct flavour of the bottom rung. On the Phase-11 build list, not yet in the game.", false),
+                new StageUnlock("Contract-for-a-carrier legs — steady, lower-margin work flying the majors' overflow, the distinct flavour of the bottom rung.", true),
             }),
         new(1, "Charter Operator", "A second seat, a second tail, a name that's begun to register.",
             new[] { new ReqDef("rank", 1, true), new ReqDef("opRep", 10_000, true), new ReqDef("fleet", 2, false), new ReqDef("netWorth", 10_000_000, false) },
@@ -66,20 +66,20 @@ public static class CareerLadder
             new[]
             {
                 new StageUnlock("Run multiple bases and scheduled routes autonomously — a real regional network flying while you're away.", true),
-                new StageUnlock("Your operating reputation begins to lift demand and pay at your hubs — the flywheel's first turn. Designed, not yet switched on (11c).", false),
+                new StageUnlock("Your operating reputation now lifts demand and pay at your hubs — the flywheel's first turn.", true),
             }),
         new(3, "National", "Scheduled service across the country.",
             new[] { new ReqDef("rank", 3, true), new ReqDef("opRep", 50_000, true), new ReqDef("fleet", 7, false), new ReqDef("bases", 3, false), new ReqDef("routes", 8, false), new ReqDef("netWorth", 250_000_000, false) },
             new[]
             {
                 new StageUnlock("A network at national scale — a deep owned fleet and scheduled service spanning your bases, run autonomously.", true),
-                new StageUnlock("Promote a base to a hub: scheduled-slot capacity scales with hub level × operating reputation. Named so the climb points somewhere real — not yet built (11e).", false),
+                new StageUnlock("Promote a base to a hub: your name pulls demand harder there, amplifying the pay lift on jobs and routes flown from that field.", true),
             }),
         new(4, "Flag Carrier", "The name at the top of the board.",
             new[] { new ReqDef("rank", 4, true), new ReqDef("opRep", 75_000, true), new ReqDef("fleet", 12, false), new ReqDef("bases", 5, false), new ReqDef("routes", 16, false), new ReqDef("netWorth", 800_000_000, false) },
             new[]
             {
-                new StageUnlock("The Air Operator Certificate and a true scheduled-passenger network — real seats, frequencies, load factors and seat-class yield, booked offline. The marquee endgame, still to be built (11f).", false),
+                new StageUnlock("The Air Operator Certificate and a true scheduled-passenger network — real seats, load factors and seat-class yield, flown autonomously. The marquee endgame.", true),
                 new StageUnlock("The summit of the standing — you fly the flag, and every operator on the leaderboard is now measured against you.", true),
             }),
     };
