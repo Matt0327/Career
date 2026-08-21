@@ -68,6 +68,14 @@ public sealed class FlightTracker
     private bool _wasAirborne;
     private bool _taxiWarned;
 
+    // Phase 12 flight lifecycle: a takeoff only counts once we've actually seen the aircraft ON THE GROUND
+    // (no air-spawn / mid-flight-start counts as a departure); a landing only completes once the aircraft is
+    // SECURED (parking brake set or engine shut down) — but only for a leg where the engine was ever seen
+    // running, so the synthetic source, a glider, and pre-Phase-12 tests still complete on the stop (L10).
+    private bool _sawGround;
+    private bool _sawEngineRunning;
+    private bool _secureCoached;
+
     private bool _inFlight;
     private bool _landed;
     private string _title = "";
@@ -116,6 +124,7 @@ public sealed class FlightTracker
     {
         _title = t.AircraftTitle;
         bool airborne = !t.OnGround;
+        if (t.EngineRunning) _sawEngineRunning = true; // Phase 12 — this leg's aircraft reports engine state
 
         MeterEngineStress(t); // Phase 9e — accrue the sim's own engine damage across the WHOLE leg (ground run-up too)
 
@@ -178,33 +187,37 @@ public sealed class FlightTracker
         {
             if (!_inFlight)
             {
-                _inFlight = true;
-                _departedAt = t.CapturedAt;
-                _depLat = t.LatitudeDeg;
-                _depLon = t.LongitudeDeg;
-                _depFuel = t.FuelQuantityLbs;
-                _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Info, "Takeoff"));
-                CheckWeightAndBalance(t); // Phase 9d — judge the load at the moment of liftoff
+                // Phase 12: only a real takeoff FROM THE GROUND starts the flight. An aircraft that appears
+                // already airborne — spawned in the air, or telemetry that began mid-flight — is NOT a tracked
+                // departure until it has actually been on the ground and lifted off (_sawGround). Without that,
+                // this liftoff is ignored and the phase just reflects the air state; the next real ground start
+                // begins the leg. Every normal flight (and every test) starts parked, so this is transparent.
+                if (_sawGround)
+                {
+                    _inFlight = true;
+                    _departedAt = t.CapturedAt;
+                    _depLat = t.LatitudeDeg;
+                    _depLon = t.LongitudeDeg;
+                    _depFuel = t.FuelQuantityLbs;
+                    _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Info, "Takeoff"));
+                    CheckWeightAndBalance(t); // Phase 9d — judge the load at the moment of liftoff
+                    Phase = FlightPhase.Takeoff;
+                }
+                else
+                {
+                    SetAirbornePhase(t); // airborne but not a tracked departure yet — just reflect the phase
+                }
             }
             else
             {
                 // airborne again after a touchdown: a go-around or a bounce (which one is decided below).
                 _landed = false;
+                Phase = FlightPhase.Takeoff;
             }
-            Phase = FlightPhase.Takeoff;
         }
         else
         {
-            // Phase from vertical speed, WITH hysteresis: the band LevelVsFpm..ClimbVsFpm HOLDS the current
-            // phase, so small wobble near a threshold — leveling off, light chop, the flare — doesn't flip
-            // the phase (and spam the log) every sample. And "Approach" means DESCENDING NEAR THE GROUND
-            // (below the gate); a descent at altitude is "Descent", not an approach.
-            double vs = t.VerticalSpeedFpm;
-            double aglForPhase = t.AltitudeAglFt > 0 ? t.AltitudeAglFt : t.AltitudeFt;
-            if (vs > ClimbVsFpm) Phase = FlightPhase.Climb;
-            else if (vs < DescentVsFpm) Phase = aglForPhase < GateAglFt ? FlightPhase.Approach : FlightPhase.Descent;
-            else if (Math.Abs(vs) < LevelVsFpm) Phase = FlightPhase.Cruise;
-            // else: inside the hysteresis band — keep the phase we were already in.
+            SetAirbornePhase(t);
         }
 
         // A real go-around abandons the approach: once we climb back above the gate having already flown
@@ -225,8 +238,29 @@ public sealed class FlightTracker
         CheckIntegrity(t);
     }
 
+    // Phase from vertical speed, WITH hysteresis: the band LevelVsFpm..ClimbVsFpm HOLDS the current phase, so
+    // small wobble near a threshold — leveling off, light chop, the flare — doesn't flip the phase (and spam
+    // the log) every sample. "Approach" means DESCENDING NEAR THE GROUND (below the gate); a descent at
+    // altitude is "Descent", not an approach.
+    private void SetAirbornePhase(TelemetrySnapshot t)
+    {
+        double vs = t.VerticalSpeedFpm;
+        double aglForPhase = t.AltitudeAglFt > 0 ? t.AltitudeAglFt : t.AltitudeFt;
+        if (vs > ClimbVsFpm) Phase = FlightPhase.Climb;
+        else if (vs < DescentVsFpm) Phase = aglForPhase < GateAglFt ? FlightPhase.Approach : FlightPhase.Descent;
+        else if (Math.Abs(vs) < LevelVsFpm) Phase = FlightPhase.Cruise;
+        // else: inside the hysteresis band — keep the phase we were already in.
+    }
+
+    // The aircraft is secured — the flight is over — when the parking brake is set or the engine is shut down
+    // (Phase 12). A leg whose telemetry never reported a running engine (the synthetic source, a glider,
+    // pre-Phase-12 tests) can't be judged on this, so it secures on the stop: unchanged legacy behaviour (L10).
+    private bool IsSecured(TelemetrySnapshot t)
+        => !_sawEngineRunning || t.ParkingBrakeSet || !t.EngineRunning;
+
     private void ObserveOnGround(TelemetrySnapshot t)
     {
+        _sawGround = true; // Phase 12 — we've now seen the aircraft on the ground; a later liftoff is a real takeoff
         if (_wasAirborne && _inFlight)
         {
             // touchdown: this contact (there may be more if it bounces). The raw rate is the last airborne
@@ -284,8 +318,19 @@ public sealed class FlightTracker
         }
         else if (_inFlight && _landed)
         {
+            // Down and stopped at the destination. Phase 12: the flight is only LOGGED once the aircraft is
+            // secured — parking brake set, or the engine shut down — the way a flight actually ends. Until then
+            // we hold in Shutdown and nudge once. Legacy sources that never report engine state secure on the
+            // stop (IsSecured true immediately), so their behaviour is unchanged (L10).
             Phase = FlightPhase.Shutdown;
-            Complete();
+            if (IsSecured(t))
+                Complete();
+            else if (!_secureCoached)
+            {
+                _secureCoached = true;
+                _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Coaching,
+                    "Down and stopped — set the parking brake and shut the engine down to log the flight."));
+            }
         }
         else
         {

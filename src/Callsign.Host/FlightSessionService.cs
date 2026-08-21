@@ -102,49 +102,66 @@ public sealed class FlightSessionService : IDisposable
         Guid? aircraftToSettle = null;
         QualClass? checkToGrade = null;
         List<FlightEvent> newEvents = [];
+        bool active;
 
         lock (_gate)
         {
             Latest = t;
-            _tracker.Observe(t);
-            Phase = _tracker.Phase;
-            // Capture any scored events the tracker just produced so we can stream the REAL story of the
-            // flight live (Phase 7a) — takeoff, the touchdown and its quality, a taxi overspeed. Before
-            // this the events were computed and thrown away and the client narrated a fabricated log.
-            for (int i = _sentEventCount; i < _tracker.Events.Count; i++)
-                newEvents.Add(_tracker.Events[i]);
-            _sentEventCount = _tracker.Events.Count;
-            if (_tracker.Result is { } record && !_settling)
+            // The tracker — the moving map, the coaching, the scoring — only runs while a flight or check is
+            // ARMED. Idle, we don't feed it: no phantom flight, no out-of-nowhere coaching, no map wandering
+            // off across the sea from the synthetic source that's always streaming (Phase 12). The HUD still
+            // gets frames (below) so the link badge stays honest.
+            active = _assignmentId is not null || _checkClass is not null;
+            if (active)
             {
-                if (_assignmentId is { } aid)
+                _tracker.Observe(t);
+                Phase = _tracker.Phase;
+                // Capture any scored events the tracker just produced so we can stream the REAL story of the
+                // flight live (Phase 7a) — takeoff, the touchdown and its quality, a taxi overspeed. Before
+                // this the events were computed and thrown away and the client narrated a fabricated log.
+                for (int i = _sentEventCount; i < _tracker.Events.Count; i++)
+                    newEvents.Add(_tracker.Events[i]);
+                _sentEventCount = _tracker.Events.Count;
+                if (_tracker.Result is { } record && !_settling)
                 {
-                    completed = record;
-                    assignmentToSettle = aid;
-                    aircraftToSettle = _aircraftInstanceId;
-                    _settling = true; // resolve this landing before accepting another
+                    if (_assignmentId is { } aid)
+                    {
+                        completed = record;
+                        assignmentToSettle = aid;
+                        aircraftToSettle = _aircraftInstanceId;
+                        _settling = true; // resolve this landing before accepting another
+                    }
+                    else if (_checkClass is { } cls)
+                    {
+                        completed = record;
+                        checkToGrade = cls;
+                        _settling = true;
+                    }
                 }
-                else if (_checkClass is { } cls)
-                {
-                    completed = record;
-                    checkToGrade = cls;
-                    _settling = true;
-                }
+            }
+            else
+            {
+                Phase = FlightPhase.Parked; // nothing armed — the HUD reads a calm, parked state
             }
         }
 
+        // With no flight armed, the synthetic source is streaming a canned flight that isn't real — zero its
+        // position and gauges so the map shows no aircraft and the HUD reads parked. A real sim's live position
+        // is genuine, so it's passed through even when idle (you can see your aircraft on the ramp).
+        bool showLive = active || !_source.IsSynthetic;
         await BroadcastAsync(new
         {
             type = "telemetry",
             phase = Phase.ToString(),
             connection = Connection.ToString(),
-            alt = t.AltitudeFt,
-            ias = t.IndicatedAirspeedKts,
-            gs = t.GroundSpeedKts,
-            vs = t.VerticalSpeedFpm,
-            onGround = t.OnGround,
-            lat = t.LatitudeDeg,
-            lon = t.LongitudeDeg,
-            fuel = t.FuelQuantityLbs,
+            alt = showLive ? t.AltitudeFt : 0.0,
+            ias = showLive ? t.IndicatedAirspeedKts : 0.0,
+            gs = showLive ? t.GroundSpeedKts : 0.0,
+            vs = showLive ? t.VerticalSpeedFpm : 0.0,
+            onGround = showLive ? t.OnGround : true,
+            lat = showLive ? t.LatitudeDeg : 0.0,
+            lon = showLive ? t.LongitudeDeg : 0.0,
+            fuel = showLive ? t.FuelQuantityLbs : 0.0,
             title = t.AircraftTitle,
         });
 

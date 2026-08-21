@@ -66,6 +66,9 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
         public double ApproachCrossTrackMeters;
         // Phase 10d structural icing — order here MUST match the AddToDataDefinition call order below.
         public double StructuralIcePct;
+        // Phase 12 flight lifecycle — order here MUST match the AddToDataDefinition call order below.
+        public int ParkingBrakeSet;
+        public int EngineRunning;
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
         public string Title;
     }
@@ -271,6 +274,13 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
         // that doesn't model ice → the tracker does nothing (L10).
         sc.AddToDataDefinition(Definitions.AircraftData, "STRUCTURAL ICE PCT", "percent",
             SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        // Phase 12 — the "aircraft secured" signals for a realistic end-of-flight. Parking brake set, and the
+        // primary engine's combustion (running vs shut down). Both bool; 0 = not set / shut down (order matches
+        // the struct fields above).
+        sc.AddToDataDefinition(Definitions.AircraftData, "BRAKE PARKING POSITION", "bool",
+            SIMCONNECT_DATATYPE.INT32, 0f, unused);
+        sc.AddToDataDefinition(Definitions.AircraftData, "ENG COMBUSTION:1", "bool",
+            SIMCONNECT_DATATYPE.INT32, 0f, unused);
         sc.AddToDataDefinition(Definitions.AircraftData, "TITLE", null,
             SIMCONNECT_DATATYPE.STRING256, 0f, unused);
         sc.RegisterDataDefineStruct<AircraftData>(Definitions.AircraftData);
@@ -323,6 +333,8 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
             EngineDamagePercent = d.EngineDamagePercent,
             ApproachCrossTrackFt = d.ApproachCrossTrackMeters * 3.28084, // meters → feet
             StructuralIcePct = d.StructuralIcePct,
+            ParkingBrakeSet = d.ParkingBrakeSet != 0,
+            EngineRunning = d.EngineRunning != 0,
         });
     }
 

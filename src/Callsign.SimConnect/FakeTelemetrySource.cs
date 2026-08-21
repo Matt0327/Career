@@ -59,6 +59,10 @@ public sealed class FakeTelemetrySource : ISimTelemetrySource
                 bool onGround = altitude < 5;
                 double ias = onGround ? Math.Min(60, t * 8) : 110 + 20 * Math.Sin(frac * Math.PI);
                 double gs = onGround ? ias : ias + 15;
+                // Model the aircraft as SECURED only when fully stopped on the ground (Phase 12): brakes set,
+                // engine shut down. Moving or airborne = engine running, brakes off. This lets the synthetic
+                // leg complete the realistic way — at the stop, secured — instead of the moment it merely halts.
+                bool stopped = onGround && gs < 3;
 
                 TelemetryReceived?.Invoke(new TelemetrySnapshot
                 {
@@ -74,6 +78,8 @@ public sealed class FakeTelemetrySource : ISimTelemetrySource
                     OnGround = onGround,
                     AircraftTitle = _title,
                     AltitudeAglFt = altitude, // no synthetic terrain — AGL tracks indicated altitude
+                    ParkingBrakeSet = stopped,
+                    EngineRunning = !stopped,
                 });
 
                 await Task.Delay(_interval, ct).ConfigureAwait(false);

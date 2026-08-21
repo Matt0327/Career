@@ -16,7 +16,8 @@ public class FlightTrackerTests
         double windKts = 0, double windDir = 0, double heading = 0, double visSm = 10,
         double tdNormalFps = 0, double tdLateralFps = 0,
         double totalWt = 0, double maxGross = 0, double cg = 0, double cgFwd = 0, double cgAft = 0,
-        double engDmg = 0, double xtrack = 0, double ice = 0)
+        double engDmg = 0, double xtrack = 0, double ice = 0,
+        bool parkingBrake = false, bool engineRunning = false)
         => new()
         {
             Sequence = sec,
@@ -51,6 +52,8 @@ public class FlightTrackerTests
             EngineDamagePercent = engDmg,
             ApproachCrossTrackFt = xtrack,
             StructuralIcePct = ice,
+            ParkingBrakeSet = parkingBrake,
+            EngineRunning = engineRunning,
         };
 
     private static FlightTracker FlyStandardLeg()
@@ -677,5 +680,64 @@ public class FlightTrackerTests
         var gustyLeg = FlyLandingWith(20, 90, 0); // 20 kt wind at 90° to a runway heading of 0° = 20 kt crosswind
         Assert.True(gustyLeg.LandingScore > calm);                            // tough air earns grade back
         Assert.Contains(gustyLeg.Events, e => e.Message.Contains("Tough conditions")); // and it's announced (transparency)
+    }
+
+    // ── Phase 12: the flight lifecycle — start from the ground, complete only when secured ─────────────
+
+    [Fact]
+    public void Lifecycle_LandsButNotSecured_HoldsInShutdown_AndNudges_ThenCompletesOnBrake()
+    {
+        var t = new FlightTracker();
+        t.Observe(Snap(0, 0, 0, 0, onGround: true, engineRunning: true));        // parked, engine running
+        t.Observe(Snap(10, 50, 70, 500, onGround: false, engineRunning: true));  // takeoff
+        t.Observe(Snap(60, 30, 60, -120, onGround: false, engineRunning: true)); // final
+        t.Observe(Snap(61, 0, 55, 0, onGround: true, engineRunning: true));      // touchdown, rolling out
+        t.Observe(Snap(70, 0, 0, 0, onGround: true, engineRunning: true));       // stopped — but engine still running, no brake
+
+        Assert.Null(t.Result);                                                   // NOT logged: the aircraft isn't secured
+        Assert.Equal(FlightPhase.Shutdown, t.Phase);
+        Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Coaching && e.Message.Contains("parking brake"));
+
+        t.Observe(Snap(80, 0, 0, 0, onGround: true, engineRunning: true, parkingBrake: true)); // brakes set → secured
+        Assert.NotNull(t.Result);                                                // now the flight is logged
+    }
+
+    [Fact]
+    public void Lifecycle_EngineShutdown_AlsoSecures_AndCompletes()
+    {
+        var t = new FlightTracker();
+        t.Observe(Snap(0, 0, 0, 0, onGround: true, engineRunning: true));
+        t.Observe(Snap(10, 50, 70, 500, onGround: false, engineRunning: true));
+        t.Observe(Snap(60, 30, 60, -120, onGround: false, engineRunning: true));
+        t.Observe(Snap(61, 0, 55, 0, onGround: true, engineRunning: true));
+        t.Observe(Snap(70, 0, 0, 0, onGround: true, engineRunning: true));   // stopped, engine running → holds
+        Assert.Null(t.Result);
+        t.Observe(Snap(80, 0, 0, 0, onGround: true, engineRunning: false));  // engine shut down → secured
+        Assert.NotNull(t.Result);
+    }
+
+    [Fact]
+    public void Lifecycle_NoEngineData_CompletesOnStop_UnchangedLegacyBehaviour()
+    {
+        // The synthetic source and every pre-Phase-12 script never report a running engine → secure on the
+        // stop, exactly as before (L10). FlyStandardLeg sets no engine state, so it must still complete.
+        Assert.NotNull(FlyStandardLeg().Result);
+    }
+
+    [Fact]
+    public void Lifecycle_AirSpawn_IsNotATrackedDeparture_UntilARealGroundStart()
+    {
+        var t = new FlightTracker();
+        // Telemetry begins with the aircraft already airborne — no ground start was ever observed.
+        t.Observe(Snap(0, 3000, 120, 0, onGround: false, engineRunning: true));
+        t.Observe(Snap(5, 3000, 120, -50, onGround: false, engineRunning: true));
+        Assert.DoesNotContain(t.Events, e => e.Message == "Takeoff"); // no phantom departure from an air-spawn
+
+        // It descends and lands, so now the aircraft has been seen on the ground...
+        t.Observe(Snap(60, 30, 60, -120, onGround: false, engineRunning: true));
+        t.Observe(Snap(61, 0, 55, 0, onGround: true, engineRunning: true));
+        // ...and takes off again FROM THE GROUND — THAT is the real, tracked departure.
+        t.Observe(Snap(70, 50, 70, 500, onGround: false, engineRunning: true));
+        Assert.Contains(t.Events, e => e.Message == "Takeoff");
     }
 }

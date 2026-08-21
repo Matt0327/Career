@@ -126,4 +126,14 @@ public sealed record TelemetrySnapshot
     // tracker coaches at the first sign and only lets SUSTAINED heavy ice bite the score. Read, never commanded (L7).
     /// <summary>Structural (airframe) ice accumulation as the simulator models it, percent (0 = clean).</summary>
     public double StructuralIcePct { get; init; }
+
+    // --- Flight lifecycle (Phase 12): the "aircraft secured" signals used to end a flight the realistic way —
+    // parked, brakes set, engine shut down — instead of the moment the wheels merely stop rolling. Both default
+    // to a neutral legacy reading (brake not set; engine not reported running), so any source or test that
+    // predates this — and any aircraft that doesn't publish them — completes exactly as before (L10): the
+    // tracker only ever requires securing once it has actually SEEN the engine running this leg.
+    /// <summary>True while the parking brake is set. Default false = not reported / not set.</summary>
+    public bool ParkingBrakeSet { get; init; }
+    /// <summary>True while the (primary) engine is running / combusting. Default false = not reported / shut down.</summary>
+    public bool EngineRunning { get; init; }
 }
