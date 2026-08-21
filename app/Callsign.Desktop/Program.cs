@@ -16,6 +16,21 @@ namespace Callsign.Desktop;
 /// </summary>
 internal static class Program
 {
+    // A fixed high loopback port, so the app's origin is stable between launches (browser storage persists).
+    // Fall back to an OS-assigned port only if it's already in use — rare, and only that session's storage resets.
+    private static int PickStableLoopbackPort()
+    {
+        const int preferred = 52765;
+        try
+        {
+            using var probe = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, preferred);
+            probe.Start();
+            probe.Stop();
+            return preferred;
+        }
+        catch { return 0; }
+    }
+
     [STAThread]
     private static void Main()
     {
@@ -47,7 +62,10 @@ internal static class Program
                     $"--contentRoot={AppContext.BaseDirectory}",
                     $"--Db:Path={Path.Combine(dataDir, "callsign.db")}",
                     $"--Ui:Path={Path.Combine(AppContext.BaseDirectory, "wwwroot")}",
-                    "--urls=http://127.0.0.1:0", // dynamic loopback port — nothing to clash with
+                    // A STABLE loopback port, so the WebView2 origin (which includes the port) is the SAME every
+                    // launch. With a dynamic port, browser storage — the theme choice and the "tutorial seen"
+                    // flags — is keyed to a new origin each run and looks reset on every startup.
+                    $"--urls=http://127.0.0.1:{PickStableLoopbackPort()}",
                 });
                 app.Start();
                 var url = app.Services.GetRequiredService<IServer>()

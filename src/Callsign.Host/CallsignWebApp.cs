@@ -938,11 +938,16 @@ public static class CallsignWebApp
         });
 
         // --- Staff + standing orders (Phase 2d) ---
-        app.MapGet("/api/staff/candidates", async (CallsignDbContext db, OperationsService ops) =>
+        app.MapGet("/api/staff/candidates", async (CallsignDbContext db, OperationsService ops, IClock clock) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
-            return Results.Ok(ops.GenerateCandidates(pilot.CompanyId.GetHashCode())
+            // Never offer someone already on your roster, and rotate the slate roughly weekly so the market has
+            // fresh faces over time (not the same five forever). Seed stays deterministic within a window.
+            var onStaff = await db.Staff.Where(s => s.CompanyId == pilot.CompanyId && s.IsActive && !s.IsDeleted).Select(s => s.Name).ToListAsync();
+            int week = (int)((clock.UtcNow - DateTimeOffset.UnixEpoch).TotalDays / 7);
+            int seed = pilot.CompanyId.GetHashCode() ^ unchecked(week * (int)0x9E3779B1);
+            return Results.Ok(ops.GenerateCandidates(seed, 6, onStaff)
                 .Select(c => new StaffCandidateDto(c.Seed, c.Name, c.WagePerDayCents, c.SkillMilli)));
         });
 

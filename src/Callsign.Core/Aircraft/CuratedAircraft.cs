@@ -87,9 +87,5 @@ public static class DefaultFleetCatalog
 
         new("BE60", "Beechcraft Duke B60", "Beechcraft", AircraftCategory.LightTwin, 6, 1800, 918, 220, 2200, ["Duke", "B60 Duke"]),
         new("BN2A", "Britten-Norman BN-2 Islander", "Britten-Norman", AircraftCategory.LightTwin, 9, 2000, 1200, 150, 1200, ["BN-2 Islander", "Islander"]),
-        new("F117", "Lockheed F-117 Nighthawk", "Lockheed", AircraftCategory.Jet, 1, 5000, 18000, 480, 5000, ["F-117", "Nighthawk", "F-117A"]),
-        new("F22", "Lockheed Martin F-22 Raptor", "Lockheed Martin", AircraftCategory.Jet, 2, 8000, 18000, 500, 5000, ["F-22", "Raptor", "F-22 Raptor"]),
-        new("SPIT", "Supermarine Spitfire", "Supermarine", AircraftCategory.LightSingle, 1, 1200, 620, 330, 2000, ["Spitfire"]),
-        new("P51", "North American P-51 Mustang", "North American", AircraftCategory.LightSingle, 1, 2000, 1500, 362, 2500, ["P-51", "Mustang", "P-51D"]),
     ];
 }

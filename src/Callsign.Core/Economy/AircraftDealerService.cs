@@ -56,9 +56,28 @@ public sealed class AircraftDealerService
     }
 
     /// <summary>Every known aircraft type, priced, cheapest first, flagged if installed on this PC.</summary>
+    // Military fighters and warbirds aren't commercial-operator aircraft, so they're kept OUT of the career
+    // market — even when a player's own installed add-ons get scanned into the roster. Fighters are ~1-2 seat
+    // jets (caught by shape); warbirds we catch by name (their names don't collide with civilian types —
+    // e.g. "P-51" not bare "Mustang", so the Citation Mustang is safe; "Nighthawk" not "Skyhawk").
+    private static readonly string[] NonCareerKeywords =
+    {
+        "nighthawk", "raptor", "spitfire", "warbird", "corsair", "mosquito", "lancaster", "hurricane",
+        "f-117", "f117", "f-22", "f-16", "f-15", "f-18", "f/a-18", "f-35", "f-14", "a-10", "warthog",
+        "sr-71", "sr71", "blackbird", "p-51", "p-38", "p-47", "bf 109", "bf-109", "me 262", "me-262",
+        "mig-", "sukhoi", "su-27", "su-30", "su-35", "su-57", "harrier", "tomcat", "messerschmitt",
+        "eurofighter", "rafale", "gripen", "phantom ii", "thunderbolt", "stuka", "hellcat", "wildcat",
+    };
+    public static bool IsCareerAircraft(AircraftType t)
+    {
+        if (t.Category == AircraftCategory.Jet && t.Seats is int s && s <= 2) return false; // a 1-2 seat jet is a fighter
+        string hay = ((t.CanonicalName ?? "") + " " + (t.Manufacturer ?? "")).ToLowerInvariant();
+        return !NonCareerKeywords.Any(k => hay.Contains(k));
+    }
+
     public async Task<IReadOnlyList<AircraftOffer>> GetOffersAsync(CancellationToken ct = default)
     {
-        var types = await _db.AircraftTypes.ToListAsync(ct);
+        var types = (await _db.AircraftTypes.ToListAsync(ct)).Where(IsCareerAircraft);
         var onDisk = (await _db.InstalledPackages.Where(i => i.IsOnDisk).Select(i => i.AircraftTypeId).ToListAsync(ct))
             .ToHashSet();
         return types
@@ -70,7 +89,7 @@ public sealed class AircraftDealerService
     /// <summary>A deterministic slate of used airframes for a seed — cheaper than new, but flown and worn.</summary>
     public async Task<IReadOnlyList<UsedListing>> GetUsedMarketAsync(int seed, CancellationToken ct = default)
     {
-        var types = await _db.AircraftTypes.OrderBy(t => t.Key).ToListAsync(ct);
+        var types = (await _db.AircraftTypes.OrderBy(t => t.Key).ToListAsync(ct)).Where(IsCareerAircraft).ToList();
         if (types.Count == 0)
             return Array.Empty<UsedListing>();
         var rng = new Random(seed);

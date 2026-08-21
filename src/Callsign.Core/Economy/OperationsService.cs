@@ -36,13 +36,20 @@ public sealed class OperationsService
         _cfg = cfg;
     }
 
-    /// <summary>A deterministic slate of hireable pilots for a seed.</summary>
-    public IReadOnlyList<StaffCandidate> GenerateCandidates(int seed, int count = 5)
+    /// <summary>A deterministic slate of hireable pilots for a seed, with UNIQUE names, skipping anyone in
+    /// <paramref name="exclude"/> (e.g. the pilots already on your roster — so a hired name never lingers in
+    /// the market, and the same face never appears twice).</summary>
+    public IReadOnlyList<StaffCandidate> GenerateCandidates(int seed, int count = 5, IReadOnlyCollection<string>? exclude = null)
     {
         var rng = new Random(seed);
+        var seen = new HashSet<string>(exclude ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
         var list = new List<StaffCandidate>(count);
-        for (int i = 0; i < count; i++)
-            list.Add(MakeCandidate(rng.Next()));
+        int guard = 0;
+        while (list.Count < count && guard++ < count * 40)
+        {
+            var c = MakeCandidate(rng.Next());
+            if (seen.Add(c.Name)) list.Add(c);
+        }
         return list;
     }
 
