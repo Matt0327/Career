@@ -25,6 +25,13 @@
 
 *Delivered: the depth you shipped now shows up and is felt — the biggest win being the score + coaching at the moment you land.*
 
+### The front door — ✅ DONE (02442dc, a3f47e6, 7974b90)
+A player-requested addition on top of Wave 1 — the first thing a new player meets.
+- [x] **A 5-step onboarding wizard** — account (create / sign in / Continue offline) → MSFS edition badge → pick your first aircraft (Cessna 152 / Robin DR400 / JMB VL3) → pilot (callsign + avatar + home ICAO) → a setup review, then Start flying with $10,000.
+- [x] **Per-tab first-visit tutorials** — the first time you open any tab, a short guide card explains what it's for and what you can do there; remembered per device, reopenable with a `?` in the header. This directly answers the audit's #1 gap (legibility, 62).
+
+*Live-QA'd end-to-end against a throwaway database: walked all five wizard steps and confirmed the career came out exactly as chosen, and drove the tutorials (first-visit pop, dismiss-and-remember, `?` reopen) in the running app.*
+
 ### Wave 2 — "fix the curve + feel pass" (I build, then we tune together — needs your eyes)
 - [ ] **Rebalance so mastery pays**: charge fuel on autonomous trips (today crew flying is *cheaper* than flying yourself), soften crew perfection, add route-pay saturation, make top yields reachable only by hand-flying.
 - [ ] Visual nits you'll spot in the running app: a light-mode amber that washes out, two overflowing tables, a weight-vs-MTOW readout on the Flight tab.
