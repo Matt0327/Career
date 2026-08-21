@@ -428,7 +428,7 @@ public static class CallsignWebApp
                 return Results.NotFound(new { error = "Career data is incomplete (no account). Restore a backup or start a new career." });
             var flights = await db.Flights.CountAsync();
             return Results.Ok(new StateDto(pilot.Name, pilot.Rank.ToString(), pilot.Xp, pilot.ReputationMilli,
-                pilot.CurrentIcao, pilot.HomeIcao, company.CashCents, company.Cash, flights));
+                pilot.CurrentIcao, pilot.HomeIcao, company.CashCents, company.Cash, flights, pilot.AvatarKey));
         });
 
         // Reputation (Phase 3f): the current standing + the recent log so the drift is legible.

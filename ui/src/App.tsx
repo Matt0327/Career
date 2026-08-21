@@ -323,7 +323,7 @@ function ContextHeader({ state, tab, onHelp }: { state: State; tab: Tab; onHelp?
           : `${wx.name}: ${wx.summary} · modeled · gust ${wx.gustKts} kt · ceiling ${wx.ceilingFt.toLocaleString()} ft`}>
           {wx.condition} · <span className="num">{wx.windKts}</span> kt · <span className="num">{wx.tempC}</span>°C{wx.live && <span className="wx-live">LIVE</span>}
         </span>}
-        <span className="chip">{state.name} · <span className="muted">{state.rank}</span> · {state.xp.toLocaleString()} XP</span>
+        <span className="chip pilot-chip"><Avatar src={state.avatarKey} name={state.name} size={18} /> {state.name} · <span className="muted">{state.rank}</span> · {state.xp.toLocaleString()} XP</span>
         <span className="chip cash"><b className="num">{money(state.cashCents)}</b></span>
       </div>
     </header>
@@ -404,15 +404,52 @@ function useSimLink() {
 // Every new career starts with the same $10,000 bankroll (Phase 12 onboarding) — a lean, level start.
 const START_CASH = 10000
 
-// A small set of pilot avatars the UI draws by key (stored as Pilot.AvatarKey). Glyph-based, so it needs no assets.
-const AVATARS = [
-  { key: 'aviator-m', glyph: '🧑‍✈️' }, { key: 'aviator-f', glyph: '👩‍✈️' },
-  { key: 'falcon', glyph: '🦅' }, { key: 'wolf', glyph: '🐺' },
-  { key: 'owl', glyph: '🦉' }, { key: 'fox', glyph: '🦊' },
-  { key: 'shark', glyph: '🦈' }, { key: 'bolt', glyph: '⚡' },
-]
-function avatarGlyph(key?: string | null) {
-  return AVATARS.find(a => a.key === key)?.glyph ?? '🧑‍✈️'
+// The pilot's avatar (stored in Pilot.AvatarKey) is either an uploaded image — a compact data: URL — or,
+// when none is set, a clean initials monogram derived from the callsign, so it always looks intentional.
+function initialsOf(name?: string | null) {
+  const parts = (name || '').trim().split(/\s+/).filter(Boolean)
+  if (!parts.length) return '✈'
+  return (parts.length === 1 ? parts[0].slice(0, 2) : parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+}
+function hueOf(name?: string | null) {
+  let h = 0
+  for (const c of (name || 'callsign')) h = (h * 31 + c.charCodeAt(0)) >>> 0
+  return h % 360
+}
+function Avatar({ src, name, size = 40 }: { src?: string | null; name?: string | null; size?: number }) {
+  const dim: CSSProperties = { width: size, height: size }
+  if (src && src.startsWith('data:'))
+    return <img className="avatar-img" src={src} alt="" style={dim} />
+  return (
+    <span className="avatar-mono" style={{ ...dim, background: `hsl(${hueOf(name)} 42% 34%)`, fontSize: Math.round(size * 0.4) }}>
+      {initialsOf(name)}
+    </span>
+  )
+}
+
+// Read an image file, cover-crop it to a small square, and return a compact JPEG data URL for the avatar.
+function fileToAvatar(file: File): Promise<string | null> {
+  return new Promise(resolve => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const img = new Image()
+      img.onload = () => {
+        const S = 160
+        const canvas = document.createElement('canvas')
+        canvas.width = canvas.height = S
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return resolve(null)
+        const scale = Math.max(S / img.width, S / img.height)
+        const w = img.width * scale, h = img.height * scale
+        ctx.drawImage(img, (S - w) / 2, (S - h) / 2, w, h)
+        resolve(canvas.toDataURL('image/jpeg', 0.82))
+      }
+      img.onerror = () => resolve(null)
+      img.src = reader.result as string
+    }
+    reader.onerror = () => resolve(null)
+    reader.readAsDataURL(file)
+  })
 }
 
 // The three MSFS 2024 editions the player can flag — a profile badge only, never a content gate.
@@ -445,7 +482,7 @@ function Onboarding({ onStarted }: { onStarted: () => void }) {
   const [edition, setEdition] = useState('Standard')
   const [starter, setStarter] = useState('C152')
   const [callsign, setCallsign] = useState('')
-  const [avatar, setAvatar] = useState('aviator-m')
+  const [avatar, setAvatar] = useState('') // '' = initials monogram; else a data: URL of an uploaded photo
   const [home, setHome] = useState('EHAM')
 
   const [busy, setBusy] = useState(false)
@@ -607,13 +644,17 @@ function Onboarding({ onStarted }: { onStarted: () => void }) {
               <input autoFocus value={callsign} placeholder="e.g. Maverick" onChange={e => setCallsign(e.target.value)} />
             </label>
             <div className="ob-field">Avatar
-              <div className="avatars">
-                {AVATARS.map(a => (
-                  <button key={a.key} type="button" className={`avatar-pick ${avatar === a.key ? 'on' : ''}`}
-                    onClick={() => setAvatar(a.key)} aria-label={a.key} aria-pressed={avatar === a.key}>
-                    <span className="avatar-glyph">{a.glyph}</span>
-                  </button>
-                ))}
+              <div className="avatar-edit">
+                <Avatar src={avatar} name={callsign} size={64} />
+                <div className="avatar-actions">
+                  <label className="avatar-upload">
+                    {avatar ? 'Change photo' : 'Upload a photo'}
+                    <input type="file" accept="image/*" onChange={async e => { const f = e.target.files?.[0]; e.currentTarget.value = ''; if (f) setAvatar(await fileToAvatar(f) ?? '') }} />
+                  </label>
+                  {avatar
+                    ? <button type="button" className="linky" onClick={() => setAvatar('')}>Remove</button>
+                    : <span className="ob-hint">Optional — otherwise your callsign initials are used.</span>}
+                </div>
               </div>
             </div>
             <label className="ob-field">Home base — ICAO code
@@ -632,7 +673,7 @@ function Onboarding({ onStarted }: { onStarted: () => void }) {
             <h1>Cleared for departure</h1>
             <p className="lede">Here’s your setup. Start flying and your first jobs will be waiting.</p>
             <div className="summary">
-              <div className="srow"><span className="muted">Pilot</span><b><span className="avatar-inline">{avatarGlyph(avatar)}</span> {callsign.trim() || 'New Pilot'}</b></div>
+              <div className="srow"><span className="muted">Pilot</span><b className="pilot-cell"><Avatar src={avatar} name={callsign} size={22} /> {callsign.trim() || 'New Pilot'}</b></div>
               <div className="srow"><span className="muted">First aircraft</span><b>{chosen.name}</b></div>
               <div className="srow"><span className="muted">Home base</span><b className="loc">{home.trim().toUpperCase() || 'EHAM'}</b></div>
               <div className="srow"><span className="muted">Edition</span><b>{edition}</b></div>

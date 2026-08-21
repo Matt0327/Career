@@ -11,6 +11,7 @@ export interface State {
   cashCents: number
   cash: number
   flights: number
+  avatarKey?: string | null
 }
 
 export interface ReputationEvent {

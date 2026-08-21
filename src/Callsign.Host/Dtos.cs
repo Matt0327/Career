@@ -5,7 +5,7 @@ public record NewCareerRequest(string? Name, string? HomeIcao, decimal? Starting
 
 public record StateDto(
     string Name, string Rank, int Xp, int ReputationMilli, string CurrentIcao, string HomeIcao,
-    long CashCents, decimal Cash, int Flights);
+    long CashCents, decimal Cash, int Flights, string? AvatarKey = null);
 
 // --- Phase 3f: reputation ---
 public record ReputationEventDto(int DeltaMilli, int BalanceMilli, string Reason, DateTimeOffset At);
