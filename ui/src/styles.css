@@ -12,6 +12,7 @@
   --accent-dim: color-mix(in srgb, var(--accent) 12%, transparent);
   --pos: #12a366;
   --neg: #d64535;
+  --warn: #9a6400; /* amber for cautions — dark enough to clear WCAG AA on the light panel (bright #d99a1c fails at ~2.6:1) */
   --up: #4b5fe6;
   --down: #d64535;
   --radius: 12px;
@@ -27,7 +28,7 @@
     --bg: #0b0e13; --panel: #12171f; --panel-2: #171d27; --ink: #e9eef5;
     --muted: #8a97a7; --faint: #58636f; --line: #232c38;
     --accent: #6d84ff; --accent-dim: color-mix(in srgb, #6d84ff 15%, transparent);
-    --pos: #3ecf8e; --neg: #f26a5c; --up: #6d84ff; --down: #f26a5c;
+    --pos: #3ecf8e; --neg: #f26a5c; --warn: #d99a1c; --up: #6d84ff; --down: #f26a5c;
     --shadow: 0 16px 36px -22px rgba(0, 0, 0, .85);
   }
 }
@@ -36,7 +37,7 @@
   --bg: #0b0e13; --panel: #12171f; --panel-2: #171d27; --ink: #e9eef5;
   --muted: #8a97a7; --faint: #58636f; --line: #232c38;
   --accent: #6d84ff; --accent-dim: color-mix(in srgb, #6d84ff 15%, transparent);
-  --pos: #3ecf8e; --neg: #f26a5c; --up: #6d84ff; --down: #f26a5c;
+  --pos: #3ecf8e; --neg: #f26a5c; --warn: #d99a1c; --up: #6d84ff; --down: #f26a5c;
   --shadow: 0 16px 36px -22px rgba(0, 0, 0, .85);
 }
 :root[data-motion="reduced"] *, :root[data-motion="reduced"] *::before, :root[data-motion="reduced"] *::after {
@@ -127,11 +128,11 @@ input { font: inherit; }
 .ctx .chip.cash b { font-size: 15px; }
 .ctx .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pos); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pos) 18%, transparent); }
 .ctx .chip.wx { cursor: help; }
-.ctx .chip.wx.rough { color: #d99a1c; border-color: color-mix(in srgb, #d99a1c 40%, var(--line)); } /* Phase 8 — weather worth noting before you launch */
+.ctx .chip.wx.rough { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); } /* Phase 8 — weather worth noting before you launch */
 .ctx .chip.wx .wx-live { margin-left: 6px; padding: 0 4px; border-radius: 3px; font-size: 0.72em; font-weight: 700; letter-spacing: 0.04em; color: var(--pos); background: color-mix(in srgb, var(--pos) 16%, transparent); } /* Phase 9b — a real METAR is driving the chip */
 .ctx .chip.econ { cursor: help; } /* Phase 8c — where the macro economy sits, and what it's doing to job pay */
 .ctx .chip.econ.up { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 40%, var(--line)); }
-.ctx .chip.econ.down { color: #d99a1c; border-color: color-mix(in srgb, #d99a1c 40%, var(--line)); }
+.ctx .chip.econ.down { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
 
 .main { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 22px 24px; max-width: 1200px; width: 100%; margin: 0 auto; }
 .grid { display: grid; gap: 16px; }
@@ -455,10 +456,10 @@ input { font: inherit; }
 }
 .simlink.up { border-color: color-mix(in srgb, var(--pos) 50%, var(--line)); background: color-mix(in srgb, var(--pos) 8%, var(--panel)); }
 .simdot { width: 11px; height: 11px; border-radius: 50%; flex: none; background: var(--faint); }
-.simdot.warn { background: #d99a1c; animation: simpulse 1.6s infinite; }
+.simdot.warn { background: var(--warn); animation: simpulse 1.6s infinite; }
 .simdot.up { background: var(--pos); }
 @keyframes simpulse {
-  0% { box-shadow: 0 0 0 0 color-mix(in srgb, #d99a1c 55%, transparent); }
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--warn) 55%, transparent); }
   70% { box-shadow: 0 0 0 8px transparent; }
   100% { box-shadow: 0 0 0 0 transparent; }
 }
@@ -558,7 +559,7 @@ input { font: inherit; }
 .cring-track{fill:none;stroke:color-mix(in srgb,var(--ink) 12%,var(--panel));stroke-width:5}
 .cring-arc{fill:none;stroke-width:5;stroke-linecap:round;transition:stroke-dashoffset .6s ease}
 .cring-svg.pos .cring-arc{stroke:var(--pos)}
-.cring-svg.warn .cring-arc{stroke:#d99a1c}
+.cring-svg.warn .cring-arc{stroke:var(--warn)}
 .cring-svg.neg .cring-arc{stroke:var(--neg)}
 .cring-pct{fill:var(--ink);font-size:15px;font-weight:700;text-anchor:middle;dominant-baseline:central}
 .cring-label{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
@@ -566,7 +567,7 @@ input { font: inherit; }
 .fleet-facts>div{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px}
 .fleet-facts .metalabel{font-size:10px}
 .fleet-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:10px;border-top:1px solid var(--line);margin-top:auto}
-.warn-text{font-size:12px;font-weight:600;color:#d99a1c}
+.warn-text{font-size:12px;font-weight:600;color:var(--warn)}
 
 /* ── Flight — live moving-map + HUD overlay (Phase 6). Overlay chips sit on satellite imagery,
       so their colours are fixed light values (not theme tokens) to stay legible in both themes. ── */
@@ -646,7 +647,7 @@ input { font: inherit; }
 .flog-time{font-size:11px;color:var(--faint);white-space:nowrap}
 .flog-mark{width:7px;height:7px;border-radius:50%;background:var(--faint);transform:translateY(3px)}
 .flog-row.ok .flog-mark{background:var(--pos)}
-.flog-row.warn .flog-mark{background:#d99a1c}
+.flog-row.warn .flog-mark{background:var(--warn)}
 .flog-row.bad .flog-mark{background:var(--neg)}
 .flog-row.info .flog-mark{background:var(--accent)}
 .flog-row.coach .flog-mark{background:#3fa9bf} /* Phase 9 — the Fun Dial: a calm, friendly coaching nudge */
@@ -662,7 +663,7 @@ input { font: inherit; }
 .dbf-note{border-left:2px solid var(--line);padding:4px 0 4px 10px;margin-bottom:7px}
 .dbf-note.strength{border-left-color:var(--pos)}
 .dbf-note.coaching{border-left-color:#3fa9bf}
-.dbf-note.consequence{border-left-color:#d99a1c}
+.dbf-note.consequence{border-left-color:var(--warn)}
 .dbf-note-head{font-size:13px;font-weight:600;color:var(--ink)}
 .dbf-dim{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--faint);margin-left:6px}
 .dbf-note-detail{font-size:12.5px;line-height:1.45;color:color-mix(in srgb,var(--ink) 78%,transparent);margin-top:2px}
@@ -713,7 +714,7 @@ details.card.shop>summary.shop-head::-webkit-details-marker{display:none}
 details.card.shop>summary.shop-head::after{content:'▸';margin-left:8px;color:var(--faint);transition:transform .15s}
 details.card.shop[open]>summary.shop-head::after{transform:rotate(90deg)}
 .shop-term{margin:8px 0}
-.flog-row.warn .flog-text{color:color-mix(in srgb,#d99a1c 85%,var(--ink))}
+.flog-row.warn .flog-text{color:color-mix(in srgb,var(--warn) 85%,var(--ink))}
 .flog-row.bad .flog-text{color:color-mix(in srgb,var(--neg) 80%,var(--ink))}
 @media (prefers-reduced-motion:reduce){.flog-dotlive{animation:none}}
 
@@ -759,19 +760,19 @@ details.card.shop[open]>summary.shop-head::after{transform:rotate(90deg)}
 .cert-list{display:flex;flex-direction:column;gap:10px;margin-top:6px}
 .cert-row{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--panel-2)}
 .cert-row.valid{border-color:color-mix(in srgb,var(--pos) 35%,var(--line))}
-.cert-row.expired{border-color:color-mix(in srgb,#d99a1c 40%,var(--line))}
+.cert-row.expired{border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
 .cert-main{min-width:220px;flex:1}
 .cert-name{font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .cert-badge{font-size:11px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);font-weight:500}
 .cert-badge.valid{color:var(--pos);border-color:color-mix(in srgb,var(--pos) 40%,var(--line));background:color-mix(in srgb,var(--pos) 10%,transparent)}
-.cert-badge.expired{color:#d99a1c;border-color:color-mix(in srgb,#d99a1c 40%,var(--line));background:color-mix(in srgb,#d99a1c 10%,transparent)}
+.cert-badge.expired{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line));background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .cert-blurb{font-size:12.5px;margin-top:3px;line-height:1.45}
 .cert-gates{font-size:12px;margin-top:4px}
 .cert-action{display:flex;flex-direction:column;align-items:flex-end;gap:6px;min-width:170px}
 .cert-bar{display:flex;flex-direction:column;gap:2px;font-size:11.5px;text-align:right}
 .cert-bar .ok{color:var(--pos)}
 .cert-bar .no{color:var(--muted)}
-.cert-blocker{font-size:11px;color:#d99a1c;text-align:right}
+.cert-blocker{font-size:11px;color:var(--warn);text-align:right}
 .jobs-side{display:flex;flex-direction:column;gap:14px}
 .jdetail{display:flex;flex-direction:column;gap:12px}
 .jd-dest{font-size:14px;font-weight:600;margin-top:-2px}
@@ -805,27 +806,27 @@ details.card.shop[open]>summary.shop-head::after{transform:rotate(90deg)}
 .shop-lvl{font-size:13px;font-weight:600;color:var(--pos)}
 .region-tag{margin-left:8px;font-size:11px;font-weight:600;padding:1px 7px;border-radius:5px}
 .region-tag.exp{color:var(--pos);background:color-mix(in srgb,var(--pos) 14%,transparent)}
-.region-tag.dem{color:#d99a1c;background:color-mix(in srgb,#d99a1c 14%,transparent)}
+.region-tag.dem{color:var(--warn);background:color-mix(in srgb,var(--warn) 14%,transparent)}
 .pressure-tag{margin-left:8px;font-size:11px;font-weight:600;padding:1px 7px;border-radius:5px;white-space:nowrap;cursor:help}
 .pressure-tag.up{color:var(--neg);background:color-mix(in srgb,var(--neg) 12%,transparent)}
 .pressure-tag.down{color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent)}
 /* Phase 8f — foul weather lifting local commodity prices */
-.weather-tag{margin-left:8px;font-size:11px;font-weight:600;padding:1px 7px;border-radius:5px;white-space:nowrap;cursor:help;color:#d99a1c;background:color-mix(in srgb,#d99a1c 12%,transparent)}
+.weather-tag{margin-left:8px;font-size:11px;font-weight:600;padding:1px 7px;border-radius:5px;white-space:nowrap;cursor:help;color:var(--warn);background:color-mix(in srgb,var(--warn) 12%,transparent)}
 .markup-sel{padding:2px 4px;font-size:12px}
 .fill-hint{margin-left:7px;font-size:11px;color:var(--muted)}
-.fill-hint.warn{color:#d99a1c}
+.fill-hint.warn{color:var(--warn)}
 .fair-ref{font-size:11px;color:var(--muted);font-weight:400}
 .credit-badge{font-size:12px;font-weight:700;padding:2px 10px;border-radius:6px;letter-spacing:.02em}
 .credit-badge.g-A{color:var(--pos);background:color-mix(in srgb,var(--pos) 15%,transparent)}
 .credit-badge.g-B{color:var(--pos);background:color-mix(in srgb,var(--pos) 11%,transparent)}
-.credit-badge.g-C{color:#d99a1c;background:color-mix(in srgb,#d99a1c 14%,transparent)}
+.credit-badge.g-C{color:var(--warn);background:color-mix(in srgb,var(--warn) 14%,transparent)}
 .credit-badge.g-D{color:var(--neg);background:color-mix(in srgb,var(--neg) 12%,transparent)}
 .credit-badge.g-E{color:var(--neg);background:color-mix(in srgb,var(--neg) 17%,transparent)}
 .assign-meta .due{font-weight:600}
-.assign-meta .due.warn{color:#d99a1c}
+.assign-meta .due.warn{color:var(--warn)}
 .assign-meta .due.neg{color:var(--neg)}
 .mission-grade{display:inline-block;margin-top:5px;font-size:12px;font-weight:600;padding:2px 9px;border-radius:6px}
-.mission-grade.partial{color:#d99a1c;background:color-mix(in srgb,#d99a1c 15%,transparent)}
+.mission-grade.partial{color:var(--warn);background:color-mix(in srgb,var(--warn) 15%,transparent)}
 .mission-grade.failed{color:var(--neg);background:color-mix(in srgb,var(--neg) 15%,transparent)}
 .flt-scores{display:flex;align-items:center;gap:18px;border-top:1px solid var(--line);padding-top:12px}
 .fs-overall{display:flex;flex-direction:column;gap:1px;flex:none}
@@ -860,7 +861,7 @@ details.card.shop[open]>summary.shop-head::after{transform:rotate(90deg)}
 .fleet-extra .metalabel{font-size:10px;margin-right:4px}
 .insured-chip{font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap;color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,transparent)}
 .uninsured-chip{font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;color:var(--muted);background:color-mix(in srgb,var(--muted) 16%,transparent)}
-.rate-chip{font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;color:#d99a1c;background:color-mix(in srgb,#d99a1c 14%,transparent)}
+.rate-chip{font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;color:var(--warn);background:color-mix(in srgb,var(--warn) 14%,transparent)}
 .acd-wrap{padding:0;overflow:hidden}
 .acd{display:flex;flex-direction:column;gap:14px;padding:16px}
 .acd-hero{display:grid;grid-template-columns:minmax(220px,1fr) 1.3fr;gap:18px;align-items:stretch}
@@ -879,7 +880,7 @@ details.card.shop[open]>summary.shop-head::after{transform:rotate(90deg)}
 .maint-track{height:7px;border-radius:4px;background:color-mix(in srgb,var(--ink) 8%,var(--panel));overflow:hidden}
 .maint-fill{height:100%;border-radius:4px}
 .maint-fill.pos{background:var(--pos)}
-.maint-fill.warn{background:#d99a1c}
+.maint-fill.warn{background:var(--warn)}
 .maint-fill.neg{background:var(--neg)}
 .maint-cap{font-size:12px}
 .spec-sheet{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px 18px}
@@ -888,7 +889,7 @@ details.card.shop[open]>summary.shop-head::after{transform:rotate(90deg)}
 .acd-loc{font-size:12px;margin-top:6px}
 .hist-table td .land{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
 .land.butter,.land.smooth{color:var(--pos)}
-.land.firm{color:#d99a1c}
+.land.firm{color:var(--warn)}
 .land.hard,.land.rough{color:var(--neg)}
 .acd-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding-top:12px;border-top:1px solid var(--line)}
 .relocate-form{display:flex;gap:6px;align-items:center}
@@ -909,7 +910,7 @@ details.card.shop[open]>summary.shop-head::after{transform:rotate(90deg)}
 .hero-link{position:absolute;top:14px;right:16px;z-index:2;display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 12px;border-radius:999px;background:color-mix(in srgb,var(--panel) 78%,transparent);border:1px solid var(--line);font-size:12px;color:var(--muted);backdrop-filter:blur(6px)}
 .hlink-dot{width:8px;height:8px;border-radius:50%;background:var(--faint)}
 .hlink-dot.up{background:var(--pos);box-shadow:0 0 0 3px color-mix(in srgb,var(--pos) 22%,transparent);animation:hlink-pulse 2s ease-in-out infinite}
-.hlink-dot.warn{background:#d99a1c}
+.hlink-dot.warn{background:var(--warn)}
 .hlink-dot.down{background:var(--faint)}
 .hlink-text{font-weight:600;letter-spacing:.01em}
 .hlink-live{color:var(--ink);border-left:1px solid var(--line);padding-left:8px}
@@ -922,7 +923,7 @@ details.card.shop[open]>summary.shop-head::after{transform:rotate(90deg)}
 .alerts-card .row-head{margin-bottom:2px}
 .ops-pill{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:4px 11px;border-radius:999px}
 .ops-pill.ok{background:color-mix(in srgb,var(--pos) 16%,transparent);color:var(--pos)}
-.ops-pill.warn{background:color-mix(in srgb,#d99a1c 20%,transparent);color:#d99a1c}
+.ops-pill.warn{background:color-mix(in srgb,var(--warn) 20%,transparent);color:var(--warn)}
 .ops-pill.bad{background:color-mix(in srgb,var(--neg) 16%,transparent);color:var(--neg)}
 .ops-clear{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:14px;padding:6px 0 2px}
 .ops-check{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:color-mix(in srgb,var(--pos) 18%,transparent);color:var(--pos);font-weight:700;font-size:13px}
@@ -931,7 +932,7 @@ details.card.shop[open]>summary.shop-head::after{transform:rotate(90deg)}
 .alert-mark{width:9px;height:9px;border-radius:50%;flex:none}
 .alert.bad{border-color:color-mix(in srgb,var(--neg) 40%,var(--line))}
 .alert.bad .alert-mark{background:var(--neg);box-shadow:0 0 0 3px color-mix(in srgb,var(--neg) 18%,transparent)}
-.alert.warn .alert-mark{background:#d99a1c;box-shadow:0 0 0 3px color-mix(in srgb,#d99a1c 18%,transparent)}
+.alert.warn .alert-mark{background:var(--warn);box-shadow:0 0 0 3px color-mix(in srgb,var(--warn) 18%,transparent)}
 .alert.info .alert-mark{background:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent)}
 .alert-text{color:var(--ink)}
 .alert-cta{border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:7px;padding:5px 11px;font-size:12.5px;font-weight:600;white-space:nowrap;cursor:pointer}
@@ -947,9 +948,9 @@ details.card.shop[open]>summary.shop-head::after{transform:rotate(90deg)}
 .fc-name{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fc-foot{display:flex;align-items:center;gap:6px;margin-top:3px;font-size:11.5px}
 .fc-dot{width:7px;height:7px;border-radius:50%;background:var(--faint);flex:none}
-.fc-dot.ok{background:var(--pos)}.fc-dot.fly{background:var(--accent)}.fc-dot.rsv{background:#d99a1c}.fc-dot.gnd{background:var(--neg)}
+.fc-dot.ok{background:var(--pos)}.fc-dot.fly{background:var(--accent)}.fc-dot.rsv{background:var(--warn)}.fc-dot.gnd{background:var(--neg)}
 .fc-cond{flex:none;font-size:13px;font-weight:700}
-.fc-cond.pos{color:var(--pos)}.fc-cond.warn{color:#d99a1c}.fc-cond.neg{color:var(--neg)}
+.fc-cond.pos{color:var(--pos)}.fc-cond.warn{color:var(--warn)}.fc-cond.neg{color:var(--neg)}
 .fleet-detail{margin-top:6px;padding-top:14px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:12px}
 .fd-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
 .fd-tail{font-size:17px;font-weight:700}.fd-name{font-size:13px;margin-top:1px}

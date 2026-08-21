@@ -43,7 +43,9 @@ export function App() {
   useEffect(() => { void reload() }, [reload])
   useEffect(() => { if (state) loadAirline() }, [state, loadAirline])
 
-  if (state === undefined) return <Splash />
+  if (state === undefined) return error
+    ? <StartupError error={error} onRetry={() => { setError(null); void reload() }} />
+    : <Splash />
   if (state === null) return <Onboarding onStarted={reload} />
 
   return (
@@ -350,6 +352,24 @@ function navIcon(id: Tab) {
 
 function Splash() {
   return <div className="splash"><div className="mark big">◄</div><div>Loading Callsign…</div></div>
+}
+
+// Shown when the very first load fails for a reason other than "no career yet" (a 500, a locked DB, the
+// Host not up) — otherwise a non-404 error would strand the user on the loading Splash forever.
+function StartupError({ error, onRetry }: { error: string; onRetry: () => void }) {
+  return (
+    <div className="onboard">
+      <div className="onboard-card">
+        <div className="onboard-body">
+          <div className="brand"><span className="mark">◄</span> CALLSIGN</div>
+          <h1>Couldn't load your career</h1>
+          <p className="lede">Callsign reached the app but something went wrong loading your save. It's still on disk — this is usually temporary.</p>
+          <div className="banner error">{error}</div>
+          <div className="onboard-foot"><span /><button className="primary" onClick={onRetry}>Try again</button></div>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // ─── Onboarding (first run) ───────────────────────────────────────────────────
@@ -1272,6 +1292,18 @@ function missionIcon(type: string) {
 
 type JobSort = 'dist' | 'reward' | 'xp' | 'weight'
 function sortMark(cur: string, key: string, asc: boolean): string { return cur === key ? (asc ? ' ↑' : ' ↓') : '' }
+// A keyboard-accessible sortable column header: clickable AND operable with Enter/Space, with aria-sort so
+// screen readers announce the current sort. Replaces bare <th onClick> which the mouse-only could use.
+function SortTh<K extends string>({ label, k, sort, asc, onSort }: { label: string; k: K; sort: string; asc: boolean; onSort: (k: K) => void }) {
+  return (
+    <th className="r sortable" role="button" tabIndex={0}
+        aria-sort={sort === k ? (asc ? 'ascending' : 'descending') : 'none'}
+        onClick={() => onSort(k)}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSort(k) } }}>
+      {label}{sortMark(sort, k, asc)}
+    </th>
+  )
+}
 function deadline(iso: string): string {
   const ms = new Date(iso).getTime() - Date.now()
   if (ms <= 0) return 'expired'
@@ -1357,10 +1389,10 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
                   <table className="tbl jobs-table">
                     <thead><tr>
                       <th>Destination</th>
-                      <th className="r sortable" onClick={() => setSortKey('dist')}>Dist{sortMark(sort, 'dist', asc)}</th>
-                      <th className="r sortable" onClick={() => setSortKey('weight')}>Load{sortMark(sort, 'weight', asc)}</th>
-                      <th className="r sortable" onClick={() => setSortKey('reward')}>Reward{sortMark(sort, 'reward', asc)}</th>
-                      <th className="r sortable" onClick={() => setSortKey('xp')}>XP{sortMark(sort, 'xp', asc)}</th>
+                      <SortTh label="Dist" k="dist" sort={sort} asc={asc} onSort={setSortKey} />
+                      <SortTh label="Load" k="weight" sort={sort} asc={asc} onSort={setSortKey} />
+                      <SortTh label="Reward" k="reward" sort={sort} asc={asc} onSort={setSortKey} />
+                      <SortTh label="XP" k="xp" sort={sort} asc={asc} onSort={setSortKey} />
                     </tr></thead>
                     <tbody>
                       {shown.map(j => {
@@ -2450,7 +2482,7 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
   })
   const sel = fleet.find(a => a.id === selId) ?? null
 
-  // Fleet KPIs — the header NeoFly never gives you at a glance.
+  // Fleet KPIs — the operating numbers, surfaced at a glance instead of buried a drill-down away.
   const totalValue = fleet.filter(a => a.ownership === 'Owned').reduce((s, a) => s + a.resaleValueCents, 0) // rentals aren't assets (Phase 9f)
   const totalHours = fleet.reduce((s, a) => s + a.airframeHours, 0)
   const totalEarned = fleet.reduce((s, a) => s + a.lifetimeEarningsCents, 0)
@@ -3129,7 +3161,7 @@ function Bases({ state, onChanged }: { state: State; onChanged: () => void }) {
 function Trade({ state, onChanged }: { state: State; onChanged: () => void }) {
   const [market, setMarket] = useState<MarketQuote[]>([])
   const [inv, setInv] = useState<Inventory[]>([])
-  const [qty, setQty] = useState<Record<string, number>>({})
+  const [qty, setQty] = useState<Record<string, string>>({}) // raw input strings, so a field can be cleared/retyped freely; clamped only at buy/sell
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
 
@@ -3138,18 +3170,18 @@ function Trade({ state, onChanged }: { state: State; onChanged: () => void }) {
   }, [])
   useEffect(() => { void load() }, [load])
 
-  const q = (key: string) => Math.max(1, Math.floor(qty[key] || 1))
-  const setQ = (key: string, n: number) => setQty(s => ({ ...s, [key]: n }))
+  const q = (key: string) => Math.max(1, Math.floor(Number(qty[key]) || 1))
+  const setQ = (key: string, v: string) => setQty(s => ({ ...s, [key]: v }))
 
   const buy = async (good: string) => {
     setBusy(true); setMsg(null)
     try { await api.buyGood(good, q('buy-' + good)); await load(); onChanged() }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
-  const sell = async (good: string, max: number) => {
+  const sell = async (good: string, lotId: string, max: number) => {
     setBusy(true); setMsg(null)
     try {
-      const r = await api.sellGood(good, Math.min(q('sell-' + good), max))
+      const r = await api.sellGood(good, Math.min(q('sell-' + lotId), max))
       await load(); onChanged()
       const pnl = r.pnlCents >= 0 ? `+${money(r.pnlCents)}` : money(r.pnlCents)
       setMsg(`Sold ${r.quantity} — proceeds ${money(r.proceedsCents)}, P&L ${pnl}.`)
@@ -3176,7 +3208,7 @@ function Trade({ state, onChanged }: { state: State; onChanged: () => void }) {
                 <td className="r num">{money(m.buyCents)}</td>
                 <td className="r num muted">{money(m.sellCents)}</td>
                 <td className="r muted">{m.unitWeightLbs} lb</td>
-                <td className="r"><input className="qty" type="number" min={1} value={q('buy-' + m.good)} onChange={e => setQ('buy-' + m.good, Number(e.target.value))} /></td>
+                <td className="r"><input className="qty" type="number" min={1} value={qty['buy-' + m.good] ?? '1'} onChange={e => setQ('buy-' + m.good, e.target.value)} /></td>
                 <td className="r"><button disabled={busy} onClick={() => buy(m.good)}>Buy</button></td>
               </tr>
             ))}</tbody>
@@ -3200,8 +3232,8 @@ function Trade({ state, onChanged }: { state: State; onChanged: () => void }) {
                     <td className="r num">{money(v.marketSellCents)}</td>
                     <td className={`r num ${v.unrealizedPnlCents >= 0 ? 'pos' : 'neg'}`}>{money(v.unrealizedPnlCents)}</td>
                     <td><span className="loc">{v.locationIcao}</span></td>
-                    <td className="r"><input className="qty" type="number" min={1} max={v.quantity} value={q('sell-' + v.good)} onChange={e => setQ('sell-' + v.good, Number(e.target.value))} /></td>
-                    <td className="r"><button disabled={busy || !here} title={here ? '' : `Fly to ${v.locationIcao} to sell`} onClick={() => sell(v.good, v.quantity)}>Sell</button></td>
+                    <td className="r"><input className="qty" type="number" min={1} max={v.quantity} value={qty['sell-' + v.id] ?? '1'} onChange={e => setQ('sell-' + v.id, e.target.value)} /></td>
+                    <td className="r"><button disabled={busy || !here} title={here ? '' : `Fly to ${v.locationIcao} to sell`} onClick={() => sell(v.good, v.id, v.quantity)}>Sell</button></td>
                   </tr>
                 )
               })}</tbody>
@@ -3862,14 +3894,14 @@ function Logbook({ state }: { state: State }) {
                   <thead><tr>
                     <th>Route</th>
                     <th>Aircraft</th>
-                    <th className="r sortable" onClick={() => setSortKey('score')}>Score{sortMark(sort, 'score', asc)}</th>
-                    <th className="r sortable" onClick={() => setSortKey('dist')}>Dist{sortMark(sort, 'dist', asc)}</th>
-                    <th className="r sortable" onClick={() => setSortKey('dur')}>Time{sortMark(sort, 'dur', asc)}</th>
-                    <th className="r sortable" onClick={() => setSortKey('fuel')}>Fuel{sortMark(sort, 'fuel', asc)}</th>
-                    <th className="r sortable" onClick={() => setSortKey('landing')}>Touchdown{sortMark(sort, 'landing', asc)}</th>
-                    <th className="r sortable" onClick={() => setSortKey('payout')}>Payout{sortMark(sort, 'payout', asc)}</th>
-                    <th className="r sortable" onClick={() => setSortKey('xp')}>XP{sortMark(sort, 'xp', asc)}</th>
-                    <th className="r sortable" onClick={() => setSortKey('date')}>When{sortMark(sort, 'date', asc)}</th>
+                    <SortTh label="Score" k="score" sort={sort} asc={asc} onSort={setSortKey} />
+                    <SortTh label="Dist" k="dist" sort={sort} asc={asc} onSort={setSortKey} />
+                    <SortTh label="Time" k="dur" sort={sort} asc={asc} onSort={setSortKey} />
+                    <SortTh label="Fuel" k="fuel" sort={sort} asc={asc} onSort={setSortKey} />
+                    <SortTh label="Touchdown" k="landing" sort={sort} asc={asc} onSort={setSortKey} />
+                    <SortTh label="Payout" k="payout" sort={sort} asc={asc} onSort={setSortKey} />
+                    <SortTh label="XP" k="xp" sort={sort} asc={asc} onSort={setSortKey} />
+                    <SortTh label="When" k="date" sort={sort} asc={asc} onSort={setSortKey} />
                   </tr></thead>
                   <tbody>
                     {shown.map(f => {
