@@ -84,9 +84,11 @@ public sealed class RouteService
             : _cfg.CargoRewardCents(dist, (_cfg.MinCargoWeightLbs + _cfg.MaxCargoWeightLbs) / 2);
         // Phase 11c — a route runs between two of YOUR bases, so it is always at a hub: the airline's operating
         // reputation lifts its frozen per-trip pay (1.0× at rep 0). Baked in here at creation, so a later change
-        // to the name never re-rates a live route (to capture a higher name you open a new line).
+        // to the name never re-rates a live route (to capture a higher name you open a new line). Phase 11e — the
+        // ORIGIN base's HubLevel amplifies that lift (0 = a plain base, unchanged).
         int repMilli = await _db.Companies.Where(c => c.Id == companyId).Select(c => c.OperatingReputationMilli).FirstOrDefaultAsync(ct);
-        long reward = (long)Math.Round(baseReward * def.RewardMult * _cfg.HubReputationPayFactor(repMilli)); // economy-frozen FAIR rate; your markup rides on top
+        int hubLevel = await _db.Bases.Where(b => b.CompanyId == companyId && b.IsActive && !b.IsDeleted && b.AirportIcao == originIcao).Select(b => b.HubLevel).FirstOrDefaultAsync(ct);
+        long reward = (long)Math.Round(baseReward * def.RewardMult * _cfg.HubReputationPayFactor(repMilli, hubLevel)); // economy-frozen FAIR rate; your markup rides on top
         int markup = Math.Clamp(priceMultiplierMilli, 1000, _cfg.MaxContractMarkupMilli);
 
         var now = _clock.UtcNow;

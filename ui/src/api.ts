@@ -661,6 +661,10 @@ export interface BaseView {
   fuelFarmLevel: number
   nextFuelFarmUpgradeCents: number
   fuelDiscountPct: number
+  // Phase 11e — hub (amplifies the operating-reputation demand lift at this field)
+  hubLevel: number
+  nextHubUpgradeCents: number
+  hubDemandAmplification: number
 }
 
 export interface BaseOffer {
@@ -1014,6 +1018,7 @@ export const api = {
   openBase: (airportIcao: string) => POST_IDEM('/api/bases/open', { airportIcao }).then(ok),
   upgradeShop: (id: string) => POST_IDEM(`/api/bases/${id}/upgrade-shop`).then(ok<{ maintenanceLevel: number }>),
   upgradeFuelFarm: (id: string) => POST_IDEM(`/api/bases/${id}/upgrade-fuel-farm`).then(ok<{ fuelFarmLevel: number }>),
+  upgradeHub: (id: string) => POST_IDEM(`/api/bases/${id}/upgrade-hub`).then(ok<{ hubLevel: number }>),
   world: () => fetch('/api/world').then(ok<WorldState>),
   weather: (icao?: string) => fetch('/api/weather' + (icao ? `?icao=${encodeURIComponent(icao)}` : '')).then(ok<Weather>),
   clients: () => fetch('/api/clients').then(ok<Client[]>),

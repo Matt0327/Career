@@ -1194,7 +1194,10 @@ public static class CallsignWebApp
                 cfg.MaintenanceShopDiscountPct(b.MaintenanceLevel),
                 b.FuelFarmLevel,
                 b.FuelFarmLevel < cfg.MaxFuelFarmLevel ? cfg.FuelFarmUpgradeCents(b.FuelFarmLevel + 1) : 0,
-                cfg.FuelFarmDiscountPct(b.FuelFarmLevel))));
+                cfg.FuelFarmDiscountPct(b.FuelFarmLevel),
+                b.HubLevel,
+                b.HubLevel < cfg.MaxHubLevel ? cfg.HubUpgradeCents(b.HubLevel + 1) : 0,
+                1.0 + b.HubLevel * cfg.HubLevelAmplification))); // the demand-lift amplification at this hub level (Phase 11e)
         });
 
         app.MapPost("/api/bases/{id:guid}/upgrade-shop", async (Guid id, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, BaseService bases) =>
@@ -1211,6 +1214,15 @@ public static class CallsignWebApp
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             try { return Results.Ok(new { fuelFarmLevel = await bases.UpgradeFuelFarmAsync(pilot.CompanyId, id, idem) }); }
+            catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "Cash changed at the same time — try again." }); }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        app.MapPost("/api/bases/{id:guid}/upgrade-hub", async (Guid id, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, BaseService bases) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try { return Results.Ok(new { hubLevel = await bases.UpgradeHubAsync(pilot.CompanyId, id, idem) }); }
             catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "Cash changed at the same time — try again." }); }
             catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });

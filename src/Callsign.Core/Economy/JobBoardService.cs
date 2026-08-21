@@ -43,16 +43,18 @@ public sealed class JobBoardService
                      ?? throw new InvalidOperationException($"Airport {originIcao} not found.");
         var now = _clock.UtcNow;
 
-        // Phase 11c — is this board at one of MY hubs? Only then does my name lift the demand. Off-hub (or no
+        // Phase 11c — is this board at one of MY bases? Only then does my name lift the demand. Off-hub (or no
         // company) short-circuits BEFORE the Company row is even read, so away boards price exactly as before.
-        bool originIsHub = companyId != Guid.Empty
-            && await _db.Bases.AnyAsync(b => b.CompanyId == companyId && b.IsActive
-                                          && !b.IsDeleted && b.AirportIcao == originIcao, ct);
-        int repMilli = originIsHub
+        // Phase 11e — a base upgraded to a hub amplifies that lift by its HubLevel (0 = a plain base = 11c exactly).
+        var homeBase = companyId == Guid.Empty ? null
+            : await _db.Bases.Where(b => b.CompanyId == companyId && b.IsActive && !b.IsDeleted && b.AirportIcao == originIcao)
+                .Select(b => new { b.HubLevel }).FirstOrDefaultAsync(ct);
+        int repMilli = homeBase is not null
             ? await _db.Companies.Where(c => c.Id == companyId).Select(c => c.OperatingReputationMilli).FirstOrDefaultAsync(ct)
             : 0;
-        double hubPay = _cfg.HubReputationPayFactor(repMilli);          // 1.0 at rep 0 / off-hub
-        int effCount = originIsHub ? _cfg.HubReputationOfferCount(count, repMilli) : count;
+        int hubLevel = homeBase?.HubLevel ?? 0;
+        double hubPay = _cfg.HubReputationPayFactor(repMilli, hubLevel); // 1.0 off-hub; amplified at an upgraded hub
+        int effCount = homeBase is not null ? _cfg.HubReputationOfferCount(count, repMilli, hubLevel) : count;
 
         _db.Jobs.RemoveRange(await _db.Jobs.Where(j => j.OriginIcao == originIcao).ToListAsync(ct));
 

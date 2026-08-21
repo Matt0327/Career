@@ -110,13 +110,15 @@ public sealed class OperationsService
         double cruise = type?.CruiseKtas ?? 150;
         double rtHours = 2 * dist / Math.Max(60, cruise);
         int weight = Math.Min(type?.UsefulLoadLbs ?? 1_000, 1_000);
-        // Phase 11c — if this line departs one of MY bases (a hub), the airline's operating reputation lifts its
-        // frozen per-trip pay (1.0× off-hub / at rep 0). Baked in here at creation, like the route above.
-        bool originIsHub = await _db.Bases.AnyAsync(b => b.CompanyId == companyId && b.IsActive && !b.IsDeleted && b.AirportIcao == origin, ct);
-        int repMilli = originIsHub
+        // Phase 11c — if this line departs one of MY bases, the airline's operating reputation lifts its frozen
+        // per-trip pay (1.0× off-hub / at rep 0). Baked in here at creation, like the route above. Phase 11e — if
+        // that base is an upgraded hub, its HubLevel amplifies the lift (0 = plain base, unchanged).
+        var originBase = await _db.Bases.Where(b => b.CompanyId == companyId && b.IsActive && !b.IsDeleted && b.AirportIcao == origin)
+            .Select(b => new { b.HubLevel }).FirstOrDefaultAsync(ct);
+        int repMilli = originBase is not null
             ? await _db.Companies.Where(c => c.Id == companyId).Select(c => c.OperatingReputationMilli).FirstOrDefaultAsync(ct)
             : 0;
-        long reward = (long)Math.Round(_cfg.CargoRewardCents(dist, weight) * _cfg.HubReputationPayFactor(repMilli)); // economy-frozen FAIR rate; your markup rides on top
+        long reward = (long)Math.Round(_cfg.CargoRewardCents(dist, weight) * _cfg.HubReputationPayFactor(repMilli, originBase?.HubLevel ?? 0)); // economy-frozen FAIR rate; your markup rides on top
         int markup = Math.Clamp(priceMultiplierMilli, 1000, _cfg.MaxContractMarkupMilli);
 
         var now = _clock.UtcNow;
@@ -328,7 +330,8 @@ public sealed class OperationsService
             double days = (now - b.LastRentBilledAt).TotalDays;
             long rent = (long)Math.Round(days * b.RentPerDayCents);
             long upkeep = (long)Math.Round(days * (_cfg.MaintenanceShopUpkeepCentsPerDay(b.MaintenanceLevel)
-                + _cfg.FuelFarmUpkeepCentsPerDay(b.FuelFarmLevel))); // facilities running cost (shop + fuel farm)
+                + _cfg.FuelFarmUpkeepCentsPerDay(b.FuelFarmLevel)
+                + _cfg.HubUpkeepCentsPerDay(b.HubLevel))); // facilities running cost (shop + fuel farm + hub, Phase 11e)
             long charge = rent + upkeep;
             if (charge <= 0)
                 continue;

@@ -2681,6 +2681,11 @@ function Bases({ state, onChanged }: { state: State; onChanged: () => void }) {
     try { const r = await api.upgradeFuelFarm(b.id); await load(); onChanged(); setMsg(`${b.icao} fuel farm is now level ${r.fuelFarmLevel} — cheaper fuel on legs departing there.`) }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
+  const upgradeHub = async (b: BaseView) => {
+    setBusy(true); setMsg(null)
+    try { const r = await api.upgradeHub(b.id); await load(); onChanged(); setMsg(`${b.icao} is now a level ${r.hubLevel} hub — your name draws demand harder on jobs and routes here.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
 
   const mapPoints: MapPoint[] = [
     ...bases.map((b): MapPoint => ({ lat: b.latitude, lon: b.longitude, label: b.icao, kind: b.isHome ? 'home' : 'base' })),
@@ -2697,7 +2702,7 @@ function Bases({ state, onChanged }: { state: State; onChanged: () => void }) {
         <h2>Your bases</h2>
         {bases.length === 0 ? <div className="empty">No bases.</div> : (
           <table className="tbl">
-            <thead><tr><th>Airport</th><th>Name</th><th className="r">Rent / day</th><th>Maintenance shop</th><th>Fuel farm</th></tr></thead>
+            <thead><tr><th>Airport</th><th>Name</th><th className="r">Rent / day</th><th>Maintenance shop</th><th>Fuel farm</th><th>Hub</th></tr></thead>
             <tbody>{bases.map(b => (
               <tr key={b.id}>
                 <td><span className="loc">{b.icao}</span>{b.isHome && <span className="tag" style={{ marginLeft: 8 }}>home</span>}</td>
@@ -2719,6 +2724,15 @@ function Bases({ state, onChanged }: { state: State; onChanged: () => void }) {
                   {b.nextFuelFarmUpgradeCents > 0 &&
                     <button className="small" disabled={busy} onClick={() => upgradeFuelFarm(b)}>
                       {b.fuelFarmLevel > 0 ? 'Upgrade' : 'Build'} · {money(b.nextFuelFarmUpgradeCents)}
+                    </button>}
+                </td>
+                <td className="shop-cell">
+                  {b.hubLevel > 0
+                    ? <span className="shop-lvl">L{b.hubLevel} <span className="muted">· ×{b.hubDemandAmplification.toFixed(1)} demand lift</span></span>
+                    : <span className="muted">none</span>}
+                  {b.nextHubUpgradeCents > 0 &&
+                    <button className="small" disabled={busy} onClick={() => upgradeHub(b)}>
+                      {b.hubLevel > 0 ? 'Upgrade' : 'Promote'} · {money(b.nextHubUpgradeCents)}
                     </button>}
                 </td>
               </tr>

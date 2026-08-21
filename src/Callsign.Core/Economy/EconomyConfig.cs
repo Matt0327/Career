@@ -293,14 +293,16 @@ public sealed record EconomyConfig
     /// <summary>The PAY lift (×) for a job originating at a hub, or a route/standing order flown from one, at this
     /// operating reputation — 1.0 at rep 0 (neutral), ramping to 1 + <see cref="HubReputationPaySwing"/> at 100.0.
     /// A pure rep→factor function: the CALLER does the hub scoping and passes reputation 0 for an off-hub surface,
-    /// which prices it unchanged. Frozen into the reward at posting/creation.</summary>
-    public double HubReputationPayFactor(int reputationMilli)
-        => 1.0 + HubReputationPaySwing * HubReputationRamp(reputationMilli);
+    /// which prices it unchanged. <paramref name="hubLevel"/> (Phase 11e) amplifies the swing at an upgraded hub;
+    /// 0 (a plain base) is byte-identical to 11c. Frozen into the reward at posting/creation.</summary>
+    public double HubReputationPayFactor(int reputationMilli, int hubLevel = 0)
+        => 1.0 + HubReputationPaySwing * (1.0 + hubLevel * HubLevelAmplification) * HubReputationRamp(reputationMilli);
 
     /// <summary>The reputation-widened offer count for a hub board — the caller's base count at rep 0, ramping to
-    /// (1 + <see cref="HubReputationCountSwing"/>)× at full reputation, rounded to whole offers. Pure.</summary>
-    public int HubReputationOfferCount(int baseCount, int reputationMilli)
-        => (int)Math.Round(baseCount * (1.0 + HubReputationCountSwing * HubReputationRamp(reputationMilli)));
+    /// (1 + <see cref="HubReputationCountSwing"/>)× at full reputation, rounded to whole offers. <paramref name="hubLevel"/>
+    /// (Phase 11e) amplifies the widening at an upgraded hub; 0 is byte-identical to 11c. Pure.</summary>
+    public int HubReputationOfferCount(int baseCount, int reputationMilli, int hubLevel = 0)
+        => (int)Math.Round(baseCount * (1.0 + HubReputationCountSwing * (1.0 + hubLevel * HubLevelAmplification) * HubReputationRamp(reputationMilli)));
 
     // --- Contract on-ramp (Phase 11d): flying the majors' overflow — the distinct flavour of the bottom rung.
     // A contract-carrier job is an ordinary Cargo job (existing settlement path, no new money seam) priced BELOW
@@ -374,6 +376,22 @@ public sealed record EconomyConfig
     {
         >= 3 => 11_000, 2 => 5_500, 1 => 2_500, _ => 0,                    // $110 / $55 / $25 a day
     };
+
+    // --- Base hub (Phase 11e): a capex facility that AMPLIFIES the operating-reputation demand lift (11c) at this
+    // field — a hub you've invested in draws your name's premium harder, on jobs AND routes departing here. Level 0
+    // (a plain base) is byte-identical to 11c; each level scales the reputation swing by HubLevelAmplification. ---
+    public int MaxHubLevel { get; init; } = 3;
+    public long HubUpgradeCents(int toLevel) => toLevel switch               // one-off capex — premium, because it lifts income
+    {
+        1 => 8_000_000, 2 => 24_000_000, 3 => 60_000_000, _ => 0,          // $80k / $240k / $600k
+    };
+    public long HubUpkeepCentsPerDay(int level) => level switch              // the fixed daily cost of running the hub
+    {
+        >= 3 => 30_000, 2 => 14_000, 1 => 6_000, _ => 0,                   // $300 / $140 / $60 a day
+    };
+    /// <summary>How much each hub level amplifies the 11c reputation swing: the effective swing is
+    /// <c>baseSwing × (1 + hubLevel × HubLevelAmplification)</c>. At L3 that is 2.5× the plain-base swing.</summary>
+    public double HubLevelAmplification { get; init; } = 0.5;
 
     // --- Used-aircraft market (Phase 7g): buy pre-owned airframes cheaper, at the cost of hours + condition ---
     public int UsedMarketCount { get; init; } = 6;                            // listings on the used lot at a time

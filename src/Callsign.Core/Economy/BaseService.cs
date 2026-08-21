@@ -10,7 +10,7 @@ namespace Callsign.Core.Economy;
 public sealed record BaseOffer(string Icao, string Name, string Kind, double DistanceNm, long OpenCents, long RentPerDayCents, double Latitude, double Longitude);
 
 /// <summary>An open base, joined to its airport name + coordinates (for the self-rendered map).</summary>
-public sealed record BaseView(Guid Id, string Icao, string Name, bool IsHome, long RentPerDayCents, double Latitude, double Longitude, int MaintenanceLevel, int FuelFarmLevel);
+public sealed record BaseView(Guid Id, string Icao, string Name, bool IsHome, long RentPerDayCents, double Latitude, double Longitude, int MaintenanceLevel, int FuelFarmLevel, int HubLevel);
 
 /// <summary>
 /// Company bases (Phase 2e): open one at an airport for a setup fee + recurring rent (both ledger
@@ -43,7 +43,7 @@ public sealed class BaseService
         {
             airports.TryGetValue(b.AirportIcao, out var ap);
             return new BaseView(b.Id, b.AirportIcao, ap?.Name ?? b.AirportIcao, b.IsHome, b.RentPerDayCents,
-                ap?.Latitude ?? 0, ap?.Longitude ?? 0, b.MaintenanceLevel, b.FuelFarmLevel);
+                ap?.Latitude ?? 0, ap?.Longitude ?? 0, b.MaintenanceLevel, b.FuelFarmLevel, b.HubLevel);
         }).ToList();
     }
 
@@ -125,6 +125,47 @@ public sealed class BaseService
         {
             _db.ChangeTracker.Clear();
             return (await _db.Bases.FirstOrDefaultAsync(x => x.Id == baseId, ct))?.FuelFarmLevel ?? toLevel;
+        }
+        return toLevel;
+    }
+
+    /// <summary>
+    /// Promote or upgrade the hub at a base by one level (Phase 11e): a one-off capex debit that amplifies the
+    /// operating-reputation demand lift (Phase 11c) on jobs + routes departing here (and adds a daily upkeep,
+    /// billed at reconcile). Idempotent via <paramref name="idempotencyKey"/>. Returns the new level.
+    /// </summary>
+    public async Task<int> UpgradeHubAsync(
+        Guid companyId, Guid baseId, string? idempotencyKey = null, CancellationToken ct = default)
+    {
+        string? dedupe = idempotencyKey is null ? null : $"hub-upgrade:{idempotencyKey}";
+        if (dedupe is not null && await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct) is not null)
+            return (await _db.Bases.FirstOrDefaultAsync(x => x.Id == baseId && x.CompanyId == companyId, ct))?.HubLevel ?? 0;
+
+        var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId, ct)
+                      ?? throw new InvalidOperationException($"Company {companyId} not found.");
+        var b = await _db.Bases.FirstOrDefaultAsync(x => x.Id == baseId && x.CompanyId == companyId && x.IsActive && !x.IsDeleted, ct)
+                ?? throw new InvalidOperationException("Base not found.");
+        if (b.HubLevel >= _cfg.MaxHubLevel)
+            throw new InvalidOperationException("This hub is already at its top level.");
+
+        int toLevel = b.HubLevel + 1;
+        long cost = _cfg.HubUpgradeCents(toLevel);
+        if (company.CashCents < cost)
+            throw new InvalidOperationException($"Not enough cash: the hub upgrade costs {cost / 100m:C0}, you have {company.Cash:C0}.");
+
+        var now = _clock.UtcNow;
+        await _ledger.StageBatchAsync(companyId, new[]
+        {
+            new LedgerPosting(LedgerCategory.BaseRent, -(cost / 100m), $"Hub L{toLevel} at {b.AirportIcao}",
+                BaseId: b.Id, DedupeKey: dedupe ?? $"hub-upgrade:{b.Id}:{toLevel}"),
+        }, ct);
+        b.HubLevel = toLevel;
+        b.UpdatedAt = now;
+        try { await _db.SaveChangesAsync(ct); }
+        catch (DbUpdateException) when (dedupe is not null)
+        {
+            _db.ChangeTracker.Clear();
+            return (await _db.Bases.FirstOrDefaultAsync(x => x.Id == baseId, ct))?.HubLevel ?? toLevel;
         }
         return toLevel;
     }
