@@ -698,6 +698,11 @@ public sealed record EconomyConfig
     public long AircraftFerryBaseCents { get; init; } = 30_000;  // $300 to move a tail at all
     public long AircraftFerryPerNmCents { get; init; } = 350;    // $3.50 per nm ferried
 
+    // --- Crew positioning (Phase 12) — deadheading a hired pilot between fields on a commercial seat. Much
+    // cheaper than ferrying a whole airframe: one person on a scheduled seat, no fuel/wear on your fleet.
+    public long CrewPositionBaseCents { get; init; } = 15_000;   // $150 to reposition a pilot at all
+    public long CrewPositionPerNmCents { get; init; } = 60;      // $0.60 per nm (a commercial-ticket rate)
+
     // --- Insurance (Phase 4c) ---
     public int InsuranceDefaultCoverageMilli { get; init; } = 80_000;      // insure 80% of hull by default
     public int InsuranceWeeklyRateBps { get; init; } = 40;                 // 0.40%/week of the covered value

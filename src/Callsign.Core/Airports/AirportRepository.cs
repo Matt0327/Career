@@ -42,4 +42,18 @@ public sealed class AirportRepository
             .OrderBy(x => x.DistanceNm)
             .ToList();
     }
+
+    /// <summary>
+    /// The nearest real, landable airport with a runway adequate for an aircraft needing
+    /// <paramref name="minRunwayFt"/> (Phase 12). Used to place a freed pilot/aircraft at a genuine field
+    /// rather than nowhere. Returns null if nothing suitable is within <paramref name="radiusNm"/>.
+    /// </summary>
+    public async Task<(Airport Airport, double DistanceNm)?> NearestSuitableAsync(
+        double lat, double lon, int? minRunwayFt = null, double radiusNm = 300, CancellationToken ct = default)
+    {
+        foreach (var candidate in await WithinRadiusAsync(lat, lon, radiusNm, ct))
+            if (AirportSuitability.IsSuitable(candidate.Airport, minRunwayFt))
+                return candidate;
+        return null;
+    }
 }

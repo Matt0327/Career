@@ -30,6 +30,7 @@ public enum LedgerCategory
     CampaignReward,
     Transfer,
     Adjustment,
+    CrewPositioning, // Phase 12 — the deadhead fee to reposition a hired pilot to another field
 }
 
 /// <summary>

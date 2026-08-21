@@ -189,6 +189,7 @@ public sealed class CallsignDbContext : DbContext
         staff.HasKey(s => s.Id);
         staff.Property(s => s.Name).IsRequired().HasMaxLength(80);
         staff.Property(s => s.Role).HasConversion<string>().HasMaxLength(16);
+        staff.Property(s => s.CurrentIcao).HasMaxLength(12); // Phase 12 — soft FK to Airports.Ident; nullable = un-positioned
         staff.HasIndex(s => s.CompanyId);
         staff.HasOne<Company>().WithMany().HasForeignKey(s => s.CompanyId).OnDelete(DeleteBehavior.Restrict);
 

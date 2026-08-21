@@ -15,6 +15,15 @@ public sealed class Staff : ISyncable
     public StaffRole Role { get; set; } = StaffRole.Pilot;
     public long WagePerDayCents { get; set; }
     public int SkillMilli { get; set; } = 50_000;   // 0..100000
+
+    /// <summary>
+    /// Where this pilot currently is (Phase 12 crew-location realism). A hired pilot lives at a field: they
+    /// are based where you recruit them, must be co-located with an aircraft to crew its line, and you pay to
+    /// reposition (deadhead) them elsewhere. Null = un-positioned (legacy rows before this field existed, and
+    /// any pilot never placed) → treated as co-located with anything, so it never blocks an existing save.
+    /// </summary>
+    public string? CurrentIcao { get; set; }
+
     public DateTimeOffset HiredAt { get; set; }
     public DateTimeOffset LastPaidAt { get; set; }   // wage-accrual watermark
     public bool IsActive { get; set; } = true;

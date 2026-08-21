@@ -109,8 +109,9 @@ public record ActiveLeaseDto(Guid AgreementId, Guid AircraftInstanceId, string T
 
 // --- Phase 2d: staff + standing orders ---
 public record StaffCandidateDto(int Seed, string Name, long WagePerDayCents, int SkillMilli);
-public record StaffDto(Guid Id, string Name, long WagePerDayCents, int SkillMilli);
+public record StaffDto(Guid Id, string Name, long WagePerDayCents, int SkillMilli, string? CurrentIcao, bool Flying);
 public record HireRequest(int CandidateSeed);
+public record RelocateCrewRequest(string DestIcao);
 public record StandingOrderDto(
     Guid Id, string StaffName, string Tail, string Origin, string Dest,
     double DistanceNm, double RoundTripHours, long RewardPerTripCents,

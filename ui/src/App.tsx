@@ -2830,6 +2830,25 @@ function Ops({ onChanged }: { onChanged: () => void }) {
     try { await api.hire(c.seed); await load(); onChanged(); setMsg(`Hired ${c.name}.`) }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
+  const relocateCrew = async (s: Staff) => {
+    const dest = window.prompt(`Reposition ${s.name} — destination airport ICAO:`, s.currentIcao ?? '')?.trim().toUpperCase()
+    if (!dest || dest === s.currentIcao) return
+    setBusy(true); setMsg(null)
+    try { const r = await api.relocateCrew(s.id, dest); await load(); onChanged(); setMsg(`Repositioned ${s.name} to ${dest} — ${money(r.feeCents)}.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+  const dismiss = async (s: Staff) => {
+    if (!window.confirm(`Let ${s.name} go? Their wage stops and this can't be undone.`)) return
+    setBusy(true); setMsg(null)
+    try { await api.dismissStaff(s.id); await load(); onChanged(); setMsg(`${s.name} has left the company.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+  // Phase 12 — co-location: the pilot must be where the aircraft (standing order) / base (route) is.
+  const oPilot = staff.find(s => s.id === oStaff)
+  const oPlane = fleet.find(f => f.id === oAircraft)
+  const oMismatch = oPilot?.currentIcao && oPlane && oPilot.currentIcao !== oPlane.locationIcao
+  const rPilot = staff.find(s => s.id === rStaff)
+  const rMismatch = rPilot?.currentIcao && rOrigin && rPilot.currentIcao !== rOrigin
   const createOrder = async () => {
     if (!oStaff || !oAircraft || !oDest) { setMsg('Pick a pilot, an aircraft, and a destination.'); return }
     setBusy(true); setMsg(null)
@@ -2918,13 +2937,16 @@ function Ops({ onChanged }: { onChanged: () => void }) {
             </table>
           )}
         {staff.length > 0 && fleet.length > 0 && dests.length > 0 && (
+          <>
           <div className="order-form">
-            <select value={oStaff} onChange={e => setOStaff(e.target.value)}><option value="">Pilot…</option>{staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+            <select value={oStaff} onChange={e => setOStaff(e.target.value)}><option value="">Pilot…</option>{staff.map(s => <option key={s.id} value={s.id} disabled={s.flying}>{s.name}{s.currentIcao ? ` · ${s.currentIcao}` : ''}{s.flying ? ' · busy' : ''}</option>)}</select>
             <select value={oAircraft} onChange={e => setOAircraft(e.target.value)}><option value="">Aircraft…</option>{fleet.map(f => <option key={f.id} value={f.id}>{f.tail} — {f.locationIcao}</option>)}</select>
             <select value={oDest} onChange={e => setODest(e.target.value)}><option value="">Destination…</option>{dests.map(d => <option key={d.icao} value={d.icao}>{d.icao} · {d.name}</option>)}</select>
             <select value={oMarkup} onChange={e => setOMarkup(Number(e.target.value))} title="Demand a premium over the fair rate — more per filled trip, but the client ships fewer">{MARKUP_OPTS.map(m => <option key={m} value={m}>{markupLabel(m)} · {fillFor(m)}% fill</option>)}</select>
             <button className="primary" disabled={busy} onClick={createOrder}>Set order</button>
           </div>
+          {oMismatch && <div className="hint warn-text">{oPilot!.name} is at {oPilot!.currentIcao}; this aircraft is at {oPlane!.locationIcao}. Reposition the pilot there first (below), or pick one already there.</div>}
+          </>
         )}
       </section>
 
@@ -2932,9 +2954,22 @@ function Ops({ onChanged }: { onChanged: () => void }) {
         <h2>Your crew</h2>
         {staff.length === 0 ? <div className="empty">No pilots hired yet.</div> : (
           <table className="tbl">
-            <thead><tr><th>Name</th><th className="r">Skill</th><th className="r">Wage / day</th></tr></thead>
+            <thead><tr><th>Name</th><th>Based</th><th className="r">Skill</th><th className="r">Wage / day</th><th className="r"></th></tr></thead>
             <tbody>{staff.map(s => (
-              <tr key={s.id}><td>{s.name}</td><td className="r num">{Math.round(s.skillMilli / 1000)}%</td><td className="r num neg">{money(s.wagePerDayCents)}</td></tr>
+              <tr key={s.id}>
+                <td>{s.name}</td>
+                <td className="loc">{s.flying ? <span className="muted">flying a line</span> : (s.currentIcao ?? '—')}</td>
+                <td className="r num">{Math.round(s.skillMilli / 1000)}%</td>
+                <td className="r num neg">{money(s.wagePerDayCents)}</td>
+                <td className="r">
+                  {s.flying
+                    ? <span className="muted hint">busy</span>
+                    : <>
+                        <button className="linky" disabled={busy} onClick={() => relocateCrew(s)}>Reposition</button>
+                        <button className="linky" disabled={busy} onClick={() => dismiss(s)}>Let go</button>
+                      </>}
+                </td>
+              </tr>
             ))}</tbody>
           </table>
         )}
@@ -2990,7 +3025,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
               <input className="qty" style={{ width: 110 }} placeholder="Name" value={rName} onChange={e => setRName(e.target.value)} />
               <select value={rOrigin} onChange={e => setROrigin(e.target.value)}><option value="">From base…</option>{routes.bases.map(b => <option key={b.icao} value={b.icao}>{b.icao} · {b.name}</option>)}</select>
               <select value={rDest} onChange={e => setRDest(e.target.value)}><option value="">To base…</option>{routes.bases.map(b => <option key={b.icao} value={b.icao}>{b.icao} · {b.name}</option>)}</select>
-              <select value={rStaff} onChange={e => setRStaff(e.target.value)}><option value="">Pilot…</option>{staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+              <select value={rStaff} onChange={e => setRStaff(e.target.value)}><option value="">Pilot…</option>{staff.map(s => <option key={s.id} value={s.id} disabled={s.flying}>{s.name}{s.currentIcao ? ` · ${s.currentIcao}` : ''}{s.flying ? ' · busy' : ''}</option>)}</select>
               <select value={rAircraft} onChange={e => setRAircraft(e.target.value)}><option value="">Aircraft…</option>{fleet.map(f => <option key={f.id} value={f.id}>{f.tail} — {f.locationIcao}</option>)}</select>
               {rScheduled
                 ? <span className="hint" style={{ alignSelf: 'center' }}>Scheduled: seats × load × yield, frozen at creation — your name fills the seats.</span>
@@ -3005,6 +3040,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
               <button className="primary" disabled={busy} onClick={createRoute}>{rScheduled ? 'Open scheduled service' : 'Open route'}</button>
             </div>
           )}
+          {rMismatch && <div className="hint warn-text">{rPilot!.name} is at {rPilot!.currentIcao}; this route flies out of {rOrigin}. Reposition the pilot there first (in Your crew), or pick one already there.</div>}
       </section>
     </div>
   )

@@ -67,6 +67,9 @@ public sealed class RouteService
                           || await _db.Routes.AnyAsync(r => r.StaffId == staffId && r.Active && !r.IsDeleted, ct);
         if (alreadyFlying)
             throw new InvalidOperationException($"{staff.Name} already flies another line — assign a different pilot or hire one.");
+        // Phase 12 — the pilot must be at the route's origin base to crew it (un-positioned legacy crew grandfather in).
+        if (!string.IsNullOrEmpty(staff.CurrentIcao) && !string.Equals(staff.CurrentIcao, originIcao, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"{staff.Name} is at {staff.CurrentIcao}, but this route flies out of {originIcao} — reposition the pilot to {originIcao} first (Crew tab), or pick one already there.");
 
         var oAir = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == originIcao, ct)
                    ?? throw new InvalidOperationException($"Airport {originIcao} is unknown.");
@@ -106,6 +109,8 @@ public sealed class RouteService
         _db.Routes.Add(route);
         aircraft.Availability = AircraftAvailability.Reserved; // held by the route
         aircraft.UpdatedAt = now;
+        staff.CurrentIcao = originIcao; // Phase 12 — the pilot now operates from this base
+        staff.UpdatedAt = now;
         await _db.SaveChangesAsync(ct);
         return route;
     }
@@ -146,6 +151,9 @@ public sealed class RouteService
                           || await _db.Routes.AnyAsync(r => r.StaffId == staffId && r.Active && !r.IsDeleted, ct);
         if (alreadyFlying)
             throw new InvalidOperationException($"{staff.Name} already flies another line — assign a different pilot or hire one.");
+        // Phase 12 — the pilot must be at the route's origin base to crew it (un-positioned legacy crew grandfather in).
+        if (!string.IsNullOrEmpty(staff.CurrentIcao) && !string.Equals(staff.CurrentIcao, originIcao, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"{staff.Name} is at {staff.CurrentIcao}, but this route flies out of {originIcao} — reposition the pilot to {originIcao} first (Crew tab), or pick one already there.");
 
         var oAir = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == originIcao, ct)
                    ?? throw new InvalidOperationException($"Airport {originIcao} is unknown.");
@@ -182,6 +190,8 @@ public sealed class RouteService
         _db.Routes.Add(route);
         aircraft.Availability = AircraftAvailability.Reserved;
         aircraft.UpdatedAt = now;
+        staff.CurrentIcao = originIcao; // Phase 12 — the pilot now operates from this base
+        staff.UpdatedAt = now;
         await _db.SaveChangesAsync(ct);
         return route;
     }
@@ -191,14 +201,18 @@ public sealed class RouteService
         var route = await _db.Routes.FirstOrDefaultAsync(r => r.Id == routeId && r.CompanyId == companyId && r.Active, ct);
         if (route is null)
             return;
+        var now = _clock.UtcNow;
         route.Active = false;
-        route.UpdatedAt = _clock.UtcNow;
+        route.UpdatedAt = now;
         var aircraft = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == route.AircraftInstanceId, ct);
         if (aircraft is not null)
         {
             aircraft.Availability = AircraftAvailability.Available;
-            aircraft.UpdatedAt = _clock.UtcNow;
+            aircraft.UpdatedAt = now;
         }
+        // Phase 12 — the freed pilot is now available at the route's origin (a real, suitable base).
+        var crew = await _db.Staff.FirstOrDefaultAsync(s => s.Id == route.StaffId, ct);
+        if (crew is not null) { crew.CurrentIcao = route.OriginIcao; crew.UpdatedAt = now; }
         await _db.SaveChangesAsync(ct);
     }
 }

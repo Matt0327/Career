@@ -1,3 +1,4 @@
+using Callsign.Core.Airports;
 using Callsign.Core.Data;
 using Callsign.Core.Domain;
 using Callsign.Core.Geo;
@@ -62,8 +63,10 @@ public sealed class OperationsService
         return new StaffCandidate(seed, name, wage, skill);
     }
 
-    /// <summary>Hire the candidate identified by its seed (regenerated server-side, so the wage is trusted).</summary>
-    public async Task<Staff> HireAsync(Guid companyId, int candidateSeed, CancellationToken ct = default)
+    /// <summary>Hire the candidate identified by its seed (regenerated server-side, so the wage is trusted). The
+    /// new pilot is based at <paramref name="atIcao"/> — the field where you recruit them (Phase 12); null leaves
+    /// them un-positioned (they'll be placed when first assigned).</summary>
+    public async Task<Staff> HireAsync(Guid companyId, int candidateSeed, string? atIcao = null, CancellationToken ct = default)
     {
         var c = MakeCandidate(candidateSeed);
         var now = _clock.UtcNow;
@@ -71,6 +74,7 @@ public sealed class OperationsService
         {
             Id = Guid.NewGuid(), CompanyId = companyId, Name = c.Name, Role = StaffRole.Pilot,
             WagePerDayCents = c.WagePerDayCents, SkillMilli = c.SkillMilli,
+            CurrentIcao = string.IsNullOrWhiteSpace(atIcao) ? null : atIcao.Trim().ToUpperInvariant(),
             HiredAt = now, LastPaidAt = now, IsActive = true, UpdatedAt = now,
         };
         _db.Staff.Add(staff);
@@ -103,6 +107,11 @@ public sealed class OperationsService
             throw new InvalidOperationException($"{staff.Name} already flies another route — assign a different pilot or hire one.");
 
         var origin = aircraft.LocationIcao;
+        // Phase 12 — the pilot must be WHERE the aircraft is to crew its line. A positioned pilot at another
+        // field has to be repositioned first (Crew tab → Reposition). Un-positioned legacy crew (null) grandfather
+        // in and are placed at the origin below, so an existing save never breaks.
+        if (!string.IsNullOrEmpty(staff.CurrentIcao) && !string.Equals(staff.CurrentIcao, origin, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"{staff.Name} is at {staff.CurrentIcao}, but the aircraft is at {origin} — reposition the pilot to {origin} first (Crew tab), or pick one already there.");
         var oAir = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == origin, ct)
                    ?? throw new InvalidOperationException($"Origin {origin} is unknown.");
         var dAir = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == destIcao, ct)
@@ -139,6 +148,8 @@ public sealed class OperationsService
         _db.StandingOrders.Add(order);
         aircraft.Availability = AircraftAvailability.Reserved; // held by the standing order
         aircraft.UpdatedAt = now;
+        staff.CurrentIcao = origin; // Phase 12 — the pilot now operates from here (positions a grandfathered crew)
+        staff.UpdatedAt = now;
         await _db.SaveChangesAsync(ct);
         return order;
     }
@@ -186,10 +197,90 @@ public sealed class OperationsService
         await ReconcileAsync(companyId, ct); // book any trips flown up to now first
         var order = await _db.StandingOrders.FirstOrDefaultAsync(o => o.Id == orderId && o.CompanyId == companyId, ct);
         if (order is null || !order.IsActive) return;
+        var now = _clock.UtcNow;
         order.IsActive = false;
-        order.UpdatedAt = _clock.UtcNow;
+        order.UpdatedAt = now;
         var aircraft = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == order.AircraftInstanceId, ct);
-        if (aircraft is not null) { aircraft.Availability = AircraftAvailability.Available; aircraft.UpdatedAt = _clock.UtcNow; }
+        if (aircraft is not null) { aircraft.Availability = AircraftAvailability.Available; aircraft.UpdatedAt = now; }
+        // Phase 12 — the freed pilot is now available at the line's origin, where the aircraft sits and where
+        // they were already co-located while flying it. Assigned DIRECTLY (like CancelRouteAsync) — routing
+        // through "nearest suitable" could bounce a crew off a heliport/local-code origin to a different field
+        // and then the co-location gate would strand them there, unable to re-crew the aircraft or move back.
+        var crew = await _db.Staff.FirstOrDefaultAsync(s => s.Id == order.StaffId, ct);
+        if (crew is not null) { crew.CurrentIcao = order.OriginIcao; crew.UpdatedAt = now; }
+        await _db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Reposition (deadhead) a hired pilot to another field for a fee (Phase 12) — the crew equivalent of ferrying
+    /// an aircraft. Much cheaper (one commercial seat, no fleet fuel/wear). The pilot can't be mid-line; the target
+    /// must be a real, landable airport. Returns the fee paid (0 on a no-op replay). Idempotent per dedupe key.
+    /// </summary>
+    public async Task<long> RelocateCrewAsync(Guid companyId, Guid staffId, string destIcao, string? idempotencyKey = null, CancellationToken ct = default)
+    {
+        string? dedupe = idempotencyKey is null ? null : $"crewpos:{idempotencyKey}";
+        if (dedupe is not null && await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct) is { } prior)
+            return -prior.AmountCents;
+
+        var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId, ct)
+                      ?? throw new InvalidOperationException("Company not found.");
+        var staff = await _db.Staff.FirstOrDefaultAsync(s => s.Id == staffId && s.CompanyId == companyId && s.IsActive && !s.IsDeleted, ct)
+                    ?? throw new InvalidOperationException("Pilot not found.");
+        if (await CrewAlreadyFlyingAsync(staffId, ct))
+            throw new InvalidOperationException($"{staff.Name} is flying a line — cancel it before repositioning them.");
+
+        destIcao = (destIcao ?? "").Trim().ToUpperInvariant();
+        if (destIcao.Length == 0) throw new InvalidOperationException("Pick a destination.");
+        if (string.Equals(destIcao, staff.CurrentIcao, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"{staff.Name} is already at {destIcao}.");
+
+        var to = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == destIcao, ct)
+                 ?? throw new InvalidOperationException($"Unknown airport {destIcao}.");
+        if (!AirportSuitability.IsSuitable(to)) // crew deadhead in on a commercial seat: needs a real, landable field (no runway requirement)
+            throw new InvalidOperationException($"{destIcao} isn't a field crew can position to.");
+        var from = string.IsNullOrEmpty(staff.CurrentIcao) ? null
+            : await _db.Airports.FirstOrDefaultAsync(a => a.Ident == staff.CurrentIcao, ct);
+        double distanceNm = from is null ? 0 : GeoMath.DistanceNm(from.Latitude, from.Longitude, to.Latitude, to.Longitude);
+
+        long fee = _cfg.CrewPositionBaseCents + (long)Math.Round(distanceNm * _cfg.CrewPositionPerNmCents);
+        if (company.CashCents < fee)
+            throw new InvalidOperationException($"Not enough cash: repositioning costs {fee / 100m:C0}, you have {company.Cash:C0}.");
+
+        var now = _clock.UtcNow;
+        await _ledger.StageBatchAsync(companyId, new[]
+        {
+            new LedgerPosting(LedgerCategory.CrewPositioning, -(fee / 100m),
+                $"Reposition {staff.Name}: {staff.CurrentIcao ?? "—"} → {destIcao} ({distanceNm:F0} nm)",
+                StaffId: staff.Id, DedupeKey: dedupe ?? $"crewpos:{staff.Id}:{destIcao}:{staff.UpdatedAt.UtcTicks}"),
+        }, ct);
+        staff.CurrentIcao = destIcao;
+        staff.UpdatedAt = now;
+        try { await _db.SaveChangesAsync(ct); }
+        catch (DbUpdateException) when (dedupe is not null)
+        {
+            _db.ChangeTracker.Clear();
+            if (await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct) is { } raced) return -raced.AmountCents;
+            throw;
+        }
+        return fee;
+    }
+
+    /// <summary>
+    /// Let a hired pilot go (Phase 12): a soft dismiss (IsActive=false) that stops their wage accruing. They
+    /// can't be dismissed mid-line — cancel the line first. Idempotent (a no-op if already gone).
+    /// </summary>
+    public async Task DismissAsync(Guid companyId, Guid staffId, CancellationToken ct = default)
+    {
+        // Book the wage owed up to now before the pilot leaves the payroll: once IsActive flips false the
+        // reconcile wage loop skips them forever, so without this the [LastPaidAt, now] segment would be lost.
+        // Mirrors CancelStandingOrderAsync, which reconciles-first for the same reason.
+        await ReconcileAsync(companyId, ct);
+        var staff = await _db.Staff.FirstOrDefaultAsync(s => s.Id == staffId && s.CompanyId == companyId && s.IsActive && !s.IsDeleted, ct);
+        if (staff is null) return;
+        if (await CrewAlreadyFlyingAsync(staffId, ct))
+            throw new InvalidOperationException($"{staff.Name} is flying a line — cancel it before letting them go.");
+        staff.IsActive = false;
+        staff.UpdatedAt = _clock.UtcNow;
         await _db.SaveChangesAsync(ct);
     }
 

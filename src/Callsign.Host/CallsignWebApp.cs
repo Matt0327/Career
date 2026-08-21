@@ -961,15 +961,48 @@ public static class CallsignWebApp
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             var staff = await db.Staff.Where(s => s.CompanyId == pilot.CompanyId && s.IsActive && !s.IsDeleted).ToListAsync();
-            return Results.Ok(staff.Select(s => new StaffDto(s.Id, s.Name, s.WagePerDayCents, s.SkillMilli)));
+            // Which pilots are committed to a live line (so the UI can gate reposition/dismiss + show status).
+            var flyingIds = new HashSet<Guid>(await db.StandingOrders.Where(o => o.CompanyId == pilot.CompanyId && o.IsActive && !o.IsDeleted).Select(o => o.StaffId).ToListAsync());
+            flyingIds.UnionWith(await db.Routes.Where(r => r.CompanyId == pilot.CompanyId && r.Active && !r.IsDeleted).Select(r => r.StaffId).ToListAsync());
+            return Results.Ok(staff.Select(s => new StaffDto(s.Id, s.Name, s.WagePerDayCents, s.SkillMilli, s.CurrentIcao, flyingIds.Contains(s.Id))));
         });
 
         app.MapPost("/api/staff/hire", async (HireRequest req, CallsignDbContext db, OperationsService ops) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
-            var s = await ops.HireAsync(pilot.CompanyId, req.CandidateSeed);
-            return Results.Ok(new { id = s.Id, name = s.Name });
+            // A new pilot is based where you recruit them — your current field (Phase 12 crew location).
+            var atIcao = string.IsNullOrWhiteSpace(pilot.CurrentIcao) ? pilot.HomeIcao : pilot.CurrentIcao;
+            var s = await ops.HireAsync(pilot.CompanyId, req.CandidateSeed, atIcao);
+            return Results.Ok(new { id = s.Id, name = s.Name, currentIcao = s.CurrentIcao });
+        });
+
+        // Phase 12 — reposition (deadhead) a hired pilot to another field for a fee (crew equivalent of a ferry).
+        // The Idempotency-Key travels through so a lost-response retry replays the same charge (like the ferry).
+        app.MapPost("/api/staff/{id:guid}/relocate", async (Guid id, RelocateCrewRequest req, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, OperationsService ops) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                long fee = await ops.RelocateCrewAsync(pilot.CompanyId, id, req.DestIcao, idem);
+                return Results.Ok(new { id, feeCents = fee, destIcao = req.DestIcao });
+            }
+            catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "Cash changed at the same time — try again." }); }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        // Phase 12 — let a hired pilot go (stops their wage). Refused while they're flying a line.
+        app.MapDelete("/api/staff/{id:guid}", async (Guid id, CallsignDbContext db, OperationsService ops) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                await ops.DismissAsync(pilot.CompanyId, id);
+                return Results.Ok(new { dismissed = id });
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
         app.MapGet("/api/ops/orders", async (CallsignDbContext db, EconomyConfig cfg, IClock clock) =>

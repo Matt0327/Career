@@ -470,6 +470,8 @@ export interface Staff {
   name: string
   wagePerDayCents: number
   skillMilli: number
+  currentIcao: string | null // Phase 12 — where this pilot is based; null = un-positioned
+  flying: boolean            // Phase 12 — crewing a live line (can't be repositioned/let go until freed)
 }
 
 export interface StandingOrder {
@@ -1026,6 +1028,9 @@ export const api = {
   staffCandidates: () => fetch('/api/staff/candidates').then(ok<StaffCandidate[]>),
   staff: () => fetch('/api/staff').then(ok<Staff[]>),
   hire: (candidateSeed: number) => POST('/api/staff/hire', { candidateSeed }).then(ok),
+  relocateCrew: (id: string, destIcao: string) =>
+    POST_IDEM(`/api/staff/${id}/relocate`, { destIcao }).then(ok<{ feeCents: number }>),
+  dismissStaff: (id: string) => fetch(`/api/staff/${id}`, { method: 'DELETE' }).then(ok),
   orders: () => fetch('/api/ops/orders').then(ok<StandingOrder[]>),
   createOrder: (staffId: string, aircraftInstanceId: string, destIcao: string, priceMultiplierMilli = 1000) =>
     POST('/api/ops/orders', { staffId, aircraftInstanceId, destIcao, priceMultiplierMilli }).then(ok),

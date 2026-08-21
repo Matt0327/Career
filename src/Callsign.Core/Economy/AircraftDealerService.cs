@@ -1,3 +1,4 @@
+using Callsign.Core.Airports;
 using Callsign.Core.Data;
 using Callsign.Core.Domain;
 using Callsign.Core.Geo;
@@ -504,6 +505,11 @@ public sealed class AircraftDealerService
 
         var to = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == destIcao, ct)
                  ?? throw new InvalidOperationException($"Unknown airport {destIcao}.");
+        var type = await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == inst.TypeId, ct);
+        // Phase 12 — you can't ferry a tail into a field whose runway is too short for it. Only rejects when we
+        // KNOW it's inadequate (a reported runway shorter than the type's reported minimum); unknown data passes.
+        if (!AirportSuitability.RunwayAdequate(to, type?.MinRunwayFt))
+            throw new InvalidOperationException($"{destIcao}'s longest runway ({to.LongestRunwayFt} ft) is too short for the {type!.CanonicalName} — it needs {type.MinRunwayFt} ft.");
         var from = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == inst.LocationIcao, ct);
         double distanceNm = from is null ? 0 : GeoMath.DistanceNm(from.Latitude, from.Longitude, to.Latitude, to.Longitude);
 
@@ -519,7 +525,6 @@ public sealed class AircraftDealerService
                 AircraftInstanceId: inst.Id, DedupeKey: dedupe ?? $"ferry:{inst.Id}:{destIcao}:{inst.AirframeHours:F1}"),
         }, ct);
 
-        var type = await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == inst.TypeId, ct);
         double cruise = type?.CruiseKtas is int c && c > 60 ? c : 140;
         double hours = distanceNm / cruise;
         int wear = (int)Math.Round(hours * _cfg.ConditionWearMilliPerHour);
