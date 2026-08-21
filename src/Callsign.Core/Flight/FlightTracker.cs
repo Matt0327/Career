@@ -20,6 +20,8 @@ public sealed class FlightTracker
     private const double TaxiOverspeedKts = 30;  // brief §2.3 rough-handling: fast taxi is penalised
     private const double ClimbVsFpm = 200;
     private const double DescentVsFpm = -200;
+    private const double LevelVsFpm = 100;       // |VS| below this is clearly level (Cruise); the band 100–200 fpm HOLDS the
+                                                 // current phase, so wobble near a threshold doesn't flip the phase every sample
 
     // Phase 7b — stabilised-approach gate + exceedance thresholds (all lenient at ship, per the plan).
     private const double GateAglFt = 1000;       // below this height the approach is judged
@@ -44,6 +46,8 @@ public sealed class FlightTracker
     private const double CoachBankDeg = 35;              // steep-ish, but not an exceedance
     private const double CoachGHigh = 1.8, CoachGLow = -0.3; // firm, but not an exceedance
     private const double CoachLateralFps = 4;            // a firm de-crab side-load at touchdown → a nudge (Phase 9c)
+    private const double MaxPlausibleLateralFps = 60;    // a real side-load is single-digit ft/s (a violent crab, a few tens);
+                                                         // past this the sim is reporting crash/cartwheel physics, not a landing — don't report it
     // Weight & balance (Phase 9d, on the Fun Dial): a hair over coaches; a gross excess is a warned consequence.
     private const double OverweightGrossFactor = 1.05;   // >5% over MTOW at takeoff = a real overload
     private const double CgGrossEnvelopeFrac = 0.25;     // beyond a CG limit by >25% of the envelope width = gross
@@ -191,9 +195,16 @@ public sealed class FlightTracker
         }
         else
         {
-            Phase = t.VerticalSpeedFpm > ClimbVsFpm ? FlightPhase.Climb
-                  : t.VerticalSpeedFpm < DescentVsFpm ? FlightPhase.Approach
-                  : FlightPhase.Cruise;
+            // Phase from vertical speed, WITH hysteresis: the band LevelVsFpm..ClimbVsFpm HOLDS the current
+            // phase, so small wobble near a threshold — leveling off, light chop, the flare — doesn't flip
+            // the phase (and spam the log) every sample. And "Approach" means DESCENDING NEAR THE GROUND
+            // (below the gate); a descent at altitude is "Descent", not an approach.
+            double vs = t.VerticalSpeedFpm;
+            double aglForPhase = t.AltitudeAglFt > 0 ? t.AltitudeAglFt : t.AltitudeFt;
+            if (vs > ClimbVsFpm) Phase = FlightPhase.Climb;
+            else if (vs < DescentVsFpm) Phase = aglForPhase < GateAglFt ? FlightPhase.Approach : FlightPhase.Descent;
+            else if (Math.Abs(vs) < LevelVsFpm) Phase = FlightPhase.Cruise;
+            // else: inside the hysteresis band — keep the phase we were already in.
         }
 
         // A real go-around abandons the approach: once we climb back above the gate having already flown
@@ -251,9 +262,13 @@ public sealed class FlightTracker
             _events.Add(new FlightEvent(t.CapturedAt, LandingSeverity(_touchdownFpm),
                 $"Landed at {_touchdownFpm:F0} fpm"));
             // Fun Dial (L9): a firm de-crab side-load at touchdown coaches, it doesn't penalise (Phase 9c).
-            if (Math.Abs(t.TouchdownLateralVelocityFps) > CoachLateralFps)
+            // Bounded on BOTH sides: below CoachLateralFps it's a clean landing (no nudge); above
+            // MaxPlausibleLateralFps the sim is reporting crash/cartwheel physics (a real touchdown side-load
+            // is at most a few tens of ft/s), so it's suppressed rather than printed as an absurd number.
+            double sideLoadFps = Math.Abs(t.TouchdownLateralVelocityFps);
+            if (sideLoadFps > CoachLateralFps && sideLoadFps <= MaxPlausibleLateralFps)
                 _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Coaching,
-                    $"Side-load on touchdown — {Math.Abs(t.TouchdownLateralVelocityFps):F0} ft/s, de-crab a touch earlier"));
+                    $"Side-load on touchdown — {sideLoadFps:F0} ft/s, de-crab a touch earlier"));
             return;
         }
 

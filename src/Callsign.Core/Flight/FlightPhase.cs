@@ -8,6 +8,7 @@ public enum FlightPhase
     Takeoff,
     Climb,
     Cruise,
+    Descent,
     Approach,
     Landing,
     Shutdown,

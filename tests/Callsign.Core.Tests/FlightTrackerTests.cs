@@ -114,6 +114,54 @@ public class FlightTrackerTests
     }
 
     [Fact]
+    public void Phase_DescentAtAltitudeIsDescent_NearGroundIsApproach_AndHysteresisHoldsTheBand()
+    {
+        var t = new FlightTracker();
+        t.Observe(Snap(0, 0, 0, 0, onGround: true));            // parked
+        t.Observe(Snap(10, 100, 80, 700, onGround: false));    // takeoff — airborne
+        t.Observe(Snap(20, 3000, 120, 400, onGround: false));  // clearly climbing
+        Assert.Equal(FlightPhase.Climb, t.Phase);
+
+        t.Observe(Snap(30, 3000, 120, 0, onGround: false));    // clearly level
+        Assert.Equal(FlightPhase.Cruise, t.Phase);
+
+        // A shallow descent INSIDE the hysteresis band (100–200 fpm) holds the current phase — no flip, no log spam.
+        t.Observe(Snap(40, 3000, 120, -150, onGround: false));
+        Assert.Equal(FlightPhase.Cruise, t.Phase);
+
+        // A clear descent AT ALTITUDE is a Descent, not an Approach.
+        t.Observe(Snap(50, 8000, 200, -800, onGround: false, agl: 8000));
+        Assert.Equal(FlightPhase.Descent, t.Phase);
+
+        // The same descent NEAR THE GROUND (below the 1000 ft gate) is an Approach.
+        t.Observe(Snap(60, 600, 90, -800, onGround: false, agl: 600));
+        Assert.Equal(FlightPhase.Approach, t.Phase);
+
+        // Wobble back into the band near the ground holds the Approach (the flare doesn't flip it every sample).
+        t.Observe(Snap(65, 550, 90, -120, onGround: false, agl: 550));
+        Assert.Equal(FlightPhase.Approach, t.Phase);
+    }
+
+    [Fact]
+    public void SideLoad_PlausibleValueCoaches_ButGarbageCrashValueIsSuppressed()
+    {
+        FlightTracker Land(double lateralFps)
+        {
+            var t = new FlightTracker();
+            t.Observe(Snap(0, 0, 0, 0, onGround: true));
+            t.Observe(Snap(10, 100, 80, 700, onGround: false));
+            t.Observe(Snap(20, 500, 90, -300, onGround: false, agl: 500));
+            t.Observe(Snap(21, 0, 60, 0, onGround: true, tdLateralFps: lateralFps));
+            return t;
+        }
+
+        // A firm, real de-crab side-load coaches.
+        Assert.Contains(Land(9).Events, e => e.Message.StartsWith("Side-load on touchdown"));
+        // A physically impossible crash/cartwheel value is suppressed, not printed as an absurd number.
+        Assert.DoesNotContain(Land(1845).Events, e => e.Message.StartsWith("Side-load on touchdown"));
+    }
+
+    [Fact]
     public void Warns_On_Taxi_Overspeed()
     {
         var t = new FlightTracker();
