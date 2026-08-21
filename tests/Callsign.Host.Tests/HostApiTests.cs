@@ -45,9 +45,12 @@ public class HostApiTests
 
     private sealed record AcceptResp(Guid AssignmentId, string Dest, long RewardQuoteCents);
 
-    // TODO(1g): WebApplicationFactory's host-resolver times out in this environment (net10 minimal
-    // API). The Host is verified end-to-end via live HTTP for now; re-enable once the resolver is sorted.
-    [Fact(Skip = "WebApplicationFactory host-resolver times out here; Host verified via live HTTP")]
+    // WebApplicationFactory's in-process host-resolver hangs in this environment (net10 minimal API) —
+    // re-confirmed during the 2026-08-21 full audit (still times out). The Host IS verified end-to-end via
+    // live HTTP instead: that session drove the whole new-game → jobs → accept → settle → paid loop, every
+    // GET endpoint, all mutation + guard paths, and the security/robustness fixes against a running Host.
+    // Re-enable once the resolver is sorted.
+    [Fact(Skip = "WebApplicationFactory host-resolver times out here (re-confirmed 2026-08-21); Host verified via live HTTP")]
     public async Task FullLoop_NewGame_Jobs_Accept_Settle_GetsPaid()
     {
         await using var factory = new CallsignAppFactory();
