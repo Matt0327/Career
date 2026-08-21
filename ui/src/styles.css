@@ -429,6 +429,26 @@ input { font: inherit; }
 .preset-name { font-size: 12px; font-weight: 640; }
 .preset-blurb { font-size: 11px; color: var(--muted); line-height: 1.35; }
 
+/* Onboarding pick-cards + avatar picker (Phase 12) */
+.preset.pick { min-height: 138px; }
+.pick-tag { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+.pick-specs { font-size: 11px; color: var(--faint); margin-top: auto; padding-top: 5px; }
+.avatars { display: grid; grid-template-columns: repeat(auto-fit, minmax(40px, 1fr)); gap: 6px; }
+.avatar-pick {
+  aspect-ratio: 1; display: grid; place-items: center; background: var(--bg);
+  border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
+  transition: border-color .15s, background .15s, transform .1s;
+}
+.avatar-pick:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.avatar-pick.on { border-color: var(--accent); background: var(--accent-dim); transform: translateY(-1px); }
+.avatar-glyph { font-size: 22px; line-height: 1; }
+.avatar-inline { font-size: 16px; margin-right: 3px; }
+.linky {
+  background: none; border: none; color: var(--muted); font: inherit; padding: 9px 2px;
+  text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+}
+.linky:hover { color: var(--ink); }
+
 .simlink {
   display: flex; gap: 12px; align-items: center; padding: 14px 16px;
   border: 1px solid var(--line); border-radius: 11px; background: var(--bg);

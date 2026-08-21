@@ -955,8 +955,9 @@ export const api = {
     if (r.status === 404) return null
     return ok<State>(r)
   },
-  newCareer: (name: string, homeIcao: string, startingCash: number) =>
-    POST('/api/game/new', { name, homeIcao, startingCash }).then(ok),
+  newCareer: (name: string, homeIcao: string, startingCash: number,
+              opts?: { starterTypeCode?: string; edition?: string; avatarKey?: string }) =>
+    POST('/api/game/new', { name, homeIcao, startingCash, ...opts }).then(ok),
   ranks: () => fetch('/api/ranks').then(ok<RankTier[]>),
   reputation: () => fetch('/api/reputation').then(ok<Reputation>),
   loans: () => fetch('/api/loans').then(ok<Loans>),

@@ -223,38 +223,96 @@ function useSimLink() {
   return { wsOpen, link }
 }
 
-// Starting bankroll is whole dollars (server default 25,000). Presets keep the choice easy but meaningful.
-const CASH_PRESETS = [
-  { amount: 10000, name: 'Bootstrap', blurb: 'Start lean and grind up from a light single.' },
-  { amount: 25000, name: 'Standard', blurb: 'Balanced start — a solid GA aircraft is in reach.' },
-  { amount: 100000, name: 'Backed', blurb: 'Open with capital for a faster, capable airframe.' },
-]
+// Every new career starts with the same $10,000 bankroll (Phase 12 onboarding) — a lean, level start.
+const START_CASH = 10000
 
-function FeatIcon({ k }: { k: 'plane' | 'airline' | 'cloud' }) {
-  return (
-    <svg className="feat-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      {k === 'plane' && <path d="M4 13l16-6-6 16-2-7-8-3z" />}
-      {k === 'airline' && <><path d="M3 21h18" /><path d="M6 21V8l6-3 6 3v13" /><path d="M10 21v-5h4v5" /></>}
-      {k === 'cloud' && <path d="M7 18a4 4 0 0 1 0-8 5 5 0 0 1 9.6-1.3A3.5 3.5 0 0 1 17 18H7z" />}
-    </svg>
-  )
+// A small set of pilot avatars the UI draws by key (stored as Pilot.AvatarKey). Glyph-based, so it needs no assets.
+const AVATARS = [
+  { key: 'aviator-m', glyph: '🧑‍✈️' }, { key: 'aviator-f', glyph: '👩‍✈️' },
+  { key: 'falcon', glyph: '🦅' }, { key: 'wolf', glyph: '🐺' },
+  { key: 'owl', glyph: '🦉' }, { key: 'fox', glyph: '🦊' },
+  { key: 'shark', glyph: '🦈' }, { key: 'bolt', glyph: '⚡' },
+]
+function avatarGlyph(key?: string | null) {
+  return AVATARS.find(a => a.key === key)?.glyph ?? '🧑‍✈️'
 }
 
+// The three MSFS 2024 editions the player can flag — a profile badge only, never a content gate.
+const EDITIONS = [
+  { key: 'Standard', blurb: 'The core MSFS 2024 fleet and world.' },
+  { key: 'Premium', blurb: 'Standard plus a set of extra high-fidelity aircraft.' },
+  { key: 'Deluxe', blurb: 'The fullest fleet — every premium aircraft and airport.' },
+]
+
+// The starter trio — codes match the curated catalog types seeded at career start.
+const STARTERS = [
+  { code: 'C152', name: 'Cessna 152', tag: 'Trainer', cruise: 107, seats: 2, blurb: 'The classic trainer — docile, cheap, forgiving. The safe first step.' },
+  { code: 'DR40', name: 'Robin DR400', tag: 'Tourer', cruise: 130, seats: 4, blurb: 'A sprightly tourer — roomier and quicker, a little more to handle.' },
+  { code: 'VL3', name: 'JMB VL3', tag: 'Speedster', cruise: 150, seats: 2, blurb: 'A slippery modern speedster — fastest here, and the least forgiving.' },
+]
+
 function Onboarding({ onStarted }: { onStarted: () => void }) {
-  const [step, setStep] = useState(0) // 0 welcome · 1 pilot · 2 sim · 3 ready
-  const [name, setName] = useState('')
+  const [step, setStep] = useState(0) // 0 account · 1 edition · 2 aircraft · 3 pilot · 4 ready
+
+  // Step 0 — account (Callsign Cloud). Account-first, but "Continue offline" never locks anyone out.
+  const [cloud, setCloud] = useState<CloudStatus | null>(null)
+  const [mode, setMode] = useState<'login' | 'register'>('register')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [dispName, setDispName] = useState('')
+  const [authBusy, setAuthBusy] = useState(false)
+  const [authErr, setAuthErr] = useState<string | null>(null)
+
+  // Career choices
+  const [edition, setEdition] = useState('Standard')
+  const [starter, setStarter] = useState('C152')
+  const [callsign, setCallsign] = useState('')
+  const [avatar, setAvatar] = useState('aviator-m')
   const [home, setHome] = useState('EHAM')
-  const [cash, setCash] = useState(25000)
+
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const { wsOpen, link } = useSimLink()
   const connected = link === 'Connected'
-  const canPilot = name.trim().length > 0 && home.trim().length >= 3
+
+  useEffect(() => {
+    api.cloud.status()
+      .then(s => { setCloud(s); if (s.displayName) setCallsign(prev => prev || s.displayName!) })
+      .catch(() => setCloud({ signedIn: false, baseUrl: '' }))
+  }, [])
+
+  const signedIn = cloud?.signedIn === true
+  const canAuth = email.trim().length > 0 && password.length > 0 && (mode === 'login' || dispName.trim().length > 0)
+  const canPilot = callsign.trim().length > 0 && home.trim().length >= 3
+  const chosen = STARTERS.find(s => s.code === starter) ?? STARTERS[0]
+
+  const doAuth = async () => {
+    if (!canAuth) return
+    setAuthBusy(true); setAuthErr(null)
+    try {
+      const r = mode === 'login'
+        ? await api.cloud.login(email.trim(), password)
+        : await api.cloud.register(email.trim(), dispName.trim(), password)
+      if (!r.ok) { setAuthErr(r.error ?? 'That didn’t work — check your details and try again.'); return }
+      const s = await api.cloud.status()
+      setCloud(s)
+      if (s.displayName) setCallsign(prev => prev || s.displayName!)
+      setStep(1)
+    } catch (e) {
+      setAuthErr(String(e))
+    } finally { setAuthBusy(false) }
+  }
+
+  const signOut = async () => {
+    try { await api.cloud.logout() } catch { /* ignore */ }
+    setCloud(await api.cloud.status().catch(() => ({ signedIn: false, baseUrl: '' })))
+  }
 
   const commit = async () => {
     setBusy(true); setErr(null)
     try {
-      await api.newCareer(name.trim() || 'New Pilot', home.trim().toUpperCase() || 'EHAM', cash)
+      await api.newCareer(callsign.trim() || 'New Pilot', home.trim().toUpperCase() || 'EHAM', START_CASH,
+        { starterTypeCode: starter, edition, avatarKey: avatar })
       onStarted()
     } catch (e) {
       setErr(String(e)); setBusy(false)
@@ -267,90 +325,147 @@ function Onboarding({ onStarted }: { onStarted: () => void }) {
         <div className="onboard-top">
           <div className="brand"><span className="mark">◄</span> CALLSIGN</div>
           <div className="step-dots">
-            {[0, 1, 2, 3].map(i => <span key={i} className={`dot ${i === step ? 'on' : ''} ${i < step ? 'done' : ''}`} />)}
+            {[0, 1, 2, 3, 4].map(i => <span key={i} className={`dot ${i === step ? 'on' : ''} ${i < step ? 'done' : ''}`} />)}
           </div>
         </div>
 
         {step === 0 && (
           <div className="onboard-body" key="s0">
             <h1>Welcome to Callsign</h1>
-            <p className="lede">A living career for Microsoft Flight Simulator — fly for hire, build an airline, and climb the ranks.</p>
-            <ul className="feat">
-              <li><FeatIcon k="plane" /><span>Fly the aircraft you <b>already own</b> — Callsign detects them in your sim.</span></li>
-              <li><FeatIcon k="airline" /><span>Grow an airline: <b>jobs, routes, staff, bases</b> and real finances.</span></li>
-              <li><FeatIcon k="cloud" /><span>Your career <b>syncs to the cloud</b> and ranks on the global leaderboards.</span></li>
-            </ul>
-            <div className="onboard-foot">
-              <span />
-              <button className="primary" onClick={() => setStep(1)}>Get started →</button>
-            </div>
+            <p className="lede">A living career for Microsoft Flight Simulator 2024 — fly for hire, build an airline, climb the ranks. An account backs your career up to the cloud and carries it to any PC.</p>
+            {signedIn ? (
+              <>
+                <div className="simlink up">
+                  <span className="simdot up" />
+                  <div>
+                    <div className="simlink-state">Signed in as {cloud?.displayName}</div>
+                    <div className="simlink-sub">{cloud?.email} · your career will back up to the cloud.</div>
+                  </div>
+                </div>
+                <div className="onboard-foot">
+                  <button className="linky" onClick={signOut}>Not you? Sign out</button>
+                  <button className="primary" onClick={() => setStep(1)}>Continue →</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="seg">
+                  <button className={`seg-btn ${mode === 'register' ? 'on' : ''}`} onClick={() => setMode('register')}>Create account</button>
+                  <button className={`seg-btn ${mode === 'login' ? 'on' : ''}`} onClick={() => setMode('login')}>Sign in</button>
+                </div>
+                <div className="form">
+                  <label className="fld"><span>Email</span>
+                    <input type="email" autoComplete="username" value={email} placeholder="you@example.com" onChange={e => setEmail(e.target.value)} />
+                  </label>
+                  {mode === 'register' && (
+                    <label className="fld"><span>Callsign / display name</span>
+                      <input value={dispName} maxLength={40} placeholder="e.g. Maverick" onChange={e => setDispName(e.target.value)} />
+                    </label>
+                  )}
+                  <label className="fld"><span>Password</span>
+                    <input type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} value={password}
+                      placeholder={mode === 'register' ? 'At least 8 characters' : ''} onChange={e => setPassword(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') void doAuth() }} />
+                  </label>
+                </div>
+                {authErr && <div className="banner error">{authErr}</div>}
+                <div className="onboard-foot">
+                  <button className="ghost" onClick={() => setStep(1)}>Continue offline →</button>
+                  <button className="primary" disabled={authBusy || !canAuth} onClick={doAuth}>
+                    {authBusy ? 'One moment…' : mode === 'register' ? 'Create account →' : 'Sign in →'}
+                  </button>
+                </div>
+                <p className="ob-hint">No internet, or want to jump straight in? <b>Continue offline</b> — the game never needs an account, and you can link one later in Settings.</p>
+              </>
+            )}
           </div>
         )}
 
         {step === 1 && (
           <div className="onboard-body" key="s1">
-            <h1>Create your pilot</h1>
-            <p className="lede">This is you. You can rebrand your airline any time later.</p>
-            <label className="ob-field">Pilot name
-              <input autoFocus value={name} placeholder="e.g. Amelia Hart" onChange={e => setName(e.target.value)} />
-            </label>
-            <label className="ob-field">Home base — ICAO code
-              <input value={home} maxLength={4} placeholder="EHAM" onChange={e => setHome(e.target.value.toUpperCase())} />
-              <span className="ob-hint">Where your first aircraft is parked. Four letters — e.g. KJFK, EGLL, EHAM.</span>
-            </label>
-            <div className="ob-field">Starting bankroll
-              <div className="presets">
-                {CASH_PRESETS.map(p => (
-                  <button key={p.amount} type="button" className={`preset ${cash === p.amount ? 'on' : ''}`} onClick={() => setCash(p.amount)}>
-                    <div className="preset-amt num">{money(p.amount * 100)}</div>
-                    <div className="preset-name">{p.name}</div>
-                    <div className="preset-blurb">{p.blurb}</div>
-                  </button>
-                ))}
-              </div>
+            <h1>Your simulator edition</h1>
+            <p className="lede">Which edition of MSFS 2024 do you fly? This is your profile badge — it never limits what you can do in Callsign.</p>
+            <div className="presets">
+              {EDITIONS.map(e => (
+                <button key={e.key} type="button" className={`preset ${edition === e.key ? 'on' : ''}`} onClick={() => setEdition(e.key)}>
+                  <div className="preset-amt">{e.key}</div>
+                  <div className="preset-blurb">{e.blurb}</div>
+                </button>
+              ))}
             </div>
             <div className="onboard-foot">
               <button className="ghost" onClick={() => setStep(0)}>← Back</button>
-              <button className="primary" disabled={!canPilot} onClick={() => setStep(2)}>Continue →</button>
+              <button className="primary" onClick={() => setStep(2)}>Continue →</button>
             </div>
           </div>
         )}
 
         {step === 2 && (
           <div className="onboard-body" key="s2">
-            <h1>Connect your simulator</h1>
-            <p className="lede">Callsign links to Microsoft Flight Simulator automatically — there's nothing to install.</p>
-            <div className={`simlink ${connected ? 'up' : ''}`}>
-              <span className={`simdot ${connected ? 'up' : wsOpen ? 'warn' : 'down'}`} />
-              <div>
-                <div className="simlink-state">{connected ? 'Simulator connected' : wsOpen ? 'Waiting for Flight Simulator…' : 'Starting link…'}</div>
-                <div className="simlink-sub">{connected
-                  ? "You're linked — flights and landings will track live."
-                  : 'Launch MSFS 2020 or 2024 any time and this turns green on its own.'}</div>
-              </div>
+            <h1>Pick your first aircraft</h1>
+            <p className="lede">Your career opens with one plane, parked and paid for. Buy more the moment you’ve earned it.</p>
+            <div className="presets">
+              {STARTERS.map(s => (
+                <button key={s.code} type="button" className={`preset pick ${starter === s.code ? 'on' : ''}`} onClick={() => setStarter(s.code)}>
+                  <div className="pick-tag">{s.tag}</div>
+                  <div className="preset-amt">{s.name}</div>
+                  <div className="preset-blurb">{s.blurb}</div>
+                  <div className="pick-specs num">{s.seats} seats · {s.cruise} kt cruise</div>
+                </button>
+              ))}
             </div>
-            <p className="ob-hint">No sim running right now? No problem — you can connect later. This step is optional.</p>
             <div className="onboard-foot">
               <button className="ghost" onClick={() => setStep(1)}>← Back</button>
-              <button className="primary" onClick={() => setStep(3)}>{connected ? 'Continue ✓' : 'Continue →'}</button>
+              <button className="primary" onClick={() => setStep(3)}>Continue →</button>
             </div>
           </div>
         )}
 
         {step === 3 && (
           <div className="onboard-body" key="s3">
+            <h1>Create your pilot</h1>
+            <p className="lede">This is you in the world. You can rebrand your airline any time later.</p>
+            <label className="ob-field">Callsign
+              <input autoFocus value={callsign} placeholder="e.g. Maverick" onChange={e => setCallsign(e.target.value)} />
+            </label>
+            <div className="ob-field">Avatar
+              <div className="avatars">
+                {AVATARS.map(a => (
+                  <button key={a.key} type="button" className={`avatar-pick ${avatar === a.key ? 'on' : ''}`}
+                    onClick={() => setAvatar(a.key)} aria-label={a.key} aria-pressed={avatar === a.key}>
+                    <span className="avatar-glyph">{a.glyph}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <label className="ob-field">Home base — ICAO code
+              <input value={home} maxLength={4} placeholder="EHAM" onChange={e => setHome(e.target.value.toUpperCase())} />
+              <span className="ob-hint">Where your aircraft is parked and lands fee-free. Four letters — e.g. KJFK, EGLL, EHAM.</span>
+            </label>
+            <div className="onboard-foot">
+              <button className="ghost" onClick={() => setStep(2)}>← Back</button>
+              <button className="primary" disabled={!canPilot} onClick={() => setStep(4)}>Continue →</button>
+            </div>
+          </div>
+        )}
+
+        {step === 4 && (
+          <div className="onboard-body" key="s4">
             <h1>Cleared for departure</h1>
-            <p className="lede">Here's your setup. Start flying and your first jobs will be waiting.</p>
+            <p className="lede">Here’s your setup. Start flying and your first jobs will be waiting.</p>
             <div className="summary">
-              <div className="srow"><span className="muted">Pilot</span><b>{name.trim() || 'New Pilot'}</b></div>
+              <div className="srow"><span className="muted">Pilot</span><b><span className="avatar-inline">{avatarGlyph(avatar)}</span> {callsign.trim() || 'New Pilot'}</b></div>
+              <div className="srow"><span className="muted">First aircraft</span><b>{chosen.name}</b></div>
               <div className="srow"><span className="muted">Home base</span><b className="loc">{home.trim().toUpperCase() || 'EHAM'}</b></div>
-              <div className="srow"><span className="muted">Starting bankroll</span><b className="num">{money(cash * 100)}</b></div>
-              <div className="srow"><span className="muted">Simulator</span><b className={connected ? 'pos' : 'muted'}>{connected ? 'Connected' : 'Connect later'}</b></div>
+              <div className="srow"><span className="muted">Edition</span><b>{edition}</b></div>
+              <div className="srow"><span className="muted">Starting bankroll</span><b className="num">{money(START_CASH * 100)}</b></div>
+              <div className="srow"><span className="muted">Account</span><b className={signedIn ? 'pos' : 'muted'}>{signedIn ? cloud?.displayName : 'Offline'}</b></div>
+              <div className="srow"><span className="muted">Simulator</span><b className={connected ? 'pos' : 'muted'}>{connected ? 'Connected' : wsOpen ? 'Waiting…' : 'Connect later'}</b></div>
             </div>
             {err && <div className="banner error">{err}</div>}
             <div className="onboard-foot">
-              <button className="ghost" disabled={busy} onClick={() => setStep(2)}>← Back</button>
-              <button className="primary" disabled={busy} onClick={commit}>{busy ? 'Setting up your world…' : 'Enter Callsign →'}</button>
+              <button className="ghost" disabled={busy} onClick={() => setStep(3)}>← Back</button>
+              <button className="primary" disabled={busy} onClick={commit}>{busy ? 'Setting up your world…' : 'Start flying →'}</button>
             </div>
             {busy && <p className="ob-hint">First run imports a public-domain airport database — this can take a minute.</p>}
           </div>
