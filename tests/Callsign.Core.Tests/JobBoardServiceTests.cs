@@ -61,8 +61,9 @@ public class JobBoardServiceTests
                 Assert.True(j.WeightLbs is >= 200 and <= 3000);
                 Assert.InRange(j.DistanceNm, 20, 400);
                 Assert.True(j.ExpiresAt > clock.UtcNow);
-                // Reward = base rate × the macro-economy demand multiplier frozen at posting (Phase 8c).
-                double demand = new WorldOracle(EconomyConfig.Default).EconomyPhaseAt(clock.UtcNow).DemandMult;
+                // Reward = base rate × the macro-economy demand multiplier × the seasonal tilt (Phase 12), frozen at posting.
+                double demand = new WorldOracle(EconomyConfig.Default).EconomyPhaseAt(clock.UtcNow).DemandMult
+                    * EconomyConfig.Default.SeasonalDemandFactor(GameCalendar.Season(clock.UtcNow, 52.3086));
                 long expected = (long)Math.Round(EconomyConfig.Default.CargoRewardCents(j.DistanceNm, j.WeightLbs) * demand);
                 Assert.Equal(expected, j.RewardCents);
             });
@@ -93,5 +94,20 @@ public class JobBoardServiceTests
         clock.UtcNow = clock.UtcNow.AddHours(EconomyConfig.Default.JobOfferHours + 1);
         using (var db = tdb.NewContext())
             Assert.Empty(await Board(db, clock).GetAvailableAsync("EHAM"));
+    }
+
+    [Fact]
+    public void SeasonalDemandFactor_TiltsTheYear_BoundedAndHemisphereCorrect()
+    {
+        var c = EconomyConfig.Default;
+        Assert.True(c.SeasonalDemandFactor("Winter") > 1.0);  // heating/holiday freight pays more
+        Assert.True(c.SeasonalDemandFactor("Summer") < 1.0);  // the quiet season
+        Assert.Equal(1.0, c.SeasonalDemandFactor("Spring"));  // neutral
+        foreach (var s in new[] { "Winter", "Summer", "Autumn", "Spring" })
+            Assert.InRange(c.SeasonalDemandFactor(s), 0.9, 1.1); // bounded — a gentle colour, never a balance swing
+        // Hemisphere-correct: the same January instant is Winter up north, Summer down south.
+        var jan = new DateTimeOffset(2026, 1, 15, 0, 0, 0, TimeSpan.Zero);
+        Assert.Equal("Winter", GameCalendar.Season(jan, 52));
+        Assert.Equal("Summer", GameCalendar.Season(jan, -33));
     }
 }

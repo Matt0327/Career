@@ -76,7 +76,7 @@ public class ContractOnRampTests
         {
             var jobs = await Board(db).GetAvailableAsync("EHAM");
             Assert.NotEmpty(jobs);
-            double demand = new WorldOracle(Cfg).EconomyPhaseAt(T0).DemandMult;
+            double demand = new WorldOracle(Cfg).EconomyPhaseAt(T0).DemandMult * Cfg.SeasonalDemandFactor(GameCalendar.Season(T0, 52.3086));
             Assert.All(jobs, j =>
             {
                 Assert.StartsWith("contract:", j.ClientKey);                  // branded to the carrier as client

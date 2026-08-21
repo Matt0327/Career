@@ -85,7 +85,7 @@ public class HubReputationTests
         {
             var jobs = await Board(db, clock).GetAvailableAsync("EHAM");
             Assert.Equal(12, jobs.Count);
-            double demand = new WorldOracle(Cfg).EconomyPhaseAt(T0).DemandMult;
+            double demand = new WorldOracle(Cfg).EconomyPhaseAt(T0).DemandMult * Cfg.SeasonalDemandFactor(GameCalendar.Season(T0, 52.3086));
             Assert.All(jobs, j =>
             {
                 // Frozen at posting: base × macro demand × hub reputation lift (1.15).
@@ -111,7 +111,7 @@ public class HubReputationTests
         {
             var jobs = await Board(db, clock).GetAvailableAsync("EHAM");
             Assert.Equal(8, jobs.Count); // no widening off-hub
-            double demand = new WorldOracle(Cfg).EconomyPhaseAt(T0).DemandMult;
+            double demand = new WorldOracle(Cfg).EconomyPhaseAt(T0).DemandMult * Cfg.SeasonalDemandFactor(GameCalendar.Season(T0, 52.3086));
             Assert.All(jobs, j => Assert.Equal((long)Math.Round(Cfg.CargoRewardCents(j.DistanceNm, j.WeightLbs) * demand), j.RewardCents)); // no lift — pre-11c formula
         }
     }
@@ -132,7 +132,7 @@ public class HubReputationTests
         {
             var jobs = await Board(db, clock).GetAvailableAsync("EHAM");
             Assert.Equal(8, jobs.Count); // rep 0 → no widening even at a hub (the floor is the floor, not the knob)
-            double demand = new WorldOracle(Cfg).EconomyPhaseAt(T0).DemandMult;
+            double demand = new WorldOracle(Cfg).EconomyPhaseAt(T0).DemandMult * Cfg.SeasonalDemandFactor(GameCalendar.Season(T0, 52.3086));
             Assert.All(jobs, j => Assert.Equal((long)Math.Round(Cfg.CargoRewardCents(j.DistanceNm, j.WeightLbs) * demand), j.RewardCents));
         }
     }

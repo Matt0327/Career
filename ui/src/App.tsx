@@ -157,7 +157,7 @@ function ContextHeader({ state, tab }: { state: State; tab: Tab }) {
       </div>
       <div className="ctx">
         <span className="chip"><span className="dot" /> <b className="loc">{state.currentIcao}</b></span>
-        {world && <span className="chip" title={`${world.dayOfWeek}, ${world.dateIso} · ${world.season}`}>{world.season} · <span className="muted">day</span> <span className="num">{world.careerDays.toLocaleString()}</span></span>}
+        {world && <span className="chip" title={`${world.dayOfWeek}, ${world.dateIso} · ${world.season}${world.season === 'Winter' || world.season === 'Autumn' ? ' — busy season, jobs pay a little more' : world.season === 'Summer' ? ' — quiet season, jobs pay a little less' : ''}`}>{world.season} · <span className="muted">day</span> <span className="num">{world.careerDays.toLocaleString()}</span></span>}
         {world && <span className={`chip econ ${world.economyRewardPct > 0 ? 'up' : world.economyRewardPct < 0 ? 'down' : ''}`} title={`Macro economy: ${world.economyLabel} — fresh job pay is ${world.economyRewardPct >= 0 ? '+' : ''}${world.economyRewardPct}% versus par right now`}>{world.economyLabel}{world.economyRewardPct !== 0 && <> · <span className="num">{world.economyRewardPct >= 0 ? '+' : ''}{world.economyRewardPct}%</span></>}</span>}
         {wx && <span className={`chip wx${roughWx(wx.condition) ? ' rough' : ''}`} title={wx.live
           ? `${wx.name}: real METAR${wx.stationIcao ? ` (${wx.stationIcao})` : ''} — ${wx.summary}${wx.observedIso ? ` · as of ${wx.observedIso.slice(11, 16)}Z` : ''}`

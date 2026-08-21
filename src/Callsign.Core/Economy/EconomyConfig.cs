@@ -472,6 +472,19 @@ public sealed record EconomyConfig
         return 1.0 + WeatherDemandSwing * badness;
     }
 
+    /// <summary>Phase 12 — a small, bounded seasonal tilt on job demand (the world feels alive across a career):
+    /// winter's freight/heating/holiday logistics pay a touch more, high summer a touch less. Applied to the job
+    /// board's demand alongside the macro boom/bust cycle and frozen at posting, so it never re-rates an accepted
+    /// job. Income-only (jobs are one-way fees) and deliberately gentle, so it colours the year without swinging
+    /// balance. Season comes from <see cref="World.GameCalendar.Season"/> (hemisphere-correct).</summary>
+    public double SeasonalDemandFactor(string season) => season switch
+    {
+        "Winter" => 1.06,   // heating fuel, holiday freight, mail rush
+        "Autumn" => 1.03,   // harvest + pre-winter stocking
+        "Summer" => 0.97,   // the quiet season
+        _ => 1.00,          // Spring — neutral
+    };
+
     // --- Economy cycle (Phase 8c): a slow boom↔bust that swings what clients pay for work ---
     /// <summary>How long one full boom→bust→recovery cycle takes (real wall-clock, the pace the calendar runs).</summary>
     public TimeSpan EconomyCyclePeriod { get; init; } = TimeSpan.FromDays(45);

@@ -67,7 +67,9 @@ public sealed class JobBoardService
         // The macro economy (Phase 8c) swings what clients pay: a boom lifts every offer, a bust discounts it.
         // A strong name at your hub (Phase 11c, hubPay) compounds on top — both frozen onto the job at posting,
         // so accepting locks the rate in and settlement reads it unchanged (pumping the name later owes nothing).
-        double demand = _world.EconomyPhaseAt(now).DemandMult;
+        // Phase 12 — the macro boom/bust cycle, tilted by the season at this field (world feels alive), both frozen
+        // onto the offer at posting so an accepted job never re-rates.
+        double demand = _world.EconomyPhaseAt(now).DemandMult * _cfg.SeasonalDemandFactor(GameCalendar.Season(now, origin.Latitude));
         for (int i = 0; i < generated.Count; i++)
         {
             var g = generated[i];
