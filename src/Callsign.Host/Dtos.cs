@@ -182,7 +182,8 @@ public record FlightDto(
     double DistanceNm, double FuelUsedLbs, double DurationHours, double TouchdownFpm,
     long PayoutCents, int Xp,
     DateTimeOffset DepartedAt, DateTimeOffset ArrivedAt, DateTimeOffset SettledAt,
-    double OriginLat, double OriginLon, double DestLat, double DestLon);
+    double OriginLat, double OriginLon, double DestLat, double DestLon,
+    int? OverallScore, bool? ScoreValid); // Phase 12 — the headline metric (the un-gameable score), not just fpm
 
 public record FlightDetailDto(
     Guid Id, string AircraftTitle, Guid? AircraftTypeId, string? Tail, string? AircraftName, string? AircraftCategory,
@@ -207,7 +208,8 @@ public record DebriefDto(bool Scored, bool ScoreValid, int OverallScore, string 
 public record FlightTotalsDto(
     int Flights, double TotalHours, double TotalDistanceNm, double TotalFuelLbs,
     long LifetimeEarningsCents, int TotalXp, double AvgTouchdownFpm, double BestTouchdownFpm,
-    long BestPayoutCents, double LongestLegNm);
+    long BestPayoutCents, double LongestLegNm,
+    int ScoredFlights, double AvgScore, int BestScore); // Phase 12 — lifetime flying quality
 
 public record BeginFlightRequest(Guid AssignmentId, Guid? AircraftInstanceId);
 

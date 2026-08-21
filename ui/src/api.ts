@@ -105,6 +105,8 @@ export interface FlightLog {
   originLon: number
   destLat: number
   destLon: number
+  overallScore: number | null // Phase 12 — the headline metric
+  scoreValid: boolean | null
 }
 
 export interface PayoutLine { label: string; amountCents: number }
@@ -185,6 +187,9 @@ export interface FlightTotals {
   bestTouchdownFpm: number
   bestPayoutCents: number
   longestLegNm: number
+  scoredFlights: number // Phase 12 — lifetime flying quality
+  avgScore: number
+  bestScore: number
 }
 
 export interface PriceFactor {

@@ -3445,7 +3445,7 @@ function ledgerIcon(cat: string) {
   }
 }
 
-type FlightSort = 'date' | 'payout' | 'dist' | 'dur' | 'fuel' | 'landing' | 'xp'
+type FlightSort = 'date' | 'payout' | 'dist' | 'dur' | 'fuel' | 'landing' | 'xp' | 'score'
 type LandBand = { label: string; test: (f: number) => boolean; tone: 'pos' | 'neg' | 'accent' }
 const LAND_BANDS: LandBand[] = [
   { label: 'Butter ≤60', test: f => f <= 60, tone: 'pos' },
@@ -3484,12 +3484,15 @@ function Logbook({ state }: { state: State }) {
     return sorted.map(e => { running += e.amountCents; return Math.round(running / 100) })
   })()
   const fpms = [...flights].reverse().map(f => Math.round(f.touchdownFpm))
+  // Phase 12 — the un-gameable flight score, oldest-first, over scored legs (the headline trend, not raw fpm).
+  const scores = [...flights].reverse().map(f => f.overallScore).filter((s): s is number => s != null)
 
   // Flights: mission filter + sort, with a live totals footer over the shown rows.
   const missions = Array.from(new Set(flights.map(f => f.mission).filter((m): m is string => !!m)))
   const skey = (f: FlightLog) =>
     sort === 'payout' ? f.payoutCents : sort === 'dist' ? f.distanceNm : sort === 'dur' ? f.durationHours
       : sort === 'fuel' ? f.fuelUsedLbs : sort === 'landing' ? Math.abs(f.touchdownFpm) : sort === 'xp' ? f.xp
+        : sort === 'score' ? (f.overallScore ?? -1)
         : new Date(f.settledAt).getTime()
   const shown = flights
     .filter(f => types.size === 0 || (f.mission != null && types.has(f.mission)))
@@ -3520,15 +3523,16 @@ function Logbook({ state }: { state: State }) {
       {totals && totals.flights > 0 && (
         <div className="hero-stats logbook-totals">
           <HeroStat label="Flights" value={totals.flights.toLocaleString()} accent />
+          {totals.scoredFlights > 0 && <HeroStat label="Avg flight score" value={`${Math.round(totals.avgScore)}`} accent hint={`over ${totals.scoredFlights} scored`} />}
+          {totals.scoredFlights > 0 && <HeroStat label="Best score" value={`${totals.bestScore}`} />}
           <HeroStat label="Hours flown" value={totals.totalHours.toFixed(1)} unit="h" />
           <HeroStat label="Distance" value={Math.round(totals.totalDistanceNm).toLocaleString()} unit="nm" />
           <HeroStat label="Avg landing" value={`${Math.round(totals.avgTouchdownFpm)}`} unit="fpm" />
-          <HeroStat label="Best landing" value={`${Math.round(totals.bestTouchdownFpm)}`} unit="fpm" />
           <HeroStat label="Lifetime earnings" value={money(totals.lifetimeEarningsCents)} />
         </div>
       )}
 
-      {(balances.length > 1 || fpms.length > 1) && (
+      {(balances.length > 1 || scores.length > 1 || fpms.length > 1) && (
         <section className="card">
           <h2>Trends</h2>
           <div className="trends">
@@ -3536,10 +3540,15 @@ function Logbook({ state }: { state: State }) {
               <div className="trend-head"><span className="metalabel">Cash balance</span><span className="num">{money(state.cashCents)}</span></div>
               <Trendline values={balances} tone="accent" />
             </div>
-            <div className="trend-cell">
-              <div className="trend-head"><span className="metalabel">Landing quality</span><span className="num">{fpms.length ? `${fpms[fpms.length - 1]} fpm` : '—'}</span></div>
-              <Trendline values={fpms} tone="pos" />
-            </div>
+            {scores.length > 1
+              ? <div className="trend-cell">
+                  <div className="trend-head"><span className="metalabel">Flight score</span><span className="num">{scores[scores.length - 1]}</span></div>
+                  <Trendline values={scores} tone="pos" />
+                </div>
+              : <div className="trend-cell">
+                  <div className="trend-head"><span className="metalabel">Landing quality</span><span className="num">{fpms.length ? `${fpms[fpms.length - 1]} fpm` : '—'}</span></div>
+                  <Trendline values={fpms} tone="pos" />
+                </div>}
           </div>
         </section>
       )}
@@ -3580,6 +3589,7 @@ function Logbook({ state }: { state: State }) {
                   <thead><tr>
                     <th>Route</th>
                     <th>Aircraft</th>
+                    <th className="r sortable" onClick={() => setSortKey('score')}>Score{sortMark(sort, 'score', asc)}</th>
                     <th className="r sortable" onClick={() => setSortKey('dist')}>Dist{sortMark(sort, 'dist', asc)}</th>
                     <th className="r sortable" onClick={() => setSortKey('dur')}>Time{sortMark(sort, 'dur', asc)}</th>
                     <th className="r sortable" onClick={() => setSortKey('fuel')}>Fuel{sortMark(sort, 'fuel', asc)}</th>
@@ -3595,6 +3605,7 @@ function Logbook({ state }: { state: State }) {
                         <tr key={f.id} className={`jrow ${selected === f.id ? 'on' : ''}`} onClick={() => setSelected(f.id)}>
                           <td><span className="jrow-type" style={{ background: m.color }} title={f.mission ? m.label : 'Flight'} /><span className="loc">{f.origin}</span> <span className="muted">→</span> <span className="loc">{f.dest}</span></td>
                           <td className="muted">{f.tail ? <span className="loc">{f.tail}</span> : f.aircraftTitle}</td>
+                          <td className={`r num ${f.overallScore == null ? 'muted' : f.scoreValid === false ? 'neg' : scoreTone(f.overallScore)}`} title={f.scoreValid === false ? 'Score voided' : undefined}>{f.overallScore ?? '—'}</td>
                           <td className="r num">{Math.round(f.distanceNm).toLocaleString()}</td>
                           <td className="r num">{hoursText(f.durationHours)}</td>
                           <td className="r num">{Math.round(f.fuelUsedLbs).toLocaleString()}</td>

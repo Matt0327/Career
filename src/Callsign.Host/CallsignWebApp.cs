@@ -1408,7 +1408,8 @@ public static class CallsignWebApp
                     a?.OriginIcao ?? "—", a?.DestIcao ?? "—", d?.Name ?? a?.DestIcao ?? "—",
                     f.DistanceNm, f.FuelUsedLbs, dur, f.TouchdownFpm, f.PayoutCents, f.Xp,
                     f.DepartedAt, f.ArrivedAt, f.SettledAt,
-                    o?.Latitude ?? 0, o?.Longitude ?? 0, d?.Latitude ?? 0, d?.Longitude ?? 0);
+                    o?.Latitude ?? 0, o?.Longitude ?? 0, d?.Latitude ?? 0, d?.Longitude ?? 0,
+                    f.OverallScore, f.ScoreValid);
             }));
         });
 
@@ -1416,16 +1417,19 @@ public static class CallsignWebApp
         app.MapGet("/api/flights/totals", async (CallsignDbContext db) =>
         {
             var f = await db.Flights
-                .Select(x => new { x.DepartedAt, x.ArrivedAt, x.DistanceNm, x.FuelUsedLbs, x.TouchdownFpm, x.PayoutCents, x.Xp })
+                .Select(x => new { x.DepartedAt, x.ArrivedAt, x.DistanceNm, x.FuelUsedLbs, x.TouchdownFpm, x.PayoutCents, x.Xp, x.OverallScore, x.ScoreValid })
                 .ToListAsync();
             if (f.Count == 0)
-                return Results.Ok(new FlightTotalsDto(0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
+                return Results.Ok(new FlightTotalsDto(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
             double hours = f.Sum(x => Math.Max(0, (x.ArrivedAt - x.DepartedAt).TotalHours));
+            // Lifetime flying QUALITY over scored, valid flights (the un-gameable measure — a cheated leg doesn't count).
+            var scored = f.Where(x => x.OverallScore.HasValue && (x.ScoreValid ?? true)).Select(x => x.OverallScore!.Value).ToList();
             return Results.Ok(new FlightTotalsDto(
                 f.Count, hours, f.Sum(x => x.DistanceNm), f.Sum(x => x.FuelUsedLbs),
                 f.Sum(x => x.PayoutCents), f.Sum(x => x.Xp),
                 f.Average(x => x.TouchdownFpm), f.Min(x => Math.Abs(x.TouchdownFpm)),
-                f.Max(x => x.PayoutCents), f.Max(x => x.DistanceNm)));
+                f.Max(x => x.PayoutCents), f.Max(x => x.DistanceNm),
+                scored.Count, scored.Count > 0 ? scored.Average() : 0, scored.Count > 0 ? scored.Max() : 0));
         });
 
         // One flight in full, incl. the itemised payout from the frozen breakdown JSON. The literal
