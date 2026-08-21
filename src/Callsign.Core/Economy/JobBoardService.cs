@@ -90,6 +90,11 @@ public sealed class JobBoardService
                 clientName = client.Name;
                 jobLift = hubPay;
             }
+            long reward = (long)Math.Round(g.RewardCents * demand * jobLift);
+            // Phase 12 — the cents your name added at this hub (11c), frozen for the board to show. Already part of
+            // the reward; this just makes the flywheel legible. Null off-hub / when the lift is neutral.
+            long noLift = (long)Math.Round(g.RewardCents * demand);
+            long? hubBonus = reward > noLift ? reward - noLift : null;
             _db.Jobs.Add(new Job
             {
                 Id = Guid.NewGuid(),
@@ -100,7 +105,8 @@ public sealed class JobBoardService
                 WeightLbs = g.WeightLbs,
                 Pax = g.Pax,
                 DistanceNm = g.DistanceNm,
-                RewardCents = (long)Math.Round(g.RewardCents * demand * jobLift),
+                RewardCents = reward,
+                HubRepBonusCents = hubBonus,
                 Xp = g.Xp,
                 RequiredRank = g.RequiredRank,
                 ClientKey = clientKey,

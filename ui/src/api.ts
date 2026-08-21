@@ -51,6 +51,7 @@ export interface Job {
   clientName?: string | null
   clientLoyaltyMilli: number // your standing with this client, 0..100000 (Phase 8d)
   expectedLoyaltyBonusCents: number // the repeat premium they'd pay on this job at current loyalty
+  hubRepBonusCents: number | null // Phase 12 — cents your reputation added at this hub (11c), already in the reward
 }
 
 export interface Assignment {

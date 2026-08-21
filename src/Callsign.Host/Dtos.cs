@@ -18,7 +18,8 @@ public record JobDto(
     double OriginLat, double OriginLon, double DestLat, double DestLon,
     string DestKind, int? DestLongestRunwayFt, long ExpectedLandingFeeCents,
     // The client behind the offer (Phase 8d) + your standing with them and the repeat premium it earns.
-    string? ClientName, int ClientLoyaltyMilli, long ExpectedLoyaltyBonusCents);
+    string? ClientName, int ClientLoyaltyMilli, long ExpectedLoyaltyBonusCents,
+    long? HubRepBonusCents); // Phase 12 — cents your reputation added because this board is at your hub (11c)
 
 public record AssignmentDto(
     Guid Id, string Type, string Origin, string Dest, string DestName, string Commodity, int WeightLbs, int Pax,

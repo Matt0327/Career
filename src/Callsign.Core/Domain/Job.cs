@@ -29,6 +29,11 @@ public sealed class Job
     /// <summary>Non-null when the job came from a base route (Phase 4); null for freelance.</summary>
     public Guid? SourceRouteId { get; set; }
 
+    /// <summary>Phase 12 — how many cents of this reward your OPERATING REPUTATION added because the board is at
+    /// one of your hubs (11c), frozen at posting alongside the reward. Purely for legibility — it's already part
+    /// of <see cref="RewardCents"/>; it makes the reputation→money flywheel visible. Null/0 off-hub.</summary>
+    public long? HubRepBonusCents { get; set; }
+
     public DateTimeOffset GeneratedAt { get; set; }
     public DateTimeOffset ExpiresAt { get; set; }
     public DateTimeOffset? LoadByAt { get; set; }

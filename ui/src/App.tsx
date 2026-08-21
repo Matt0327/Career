@@ -1101,7 +1101,7 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
                             </td>
                             <td className="r num">{Math.round(j.distanceNm)}</td>
                             <td className="r num">{isPaxType(j.type) ? `${j.pax}p` : `${(j.weightLbs / 1000).toFixed(1)}k`}</td>
-                            <td className="r num pos">{money(j.rewardCents)}{j.expectedLoyaltyBonusCents > 0 && <span className="jrow-bonus" title="Loyal client repeat premium"> +{money(j.expectedLoyaltyBonusCents)}</span>}</td>
+                            <td className="r num pos">{money(j.rewardCents)}{j.expectedLoyaltyBonusCents > 0 && <span className="jrow-bonus" title="Loyal client repeat premium"> +{money(j.expectedLoyaltyBonusCents)}</span>}{j.hubRepBonusCents != null && j.hubRepBonusCents > 0 && <span className="jrow-hub" title="Your operating reputation lifted the pay at this hub"> ⌂+{money(j.hubRepBonusCents)}</span>}</td>
                             <td className="r num">+{j.xp}</td>
                           </tr>
                         )
@@ -1204,6 +1204,7 @@ function JobDetail({ job, busy, onAccept }: { job: Job; busy: boolean; onAccept:
       </div>
       <div className="jd-pay">
         <div className="jd-payrow"><span>Reward</span><span className="num pos">{money(job.rewardCents)}</span></div>
+        {job.hubRepBonusCents != null && job.hubRepBonusCents > 0 && <div className="jd-payrow jd-sub"><span className="muted">⌂ Your reputation lifts this hub</span><span className="num pos">incl. +{money(job.hubRepBonusCents)}</span></div>}
         {job.expectedLoyaltyBonusCents > 0 && <div className="jd-payrow"><span className="muted">Loyal client bonus</span><span className="num pos">+{money(job.expectedLoyaltyBonusCents)}</span></div>}
         <div className="jd-payrow"><span className="muted">Est. landing fee</span><span className="num neg">-{money(job.expectedLandingFeeCents)}</span></div>
         <div className="jd-payrow jd-net"><span>Net</span><span className="num">{money(net)}</span></div>

@@ -469,7 +469,8 @@ public static class CallsignWebApp
                     j.RewardCents, j.Xp, reqName, rankLocked || repLocked || certLocked, reason, j.ExpiresAt,
                     o?.Latitude ?? 0, o?.Longitude ?? 0, d?.Latitude ?? 0, d?.Longitude ?? 0,
                     kind.ToString(), d?.LongestRunwayFt, cfg.LandingFeeCents(kind),
-                    j.ClientName, clientLoyalty, expBonus);
+                    j.ClientName, clientLoyalty, expBonus,
+                    j.HubRepBonusCents);
             }));
         });
 
