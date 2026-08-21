@@ -69,10 +69,16 @@ public sealed class SaveService
     /// <summary>Full path of a named backup, or null if the name is unknown or unsafe (no traversal).</summary>
     public string? ResolveBackup(string name)
     {
-        if (string.IsNullOrWhiteSpace(name) || name.Contains('/') || name.Contains('\\') || name.Contains(".."))
+        // Reject separators, parent refs, and colons (a drive letter like "C:x" or an alternate-data-stream
+        // "x:y" both escape without ever containing a slash), then CANONICALIZE and confirm the resolved path
+        // is genuinely inside BackupsDir — Path.Combine can otherwise send a drive-relative name elsewhere.
+        if (string.IsNullOrWhiteSpace(name) || name.Contains('/') || name.Contains('\\') || name.Contains("..") || name.Contains(':'))
             return null;
-        var path = Path.Combine(BackupsDir, name);
-        return File.Exists(path) ? path : null;
+        var root = Path.GetFullPath(BackupsDir);
+        var full = Path.GetFullPath(Path.Combine(root, name));
+        if (!full.StartsWith(root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            return null;
+        return File.Exists(full) ? full : null;
     }
 
     /// <summary>

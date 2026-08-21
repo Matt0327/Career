@@ -142,11 +142,29 @@ public static class CallsignWebApp
         }
         builder.Services.AddSingleton<Callsign.Core.World.WeatherProvider>(); // resolver: live-if-fresh-else-synthetic
 
-        builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
-
         var app = builder.Build();
-        app.UseCors();
         app.UseWebSockets();
+
+        // Same-origin guard (security): the SPA is served from this very Host, so the API needs NO cross-origin
+        // access — and must not grant it. Without this, any web page the user has open could drive the loopback
+        // API (read the signed-in account, push/pull the cloud save, wipe the career) via CSRF. We reject any
+        // /api request that carries a cross-origin Origin header; same-origin calls (no Origin, or Origin == this
+        // Host) and non-browser tools (no Origin) pass. The WebSocket and static UI are unaffected.
+        app.Use(async (ctx, next) =>
+        {
+            if (ctx.Request.Path.StartsWithSegments("/api"))
+            {
+                var origin = ctx.Request.Headers.Origin.ToString();
+                if (!string.IsNullOrEmpty(origin) &&
+                    !origin.EndsWith("//" + ctx.Request.Host.Value, StringComparison.OrdinalIgnoreCase))
+                {
+                    ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                    await ctx.Response.WriteAsJsonAsync(new { error = "Cross-origin API access is not allowed." });
+                    return;
+                }
+            }
+            await next();
+        });
 
         // --- Serve the built React UI (if present). API + WebSocket routes are matched first;
         //     any other path falls back to index.html so client-side navigation works. ---
@@ -174,7 +192,19 @@ public static class CallsignWebApp
             var db = scope.ServiceProvider.GetRequiredService<CallsignDbContext>();
             var pilot = db.Pilots.FirstOrDefault();
             if (pilot is not null)
-                scope.ServiceProvider.GetRequiredService<OperationsService>().ReconcileAsync(pilot.CompanyId).GetAwaiter().GetResult();
+            {
+                try
+                {
+                    scope.ServiceProvider.GetRequiredService<OperationsService>().ReconcileAsync(pilot.CompanyId).GetAwaiter().GetResult();
+                }
+                catch (Exception ex)
+                {
+                    // A reconcile fault must NEVER brick startup — an unhandled throw here would fail every
+                    // launch until the DB were hand-fixed. Log and start anyway; the next reconcile (the Ops
+                    // "Process now" button, or the next launch) picks the accrued window back up.
+                    app.Logger.LogError(ex, "Startup reconcile failed; starting without it.");
+                }
+            }
         }
 
         MapEndpoints(app, uiPath);
@@ -393,7 +423,9 @@ public static class CallsignWebApp
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null)
                 return Results.NotFound(new { error = "No career. POST /api/game/new first." });
-            var company = await db.Companies.FirstAsync(c => c.Id == pilot.CompanyId);
+            var company = await db.Companies.FirstOrDefaultAsync(c => c.Id == pilot.CompanyId);
+            if (company is null)
+                return Results.NotFound(new { error = "Career data is incomplete (no account). Restore a backup or start a new career." });
             var flights = await db.Flights.CountAsync();
             return Results.Ok(new StateDto(pilot.Name, pilot.Rank.ToString(), pilot.Xp, pilot.ReputationMilli,
                 pilot.CurrentIcao, pilot.HomeIcao, company.CashCents, company.Cash, flights));
@@ -510,10 +542,14 @@ public static class CallsignWebApp
             var record = new Callsign.Core.Flight.FlightRecord(
                 dto.AircraftTitle, dto.DepartedAt, dto.ArrivedAt, dto.TouchdownFpm, dto.MaxAltitudeFt,
                 dto.DepartureLat, dto.DepartureLon, dto.ArrivalLat, dto.ArrivalLon, dto.DistanceNm, dto.FuelUsedLbs, []);
-            var r = await svc.SettleAsync(id, record);
-            return Results.Ok(new SettlementDto(r.FlightId, r.PayoutCents, r.XpAwarded, r.PayloadMatched,
-                r.PromotedTo is { } pr ? RankTiers.Def(pr).DisplayName : null,
-                r.Breakdown.Lines.Select(l => new PayoutLineDto(l.Label, l.AmountCents)).ToList()));
+            try
+            {
+                var r = await svc.SettleAsync(id, record);
+                return Results.Ok(new SettlementDto(r.FlightId, r.PayoutCents, r.XpAwarded, r.PayloadMatched,
+                    r.PromotedTo is { } pr ? RankTiers.Def(pr).DisplayName : null,
+                    r.Breakdown.Lines.Select(l => new PayoutLineDto(l.Label, l.AmountCents)).ToList()));
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
         app.MapGet("/api/roster", async (CallsignDbContext db) =>
@@ -1613,7 +1649,8 @@ public static class CallsignWebApp
             var st = await airline.GetStandingAsync(pilot.CompanyId, pilot.Id);
             // Phase 11a — the operating-reputation figure + a two-source ("your flying / your crew") split over the
             // recent log, so the tab can show what's moving the name and coach a fall (never a red penalty).
-            var company = await db.Companies.FirstAsync(c => c.Id == pilot.CompanyId);
+            var company = await db.Companies.FirstOrDefaultAsync(c => c.Id == pilot.CompanyId);
+            if (company is null) return Results.NotFound(new { error = "Career data is incomplete (no account)." });
             var recent = await db.AirlineReputationEvents
                 .Where(e => e.CompanyId == pilot.CompanyId)
                 .OrderByDescending(e => e.Id).Take(8).ToListAsync();
@@ -1658,8 +1695,15 @@ public static class CallsignWebApp
         // --- Save management: back up on demand, list/export snapshots, stage a restore for next launch ---
         app.MapPost("/api/save/backup", async (CallsignDbContext db, SaveService saves) =>
         {
-            var info = await saves.BackupAsync(db, DateTime.UtcNow);
-            return Results.Ok(new { info.Name, info.SizeBytes, info.CreatedUtc });
+            try
+            {
+                var info = await saves.BackupAsync(db, DateTime.UtcNow);
+                return Results.Ok(new { info.Name, info.SizeBytes, info.CreatedUtc });
+            }
+            catch (Exception ex) // disk full / locked / permission — report cleanly instead of a raw 500
+            {
+                return Results.Problem($"Couldn't write the backup: {ex.Message}", statusCode: StatusCodes.Status500InternalServerError);
+            }
         });
 
         app.MapGet("/api/save/backups", (SaveService saves) =>
