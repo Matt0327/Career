@@ -474,6 +474,19 @@ export interface Staff {
   flying: boolean            // Phase 12 — crewing a live line (can't be repositioned/let go until freed)
 }
 
+export interface DispatchLeg {
+  id: string
+  crewName: string
+  tail: string
+  origin: string
+  dest: string
+  distanceNm: number
+  rewardCents: number
+  dispatchedAt: string
+  readyAt: string
+  ready: boolean // true once the leg's duty-scaled flight time has elapsed (banked at the next reconcile)
+}
+
 export interface StandingOrder {
   id: string
   staffName: string
@@ -991,6 +1004,10 @@ export const api = {
   refreshJobs: (count = 8) => POST(`/api/jobs/refresh?count=${count}`).then(ok),
   jobs: () => fetch('/api/jobs').then(ok<Job[]>),
   accept: (id: string) => POST(`/api/jobs/${id}/accept`).then(ok),
+  dispatchJob: (jobId: string, staffId: string, aircraftInstanceId: string) =>
+    POST(`/api/jobs/${jobId}/dispatch`, { staffId, aircraftInstanceId }).then(ok<{ legId: string; dest: string; readyAt: string; rewardCents: number }>),
+  dispatches: () => fetch('/api/ops/dispatches').then(ok<DispatchLeg[]>),
+  cancelDispatch: (id: string) => POST(`/api/ops/dispatches/${id}/cancel`).then(ok),
   assignments: () => fetch('/api/assignments').then(ok<Assignment[]>),
   beginFlight: (assignmentId: string, aircraftInstanceId?: string) =>
     POST('/api/flight/begin', { assignmentId, aircraftInstanceId }).then(ok),

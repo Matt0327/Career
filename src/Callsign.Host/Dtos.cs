@@ -112,6 +112,9 @@ public record StaffCandidateDto(int Seed, string Name, long WagePerDayCents, int
 public record StaffDto(Guid Id, string Name, long WagePerDayCents, int SkillMilli, string? CurrentIcao, bool Flying);
 public record HireRequest(int CandidateSeed);
 public record RelocateCrewRequest(string DestIcao);
+public record DispatchJobRequest(Guid StaffId, Guid AircraftInstanceId);
+public record DispatchLegDto(Guid Id, string CrewName, string Tail, string Origin, string Dest, double DistanceNm,
+    long RewardCents, string DispatchedAt, string ReadyAt, bool Ready);
 public record StandingOrderDto(
     Guid Id, string StaffName, string Tail, string Origin, string Dest,
     double DistanceNm, double RoundTripHours, long RewardPerTripCents,

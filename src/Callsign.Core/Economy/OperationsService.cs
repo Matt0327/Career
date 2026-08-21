@@ -2,6 +2,7 @@ using Callsign.Core.Airports;
 using Callsign.Core.Data;
 using Callsign.Core.Domain;
 using Callsign.Core.Geo;
+using Callsign.Core.Progression;
 using Callsign.Core.Time;
 using Callsign.Core.World;
 using Microsoft.EntityFrameworkCore;
@@ -82,10 +83,12 @@ public sealed class OperationsService
         return staff;
     }
 
-    /// <summary>True if a pilot already crews an active standing order or route — one crew flies one line (Phase 7f).</summary>
+    /// <summary>True if a pilot already crews an active standing order, route, or a dispatched leg still in the air
+    /// — one crew flies one line (Phase 7f), and a dispatched crew is a line too (Phase 12).</summary>
     public async Task<bool> CrewAlreadyFlyingAsync(Guid staffId, CancellationToken ct = default)
         => await _db.StandingOrders.AnyAsync(o => o.StaffId == staffId && o.IsActive && !o.IsDeleted, ct)
-        || await _db.Routes.AnyAsync(r => r.StaffId == staffId && r.Active && !r.IsDeleted, ct);
+        || await _db.Routes.AnyAsync(r => r.StaffId == staffId && r.Active && !r.IsDeleted, ct)
+        || await _db.DispatchLegs.AnyAsync(d => d.StaffId == staffId && d.Status == DispatchStatus.Flying && !d.IsDeleted, ct);
 
     /// <summary>Assign a pilot + an owned aircraft to a repeating route (its reward frozen at economy price).</summary>
     public async Task<StandingOrder> CreateStandingOrderAsync(
@@ -208,6 +211,103 @@ public sealed class OperationsService
         // and then the co-location gate would strand them there, unable to re-crew the aircraft or move back.
         var crew = await _db.Staff.FirstOrDefaultAsync(s => s.Id == order.StaffId, ct);
         if (crew is not null) { crew.CurrentIcao = order.OriginIcao; crew.UpdatedAt = now; }
+        await _db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Dispatch a hired crew + an aircraft to fly a board JOB autonomously as a ONE-WAY leg (Phase 12). The job is
+    /// frozen off the board and removed from it; the crew + aircraft must be co-located at the job's origin and the
+    /// crew rated for the type; a premium mission needs the company's operating certificate. A RENTAL is allowed
+    /// (unlike the perpetual paths) — the leg accrues airframe hours, so the rental's usage fee bills and the leg
+    /// is strictly less profitable than in an owned tail. Settled at the next reconcile, which relocates BOTH the
+    /// aircraft and the crew to the destination.
+    /// </summary>
+    public async Task<DispatchLeg> DispatchJobAsync(Guid companyId, Guid jobId, Guid staffId, Guid aircraftId, CancellationToken ct = default)
+    {
+        var job = await _db.Jobs.FirstOrDefaultAsync(j => j.Id == jobId, ct)
+                  ?? throw new InvalidOperationException("That job is no longer on the board.");
+        var staff = await _db.Staff.FirstOrDefaultAsync(s => s.Id == staffId && s.CompanyId == companyId && s.IsActive && !s.IsDeleted, ct)
+                    ?? throw new InvalidOperationException("Pilot not found.");
+        if (await CrewAlreadyFlyingAsync(staffId, ct))
+            throw new InvalidOperationException($"{staff.Name} already flies a line — dispatch a different pilot or hire one.");
+        var aircraft = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == aircraftId && a.CompanyId == companyId && !a.IsDeleted, ct)
+                       ?? throw new InvalidOperationException("Aircraft not found in your fleet.");
+        if (aircraft.Availability != AircraftAvailability.Available)
+            throw new InvalidOperationException("That aircraft isn't available.");
+        // A rented tail is fine (its per-flight-hour usage fee keeps a dispatched leg strictly less profitable
+        // than an owned one), but a LEASE isn't: a lease bills a flat weekly rate with NO per-hour usage fee, so
+        // a leased leg would only TIE an owned one's margin. Fly a lease by hand, or dispatch an owned/rented tail.
+        if (aircraft.Ownership != OwnershipKind.Owned
+            && await _db.RentalAgreements.AnyAsync(g => g.AircraftInstanceId == aircraft.Id && g.Status == RentalStatus.Active && g.Kind == RentalKind.Lease, ct))
+            throw new InvalidOperationException("A leased aircraft can't be dispatched — fly it yourself, or use an owned or rented tail.");
+
+        // The same board-eligibility gates the ACCEPT path enforces (JobAssignmentService), re-checked here so a
+        // stale board or a crafted request can't dispatch a crew onto a job the player is locked out of — a job
+        // above their rank, or a reputation-gated Emergency/SAR run. Crew skill must never unlock those (L12).
+        var pilot = await _db.Pilots.FirstOrDefaultAsync(p => p.CompanyId == companyId, ct);
+        if (pilot is not null)
+        {
+            if (pilot.Rank < job.RequiredRank)
+                throw new InvalidOperationException($"{RankTiers.Def(job.RequiredRank).DisplayName} required — a locked job can't be dispatched.");
+            var missionDef = MissionCatalog.Def(job.Type);
+            if (pilot.ReputationMilli < missionDef.MinReputationMilli)
+                throw new InvalidOperationException($"Requires reputation {missionDef.MinReputationMilli / 1000.0:0.0} — a locked job can't be dispatched.");
+        }
+
+        // Co-location: crew + aircraft must both be AT the job's origin to depart it. Un-positioned legacy crew
+        // (null CurrentIcao) grandfather in and are placed at the origin below.
+        if (!string.Equals(aircraft.LocationIcao, job.OriginIcao, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"The aircraft is at {aircraft.LocationIcao}, but this job departs {job.OriginIcao} — ferry it there first.");
+        if (!string.IsNullOrEmpty(staff.CurrentIcao) && !string.Equals(staff.CurrentIcao, job.OriginIcao, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"{staff.Name} is at {staff.CurrentIcao}, but this job departs {job.OriginIcao} — reposition them there first (Crew tab).");
+
+        var type = await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == aircraft.TypeId, ct);
+        int need = _cfg.MinSkillMilliForCategory(type?.Category ?? AircraftCategory.Unknown);
+        if (staff.SkillMilli < need)
+            throw new InvalidOperationException($"{staff.Name} ({staff.SkillMilli / 1000}%) isn't rated for the {type!.Category} — dispatch a pilot at {need / 1000}%+.");
+        if (CertificateCatalog.RequiredFor(job.Type) is { } reqCert
+            && !await _db.OperatingCertificates.AnyAsync(c => c.CompanyId == companyId && c.Kind == reqCert && c.ExpiresAt > _clock.UtcNow, ct))
+            throw new InvalidOperationException($"{CertificateCatalog.Def(reqCert).DisplayName} required — apply in the Airline tab.");
+
+        double cruise = type?.CruiseKtas ?? 150;
+        double oneWayHours = job.DistanceNm / Math.Max(60, cruise);
+        var now = _clock.UtcNow;
+        // A rented tail earns NO hub-reputation premium — that lift is for your OWN fleet's freelance work (11c/11d).
+        long reward = aircraft.Ownership == OwnershipKind.Owned ? job.RewardCents : job.RewardCents - (job.HubRepBonusCents ?? 0);
+
+        var leg = new DispatchLeg
+        {
+            Id = Guid.NewGuid(), CompanyId = companyId, StaffId = staffId, AircraftInstanceId = aircraftId, JobId = job.Id,
+            Type = job.Type, OriginIcao = job.OriginIcao, DestIcao = job.DestIcao, Commodity = job.Commodity ?? "",
+            WeightLbs = job.WeightLbs, Pax = job.Pax, DistanceNm = job.DistanceNm, OneWayHours = oneWayHours,
+            RewardCents = Math.Max(0, reward), ClientKey = job.ClientKey, ClientName = job.ClientName,
+            Status = DispatchStatus.Flying, DispatchedAt = now,
+            ReadyAt = now.AddHours(oneWayHours * 24.0 / Math.Max(1, _cfg.MaxDutyHoursPerDay)),
+            UpdatedAt = now,
+        };
+        _db.DispatchLegs.Add(leg);
+        aircraft.Availability = AircraftAvailability.Reserved;
+        aircraft.UpdatedAt = now;
+        staff.CurrentIcao = job.OriginIcao; // positions a grandfathered crew at the departure field
+        staff.UpdatedAt = now;
+        _db.Jobs.Remove(job); // committed to the crew — off the board (like accepting it)
+        await _db.SaveChangesAsync(ct);
+        return leg;
+    }
+
+    /// <summary>Recall a dispatched leg still in the air: the job is forfeited (it already left the board), the tail
+    /// is freed at its origin (a Flying leg never departed), and the crew stays put. Reconcile-first banks a leg
+    /// that just landed. Idempotent — a no-op if the leg already completed or was recalled.</summary>
+    public async Task CancelDispatchAsync(Guid companyId, Guid legId, CancellationToken ct = default)
+    {
+        await ReconcileAsync(companyId, ct); // bank it if it just completed
+        var leg = await _db.DispatchLegs.FirstOrDefaultAsync(d => d.Id == legId && d.CompanyId == companyId, ct);
+        if (leg is null || leg.Status != DispatchStatus.Flying || leg.IsDeleted) return;
+        var now = _clock.UtcNow;
+        leg.IsDeleted = true;
+        leg.UpdatedAt = now;
+        var aircraft = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == leg.AircraftInstanceId, ct);
+        if (aircraft is not null && aircraft.Availability == AircraftAvailability.Reserved) { aircraft.Availability = AircraftAvailability.Available; aircraft.UpdatedAt = now; }
         await _db.SaveChangesAsync(ct);
     }
 
@@ -410,6 +510,73 @@ public sealed class OperationsService
             SharpenCrew(soCrew, flown, now);
             repPullRaw += _cfg.OperatingRepCrewPullMilli(repStartMilli, soCrewSkillFlown, flown); // Phase 11a
             repFracSum += _cfg.OperatingRepConvergeFrac(flown);
+        }
+
+        // Phase 12 — dispatched one-off crew JOBS (one-way legs). A leg completes once its duty-scaled flight time
+        // has elapsed (ReadyAt), then it books ONCE (dedupe dispatch:{id}) through the same machinery as the round-
+        // trip lines: RollTrips decides the outcome from crew skill, landing fees bill (waived at your bases), the
+        // airframe accrues its hours + wear — CRUCIALLY before the rental billing loop below, so a rented tail's
+        // usage fee bills these hours — and BOTH the aircraft and the crew relocate ONE-WAY to the destination.
+        // The company's currently-valid operating certificates — so a premium dispatched leg (VIP/hazmat) held
+        // past its ReadyAt while the cert expires can't settle on a lapsed cert. HELD, not forfeited (it was
+        // authorised when dispatched, and the airworthiness pattern above holds rather than forfeits) — L9.
+        var validDispatchCerts = (await _db.OperatingCertificates.Where(c => c.CompanyId == companyId && c.ExpiresAt > now).Select(c => c.Kind).ToListAsync(ct)).ToHashSet();
+        foreach (var leg in await _db.DispatchLegs.Where(d => d.CompanyId == companyId && d.Status == DispatchStatus.Flying && !d.IsDeleted).ToListAsync(ct))
+        {
+            if (leg.ReadyAt > now)
+                continue; // still en route — the duty-scaled flight time hasn't elapsed yet
+            var legAircraft = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == leg.AircraftInstanceId, ct);
+            if (legAircraft is not null && AircraftDealerService.AirworthinessOf(legAircraft, _cfg, now) is { Airworthy: false } legAw)
+            {
+                grounded.Add($"{legAircraft.Tail} — {legAw.Reason}"); // hold the leg until the tail is serviced
+                continue;
+            }
+            if (CertificateCatalog.RequiredFor(leg.Type) is { } legCert && !validDispatchCerts.Contains(legCert))
+            {
+                grounded.Add($"{legAircraft?.Tail ?? leg.OriginIcao} — {CertificateCatalog.Def(legCert).DisplayName} lapsed, renew to fly");
+                continue; // hold the leg until the certificate is renewed
+            }
+            var legCrew = await _db.Staff.FirstOrDefaultAsync(s => s.Id == leg.StaffId, ct);
+            int legSkill = legCrew?.SkillMilli ?? 50_000;
+            // One leg at the fair rate (markup 1000 → pFill 1.0: an accepted job never flies empty). Crew skill
+            // still decides clean / minor scuff / diversion (half pay) / lost trip, seeded off the leg id.
+            var roll = RollTrips(_cfg, leg.Id, leg.DispatchedAt.UtcTicks, 1, legSkill, leg.RewardCents);
+            var oAir = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == leg.OriginIcao, ct);
+            var dAir = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == leg.DestIcao, ct);
+            long fees = (oAir is not null && !baseIcaos.Contains(leg.OriginIcao) ? _cfg.LandingFeeCents(oAir.Kind) : 0)
+                      + (dAir is not null && !baseIcaos.Contains(leg.DestIcao) ? _cfg.LandingFeeCents(dAir.Kind) : 0);
+            var postings = new List<LedgerPosting>
+            {
+                new(LedgerCategory.JobPayout, roll.Income / 100m, $"Dispatch {leg.OriginIcao}→{leg.DestIcao} ({leg.ClientName ?? leg.Commodity})",
+                    AircraftInstanceId: leg.AircraftInstanceId, StaffId: leg.StaffId, DedupeKey: $"dispatch:{leg.Id}"),
+            };
+            if (fees > 0)
+                postings.Add(new(LedgerCategory.AirportFee, -(fees / 100m), $"Landing fees {leg.OriginIcao}→{leg.DestIcao}",
+                    AircraftInstanceId: leg.AircraftInstanceId, DedupeKey: $"dispatch:{leg.Id}:fee"));
+            await _ledger.StageBatchAsync(companyId, postings, ct);
+
+            if (legAircraft is not null)
+            {
+                legAircraft.AirframeHours += leg.OneWayHours;
+                int wear = (int)Math.Round(leg.OneWayHours * _cfg.ConditionWearMilliPerHour) + roll.ExtraWearMilli;
+                legAircraft.HullConditionMilli = Math.Max(0, legAircraft.HullConditionMilli - wear);
+                legAircraft.EngineConditionMilli = Math.Max(0, legAircraft.EngineConditionMilli - wear);
+                legAircraft.LocationIcao = leg.DestIcao;                       // one-way: the tail is now at the destination
+                legAircraft.Availability = AircraftAvailability.Available;     // and free for its next task
+                legAircraft.UpdatedAt = now;
+            }
+            if (legCrew is not null) { legCrew.CurrentIcao = leg.DestIcao; legCrew.UpdatedAt = now; } // the crew flew there too
+            SharpenCrew(legCrew, 1, now);
+            repPullRaw += _cfg.OperatingRepCrewPullMilli(repStartMilli, legSkill, 1); // legSkill captured BEFORE SharpenCrew
+            repFracSum += _cfg.OperatingRepConvergeFrac(1);
+
+            leg.Status = DispatchStatus.Flown;
+            leg.FlownAt = now;
+            leg.UpdatedAt = now;
+            totalTrips += 1;
+            grossIncome += roll.Income;
+            totalFees += fees;
+            totalIncidents += roll.Incidents;
         }
 
         foreach (var s in await _db.Staff.Where(s => s.CompanyId == companyId && s.IsActive && !s.IsDeleted).ToListAsync(ct))

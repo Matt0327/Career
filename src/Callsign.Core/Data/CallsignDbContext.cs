@@ -24,6 +24,7 @@ public sealed class CallsignDbContext : DbContext
     public DbSet<AircraftInstance> AircraftInstances => Set<AircraftInstance>();
     public DbSet<Staff> Staff => Set<Staff>();
     public DbSet<StandingOrder> StandingOrders => Set<StandingOrder>();
+    public DbSet<DispatchLeg> DispatchLegs => Set<DispatchLeg>();
     public DbSet<Base> Bases => Set<Base>();
     public DbSet<InventoryLot> InventoryLots => Set<InventoryLot>();
     public DbSet<MarketPressure> MarketPressures => Set<MarketPressure>();
@@ -203,6 +204,21 @@ public sealed class CallsignDbContext : DbContext
         order.HasOne<Company>().WithMany().HasForeignKey(o => o.CompanyId).OnDelete(DeleteBehavior.Restrict);
         order.HasOne<Staff>().WithMany().HasForeignKey(o => o.StaffId).OnDelete(DeleteBehavior.Restrict);
         order.HasOne<AircraftInstance>().WithMany().HasForeignKey(o => o.AircraftInstanceId).OnDelete(DeleteBehavior.Restrict);
+
+        // Phase 12 — a dispatched one-off crew leg (a board job flown autonomously, one-way).
+        var dispatch = model.Entity<DispatchLeg>();
+        dispatch.HasKey(d => d.Id);
+        dispatch.Property(d => d.OriginIcao).IsRequired().HasMaxLength(12);
+        dispatch.Property(d => d.DestIcao).IsRequired().HasMaxLength(12);
+        dispatch.Property(d => d.Commodity).HasMaxLength(60);
+        dispatch.Property(d => d.ClientKey).HasMaxLength(80);
+        dispatch.Property(d => d.ClientName).HasMaxLength(80);
+        dispatch.Property(d => d.Type).HasConversion<string>().HasMaxLength(24);
+        dispatch.Property(d => d.Status).HasConversion<string>().HasMaxLength(12);
+        dispatch.HasIndex(d => d.CompanyId);
+        dispatch.HasOne<Company>().WithMany().HasForeignKey(d => d.CompanyId).OnDelete(DeleteBehavior.Restrict);
+        dispatch.HasOne<Staff>().WithMany().HasForeignKey(d => d.StaffId).OnDelete(DeleteBehavior.Restrict);
+        dispatch.HasOne<AircraftInstance>().WithMany().HasForeignKey(d => d.AircraftInstanceId).OnDelete(DeleteBehavior.Restrict);
 
         var companyBase = model.Entity<Base>();
         companyBase.HasKey(b => b.Id);

@@ -4,7 +4,7 @@ import {
   type Achievement, type AircraftHistory, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type CertificateStatus, type Client, type CheckFlightDone, type CloudSaveMeta, type CloudStatus, type Diverted,
   type FinancesData, type FinanceDetail, type AttributionLine, type CashPoint, type StatementRow, type FlightLog, type FlightDetail, type FlightTotals, type Insurance, type Inventory, type Job, type LeaderboardRow, type LedgerEntry, type LiveEvent, type Loan, type LoanOffer, type Loans,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
-  type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type UsedListing, type VersionInfo, type Weather, type WorldState, type WsEvent,
+  type DispatchLeg, type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type UsedListing, type VersionInfo, type Weather, type WorldState, type WsEvent,
   type RentalOffer, type ActiveRental, type LeaseOffer, type ActiveLease,
 } from './api'
 import { loadPrefs, savePrefs, type Prefs, type Theme } from './prefs'
@@ -1355,6 +1355,8 @@ function deadline(iso: string): string {
 
 function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
   const [jobs, setJobs] = useState<Job[] | null>(null)
+  const [staff, setStaff] = useState<Staff[]>([])
+  const [fleet, setFleet] = useState<OwnedAircraft[]>([])
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
@@ -1365,7 +1367,11 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
   const [asc, setAsc] = useState(true)
 
   const load = useCallback(async () => {
-    try { setJobs(await api.jobs()) } catch (e) { setMsg(String(e)) }
+    try {
+      setJobs(await api.jobs())
+      setStaff(await api.staff())      // Phase 12 — for dispatching a hired crew to fly a job
+      setFleet(await api.hangar())
+    } catch (e) { setMsg(String(e)) }
   }, [])
   useEffect(() => { void load() }, [load])
 
@@ -1377,6 +1383,11 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
     setBusy(true); setMsg(null)
     try { await api.accept(id); await load(); onChanged(); setMsg('Accepted — head to the Flight tab to fly it.'); setSelected(null) }
     catch (e) { setMsg(String(e)) } finally { setBusy(false) }
+  }
+  const dispatch = async (jobId: string, staffId: string, aircraftId: string) => {
+    setBusy(true); setMsg(null)
+    try { await api.dispatchJob(jobId, staffId, aircraftId); await load(); onChanged(); setMsg('Dispatched — the crew flies it autonomously. Bank it from the Staff tab (Process now).'); setSelected(null) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
 
   const all = jobs ?? []
@@ -1456,7 +1467,7 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
                   </table>
                 </div>
                 <div className="jobs-side">
-                  {sel ? <JobDetail job={sel} busy={busy} onAccept={accept} /> : <div className="card jobs-pick"><div className="empty">Select a job for the full briefing.</div></div>}
+                  {sel ? <JobDetail job={sel} busy={busy} onAccept={accept} staff={staff} fleet={fleet} onDispatch={dispatch} /> : <div className="card jobs-pick"><div className="empty">Select a job for the full briefing.</div></div>}
                   <JobsMap jobs={shown} selectedId={selected} onSelect={setSelected} />
                 </div>
               </div>
@@ -1519,7 +1530,16 @@ function Clients() {
   )
 }
 
-function JobDetail({ job, busy, onAccept }: { job: Job; busy: boolean; onAccept: (id: string) => void }) {
+function JobDetail({ job, busy, onAccept, staff, fleet, onDispatch }: {
+  job: Job; busy: boolean; onAccept: (id: string) => void
+  staff: Staff[]; fleet: OwnedAircraft[]; onDispatch: (jobId: string, staffId: string, aircraftId: string) => void
+}) {
+  const [dStaff, setDStaff] = useState('')
+  const [dAircraft, setDAircraft] = useState('')
+  // Phase 12 — a hired crew + an aircraft, BOTH co-located at the job's origin, can fly it autonomously.
+  const eligibleCrew = staff.filter(s => !s.flying && (!s.currentIcao || s.currentIcao === job.origin))
+  const eligibleAircraft = fleet.filter(f => f.availability === 'Available' && f.locationIcao === job.origin)
+  const canDispatch = !job.locked && eligibleCrew.length > 0 && eligibleAircraft.length > 0
   const m = missionMeta(job.type)
   const geo = (job.originLat || job.originLon) && (job.destLat || job.destLon)
   const hdg = geo ? Math.round(bearing([job.originLat, job.originLon], [job.destLat, job.destLon])) : null
@@ -1558,6 +1578,16 @@ function JobDetail({ job, busy, onAccept }: { job: Job; busy: boolean; onAccept:
       {job.locked
         ? <div className="banner warn">🔒 {job.lockReason}</div>
         : <button className="primary jd-accept" disabled={busy} onClick={() => onAccept(job.id)}>Accept this job</button>}
+      {canDispatch && (
+        <div className="jd-dispatch">
+          <div className="metalabel">Or dispatch a hired crew — they fly it while you're away (one-way)</div>
+          <div className="dispatch-form">
+            <select value={dStaff} onChange={e => setDStaff(e.target.value)}><option value="">Crew…</option>{eligibleCrew.map(s => <option key={s.id} value={s.id}>{s.name} · {Math.round(s.skillMilli / 1000)}%</option>)}</select>
+            <select value={dAircraft} onChange={e => setDAircraft(e.target.value)}><option value="">Aircraft…</option>{eligibleAircraft.map(f => <option key={f.id} value={f.id}>{f.tail}{f.ownership === 'Rented' ? ' (rental)' : ''}</option>)}</select>
+            <button className="ghost" disabled={busy || !dStaff || !dAircraft} onClick={() => onDispatch(job.id, dStaff, dAircraft)}>Dispatch</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -2777,6 +2807,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
   const [oAircraft, setOAircraft] = useState('')
   const [oDest, setODest] = useState('')
   const [oMarkup, setOMarkup] = useState(1000)
+  const [dispatches, setDispatches] = useState<DispatchLeg[]>([])
   const [routes, setRoutes] = useState<RouteData | null>(null)
   const [rName, setRName] = useState('')
   const [rOrigin, setROrigin] = useState('')
@@ -2796,6 +2827,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
       const uniq = new Map((await api.jobs()).map(j => [j.dest, j.destName]))
       setDests(Array.from(uniq, ([icao, name]) => ({ icao, name })))
       setRoutes(await api.routes())
+      setDispatches(await api.dispatches())
     } catch (e) { setMsg(cleanErr(e)) }
   }, [])
   useEffect(() => { void load() }, [load])
@@ -2817,6 +2849,11 @@ function Ops({ onChanged }: { onChanged: () => void }) {
   const repriceRoute = async (id: string, milli: number) => {
     setBusy(true); setMsg(null)
     try { await api.setRoutePrice(id, milli); await load(); onChanged() }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+  const cancelDispatch = async (id: string) => {
+    setBusy(true); setMsg(null)
+    try { await api.cancelDispatch(id); await load(); onChanged() }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
   const cancelRoute = async (id: string) => {
@@ -2949,6 +2986,25 @@ function Ops({ onChanged }: { onChanged: () => void }) {
           </>
         )}
       </section>
+
+      {dispatches.length > 0 && (
+        <section className="card">
+          <div className="row-head"><h2>Crew dispatches</h2><span className="hint">One-off jobs your crews are flying — banked by Process now</span></div>
+          <table className="tbl">
+            <thead><tr><th>Crew</th><th>Tail</th><th>Leg</th><th>Status</th><th className="r">Reward</th><th className="r"></th></tr></thead>
+            <tbody>{dispatches.map(d => (
+              <tr key={d.id}>
+                <td>{d.crewName}</td>
+                <td className="loc">{d.tail}</td>
+                <td className="loc">{d.origin} → {d.dest} <span className="muted num">· {Math.round(d.distanceNm)} nm</span></td>
+                <td>{d.ready ? <span className="pos">landed · ready to bank</span> : <span className="muted">{dueText(d.readyAt)}</span>}</td>
+                <td className="r num pos">{money(d.rewardCents)}</td>
+                <td className="r"><button className="linky" disabled={busy} onClick={() => cancelDispatch(d.id)}>Recall</button></td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </section>
+      )}
 
       <section className="card">
         <h2>Your crew</h2>

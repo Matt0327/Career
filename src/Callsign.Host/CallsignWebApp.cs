@@ -526,6 +526,19 @@ public static class CallsignWebApp
             catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
+        // Phase 12 — hand a board job to a hired crew to fly autonomously (one-way), instead of hand-flying it.
+        app.MapPost("/api/jobs/{id:guid}/dispatch", async (Guid id, DispatchJobRequest req, CallsignDbContext db, OperationsService ops) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                var leg = await ops.DispatchJobAsync(pilot.CompanyId, id, req.StaffId, req.AircraftInstanceId);
+                return Results.Ok(new { legId = leg.Id, dest = leg.DestIcao, readyAt = leg.ReadyAt, rewardCents = leg.RewardCents });
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
         app.MapGet("/api/assignments", async (CallsignDbContext db, EconomyConfig cfg) =>
         {
             var list = await db.JobAssignments.Where(a => a.Status == AssignmentStatus.Accepted).ToListAsync();
@@ -964,6 +977,7 @@ public static class CallsignWebApp
             // Which pilots are committed to a live line (so the UI can gate reposition/dismiss + show status).
             var flyingIds = new HashSet<Guid>(await db.StandingOrders.Where(o => o.CompanyId == pilot.CompanyId && o.IsActive && !o.IsDeleted).Select(o => o.StaffId).ToListAsync());
             flyingIds.UnionWith(await db.Routes.Where(r => r.CompanyId == pilot.CompanyId && r.Active && !r.IsDeleted).Select(r => r.StaffId).ToListAsync());
+            flyingIds.UnionWith(await db.DispatchLegs.Where(d => d.CompanyId == pilot.CompanyId && d.Status == DispatchStatus.Flying && !d.IsDeleted).Select(d => d.StaffId).ToListAsync()); // Phase 12 — a dispatched crew is flying too
             return Results.Ok(staff.Select(s => new StaffDto(s.Id, s.Name, s.WagePerDayCents, s.SkillMilli, s.CurrentIcao, flyingIds.Contains(s.Id))));
         });
 
@@ -1054,6 +1068,29 @@ public static class CallsignWebApp
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             await ops.CancelStandingOrderAsync(pilot.CompanyId, id);
+            return Results.Ok(new { cancelled = id });
+        });
+
+        // Phase 12 — dispatched crew jobs currently in the air (banked by the same Process-now reconcile).
+        app.MapGet("/api/ops/dispatches", async (CallsignDbContext db, IClock clock) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var legs = await db.DispatchLegs.Where(d => d.CompanyId == pilot.CompanyId && d.Status == DispatchStatus.Flying && !d.IsDeleted).ToListAsync();
+            var crew = (await db.Staff.Where(s => s.CompanyId == pilot.CompanyId).ToListAsync()).ToDictionary(s => s.Id, s => s.Name);
+            var tails = (await db.AircraftInstances.Where(a => a.CompanyId == pilot.CompanyId).ToListAsync()).ToDictionary(a => a.Id, a => a.Tail);
+            var now = clock.UtcNow;
+            return Results.Ok(legs
+                .OrderBy(d => d.ReadyAt)
+                .Select(d => new DispatchLegDto(d.Id, crew.GetValueOrDefault(d.StaffId, "—"), tails.GetValueOrDefault(d.AircraftInstanceId, "—"),
+                    d.OriginIcao, d.DestIcao, d.DistanceNm, d.RewardCents, d.DispatchedAt.ToString("o"), d.ReadyAt.ToString("o"), d.ReadyAt <= now)));
+        });
+
+        app.MapPost("/api/ops/dispatches/{id:guid}/cancel", async (Guid id, CallsignDbContext db, OperationsService ops) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            await ops.CancelDispatchAsync(pilot.CompanyId, id);
             return Results.Ok(new { cancelled = id });
         });
 
