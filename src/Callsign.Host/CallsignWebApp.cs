@@ -1126,7 +1126,7 @@ public static class CallsignWebApp
         });
 
         // --- Routes (Phase 4d) ---
-        app.MapGet("/api/routes", async (CallsignDbContext db, RouteService routes, BaseService bases, EconomyConfig cfg) =>
+        app.MapGet("/api/routes", async (CallsignDbContext db, RouteService routes, BaseService bases, EconomyConfig cfg, IClock clock) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
@@ -1134,6 +1134,8 @@ public static class CallsignWebApp
             var baseViews = await bases.GetBasesAsync(pilot.CompanyId);
             var missions = MissionCatalog.All.Where(d => d.MinReputationMilli == 0 && d.ReputationMilliReward >= 0)
                 .Select(d => d.Type.ToString()).ToList();
+            // Phase 11f — whether we hold a valid Air Operator Certificate, so the UI can offer scheduled service.
+            bool hasAoc = await db.OperatingCertificates.AnyAsync(c => c.CompanyId == pilot.CompanyId && c.Kind == CertificateKind.AirOperator && c.ExpiresAt > clock.UtcNow);
             return Results.Ok(new
             {
                 routes = active.Select(r =>
@@ -1141,10 +1143,12 @@ public static class CallsignWebApp
                     long effReward = (long)Math.Round(r.RewardPerTripCents * (r.PriceMultiplierMilli / 1000.0));
                     int fillPct = (int)Math.Round(cfg.ContractFillProbability(r.PriceMultiplierMilli) * 100);
                     return new RouteDto(r.Id, r.Name, r.OriginIcao, r.DestIcao, r.Mission.ToString(),
-                        r.DistanceNm, r.RoundTripHours, effReward, r.PriceMultiplierMilli, fillPct, r.RewardPerTripCents);
+                        r.DistanceNm, r.RoundTripHours, effReward, r.PriceMultiplierMilli, fillPct, r.RewardPerTripCents,
+                        r.SeatCapacity, r.LoadFactorMilli);
                 }),
                 bases = baseViews.Select(b => new RouteBaseDto(b.Icao, b.Name)),
                 missions,
+                hasAoc,
             });
         });
 
@@ -1158,6 +1162,19 @@ public static class CallsignWebApp
             {
                 var r = await routes.CreateRouteAsync(pilot.CompanyId, req.Name, req.OriginIcao, req.DestIcao, req.AircraftInstanceId, req.StaffId, mission, req.PriceMultiplierMilli ?? 1000);
                 return Results.Ok(new { id = r.Id, name = r.Name, rewardPerTripCents = r.RewardPerTripCents, priceMultiplierMilli = r.PriceMultiplierMilli });
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        // Phase 11f — open a scheduled-passenger route (AOC-gated; seats × load × yield frozen at creation).
+        app.MapPost("/api/routes/scheduled", async (ScheduledRouteRequest req, CallsignDbContext db, RouteService routes) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                var r = await routes.CreateScheduledServiceAsync(pilot.CompanyId, req.Name, req.OriginIcao, req.DestIcao, req.AircraftInstanceId, req.StaffId);
+                return Results.Ok(new { id = r.Id, name = r.Name, rewardPerTripCents = r.RewardPerTripCents, seatCapacity = r.SeatCapacity, loadFactorMilli = r.LoadFactorMilli });
             }
             catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });

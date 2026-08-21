@@ -393,6 +393,26 @@ public sealed record EconomyConfig
     /// <c>baseSwing × (1 + hubLevel × HubLevelAmplification)</c>. At L3 that is 2.5× the plain-base swing.</summary>
     public double HubLevelAmplification { get; init; } = 0.5;
 
+    // --- Scheduled passenger network (Phase 11f): the AOC-gated top-tier route variant. A scheduled route's
+    // per-trip revenue = seats × load factor × per-seat yield, frozen at creation and booked by the EXISTING
+    // reconcile route loop (no new settlement path). Load factor is driven by the airline's operating reputation
+    // — a stronger name fills more seats — the flywheel's payoff at the top of the ladder. ---
+    public int ScheduledMinSeats { get; init; } = 30;                  // needs an airliner, not a light twin
+    /// <summary>A scheduled seat prices BELOW a private-charter seat (lower margin, far higher volume).</summary>
+    public double ScheduledYieldFactor { get; init; } = 0.55;
+    /// <summary>The per-seat revenue for one scheduled round trip — the charter per-seat component (excluding the
+    /// dispatch fee), scaled by <see cref="ScheduledYieldFactor"/>. Grows with distance. Frozen at creation.</summary>
+    public long ScheduledSeatYieldCents(double distanceNm)
+        => (long)Math.Round((PaxPerPaxCents + distanceNm * PaxPerPaxNmCents) * ScheduledYieldFactor);
+    public int ScheduledBaseLoadFactorMilli { get; init; } = 650;      // 65% of seats fill at a no-name operation
+    public int ScheduledLoadFactorRepBonusMilli { get; init; } = 250;  // a flawless operating name fills +25 points more
+    public int ScheduledMaxLoadFactorMilli { get; init; } = 920;       // cap 92% — never a guaranteed full plane
+    /// <summary>The seat load factor (thousandths) frozen onto a scheduled route at creation: a base fill lifted
+    /// by the operating reputation, capped. A strong name is worth real money here — the top of the flywheel.</summary>
+    public int ScheduledLoadFactorMilli(int reputationMilli)
+        => Math.Min(ScheduledMaxLoadFactorMilli,
+                    ScheduledBaseLoadFactorMilli + (int)Math.Round(ScheduledLoadFactorRepBonusMilli * HubReputationRamp(reputationMilli)));
+
     // --- Used-aircraft market (Phase 7g): buy pre-owned airframes cheaper, at the cost of hours + condition ---
     public int UsedMarketCount { get; init; } = 6;                            // listings on the used lot at a time
     /// <summary>Cheapest a used airframe goes, as a fraction of new (at the lowest listed condition, 50%).

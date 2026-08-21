@@ -125,9 +125,11 @@ public record TakeLoanRequest(long PrincipalCents);
 
 // --- Phase 4d: routes ---
 public record RouteDto(Guid Id, string Name, string Origin, string Dest, string Mission, double DistanceNm, double RoundTripHours, long RewardPerTripCents,
-    int PriceMultiplierMilli, int FillPct, long FairRewardPerTripCents);
+    int PriceMultiplierMilli, int FillPct, long FairRewardPerTripCents,
+    int? SeatCapacity, int? LoadFactorMilli); // Phase 11f — non-null on a scheduled-passenger route
 public record RouteBaseDto(string Icao, string Name);
 public record CreateRouteRequest(string? Name, string OriginIcao, string DestIcao, Guid AircraftInstanceId, Guid StaffId, string Mission, int? PriceMultiplierMilli);
+public record ScheduledRouteRequest(string? Name, string OriginIcao, string DestIcao, Guid AircraftInstanceId, Guid StaffId); // Phase 11f
 
 // --- Phase 4c: insurance ---
 public record InsurancePolicyDto(Guid Id, string Tail, string AircraftName, int ConditionMilli, int CoverageMilli,

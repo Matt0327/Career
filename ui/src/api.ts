@@ -540,12 +540,15 @@ export interface RouteInfo {
   priceMultiplierMilli: number // Phase 7g — your markup over the fair rate (1000 = fair)
   fillPct: number // Phase 7g — expected share of trips the client actually ships at this price
   fairRewardPerTripCents: number // Phase 7g — the frozen fair rate the markup rides on
+  seatCapacity: number | null   // Phase 11f — non-null on a scheduled-passenger route
+  loadFactorMilli: number | null // Phase 11f — frozen seat fill (thousandths)
 }
 
 export interface RouteData {
   routes: RouteInfo[]
   bases: { icao: string; name: string }[]
   missions: string[]
+  hasAoc: boolean // Phase 11f — holds a valid Air Operator Certificate (can run scheduled service)
 }
 
 export interface LoanOffer {
@@ -956,6 +959,8 @@ export const api = {
   statement: (days: number) => fetch(`/api/finances/statement?days=${days}`).then(ok<StatementRow[]>),
   insurance: () => fetch('/api/insurance').then(ok<Insurance>),
   routes: () => fetch('/api/routes').then(ok<RouteData>),
+  createScheduledRoute: (body: { name?: string; originIcao: string; destIcao: string; aircraftInstanceId: string; staffId: string }) =>
+    POST('/api/routes/scheduled', body).then(ok<{ id: string; name: string; rewardPerTripCents: number; seatCapacity: number; loadFactorMilli: number }>),
   createRoute: (body: { name?: string; originIcao: string; destIcao: string; aircraftInstanceId: string; staffId: string; mission: string; priceMultiplierMilli?: number }) =>
     POST('/api/routes', body).then(ok),
   setRoutePrice: (id: string, priceMultiplierMilli: number) =>

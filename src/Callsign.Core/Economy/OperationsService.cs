@@ -162,6 +162,10 @@ public sealed class OperationsService
         await ReconcileAsync(companyId, ct); // book pending trips at the current price before it changes
         var route = await _db.Routes.FirstOrDefaultAsync(r => r.Id == routeId && r.CompanyId == companyId && r.Active && !r.IsDeleted, ct)
                     ?? throw new InvalidOperationException("Route not found.");
+        // A scheduled-passenger route (Phase 11f) has no markup lever — the frozen load factor IS its demand model,
+        // so a markup would double-count it. Keep it fixed at the fair rate.
+        if (route.SeatCapacity != null)
+            throw new InvalidOperationException("Scheduled passenger service has no markup — the load factor is the demand.");
         int markup = Math.Clamp(priceMultiplierMilli, 1000, _cfg.MaxContractMarkupMilli);
         route.PriceMultiplierMilli = markup;
         route.UpdatedAt = _clock.UtcNow;
@@ -371,7 +375,12 @@ public sealed class OperationsService
             // the duty cap does), so a lapse can't be banked and reaped with one cheap renewal. Reconcile before
             // the cert expires to bank authorised trips; the route resumes once renewed. Surfaced so the hold is
             // visible (Law 4). (8e-2 may split the window at the expiry instant to pay the authorised pre-lapse part.)
-            if (CertificateCatalog.RequiredFor(route.Mission) is { } routeCert && !validCertKinds.Contains(routeCert))
+            // A scheduled-passenger route (Phase 11f) is gated by the Air Operator Certificate — which gates a route
+            // CATEGORY, not a mission type, so RequiredFor(Mission=Passenger) is null. Check it here too, otherwise
+            // the AOC would be enforced only at creation and a lapsed cert would keep earning forever (defeating the
+            // recurring renewal cost). A plain route keeps its mission-type gate.
+            var requiredCert = route.SeatCapacity != null ? CertificateKind.AirOperator : CertificateCatalog.RequiredFor(route.Mission);
+            if (requiredCert is { } routeCert && !validCertKinds.Contains(routeCert))
             {
                 route.LastReconciledAt = now;
                 route.UpdatedAt = now;

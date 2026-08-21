@@ -2377,6 +2377,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
   const [rAircraft, setRAircraft] = useState('')
   const [rMission, setRMission] = useState('Cargo')
   const [rMarkup, setRMarkup] = useState(1000)
+  const [rScheduled, setRScheduled] = useState(false) // Phase 11f — open a scheduled-passenger route instead
 
   const load = useCallback(async () => {
     try {
@@ -2395,8 +2396,14 @@ function Ops({ onChanged }: { onChanged: () => void }) {
     if (!rStaff || !rAircraft || !rOrigin || !rDest) { setMsg('A route needs a pilot, an aircraft, and two of your bases.'); return }
     setBusy(true); setMsg(null)
     try {
-      await api.createRoute({ name: rName.trim() || undefined, originIcao: rOrigin, destIcao: rDest, aircraftInstanceId: rAircraft, staffId: rStaff, mission: rMission, priceMultiplierMilli: rMarkup })
-      setRName(''); setROrigin(''); setRDest(''); setRStaff(''); setRAircraft(''); setRMarkup(1000); await load(); onChanged(); setMsg('Route opened — it earns while you fly.')
+      if (rScheduled) {
+        const r = await api.createScheduledRoute({ name: rName.trim() || undefined, originIcao: rOrigin, destIcao: rDest, aircraftInstanceId: rAircraft, staffId: rStaff })
+        setMsg(`Scheduled service opened — ${r.seatCapacity} seats at ${Math.round(r.loadFactorMilli / 10)}% load.`)
+      } else {
+        await api.createRoute({ name: rName.trim() || undefined, originIcao: rOrigin, destIcao: rDest, aircraftInstanceId: rAircraft, staffId: rStaff, mission: rMission, priceMultiplierMilli: rMarkup })
+        setMsg('Route opened — it earns while you fly.')
+      }
+      setRName(''); setROrigin(''); setRDest(''); setRStaff(''); setRAircraft(''); setRMarkup(1000); await load(); onChanged()
     } catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
   const repriceRoute = async (id: string, milli: number) => {
@@ -2533,14 +2540,18 @@ function Ops({ onChanged }: { onChanged: () => void }) {
             <thead><tr><th>Route</th><th>Leg</th><th className="r">Reward/trip</th><th className="r">Price</th><th></th></tr></thead>
             <tbody>{routes.routes.map(r => (
               <tr key={r.id}>
-                <td>{r.name} <span className="muted">· {r.mission}</span></td>
+                <td>{r.name} <span className="muted">· {r.seatCapacity != null ? `scheduled · ${r.seatCapacity} seats · ${Math.round((r.loadFactorMilli ?? 0) / 10)}% load` : r.mission}</span></td>
                 <td><span className="loc">{r.origin}</span> → <span className="loc">{r.dest}</span> <span className="muted">· {Math.round(r.distanceNm)} nm</span></td>
                 <td className="r num pos">{money(r.rewardPerTripCents)}{r.priceMultiplierMilli > 1000 && <span className="fair-ref"> vs {money(r.fairRewardPerTripCents)}</span>}</td>
                 <td className="r">
-                  <select className="markup-sel" value={r.priceMultiplierMilli} disabled={busy} onChange={e => repriceRoute(r.id, Number(e.target.value))} title="Re-price this route — applies to future trips only">
-                    {MARKUP_OPTS.map(m => <option key={m} value={m}>{markupLabel(m)}</option>)}
-                  </select>
-                  <span className={`fill-hint${r.fillPct < 100 ? ' warn' : ''}`}>{r.fillPct}% fill</span>
+                  {r.seatCapacity != null
+                    ? <span className="muted">fixed</span>
+                    : <>
+                        <select className="markup-sel" value={r.priceMultiplierMilli} disabled={busy} onChange={e => repriceRoute(r.id, Number(e.target.value))} title="Re-price this route — applies to future trips only">
+                          {MARKUP_OPTS.map(m => <option key={m} value={m}>{markupLabel(m)}</option>)}
+                        </select>
+                        <span className={`fill-hint${r.fillPct < 100 ? ' warn' : ''}`}>{r.fillPct}% fill</span>
+                      </>}
                 </td>
                 <td className="r"><button disabled={busy} onClick={() => cancelRoute(r.id)}>Cancel</button></td>
               </tr>
@@ -2557,9 +2568,17 @@ function Ops({ onChanged }: { onChanged: () => void }) {
               <select value={rDest} onChange={e => setRDest(e.target.value)}><option value="">To base…</option>{routes.bases.map(b => <option key={b.icao} value={b.icao}>{b.icao} · {b.name}</option>)}</select>
               <select value={rStaff} onChange={e => setRStaff(e.target.value)}><option value="">Pilot…</option>{staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
               <select value={rAircraft} onChange={e => setRAircraft(e.target.value)}><option value="">Aircraft…</option>{fleet.map(f => <option key={f.id} value={f.id}>{f.tail} — {f.locationIcao}</option>)}</select>
-              <select value={rMission} onChange={e => setRMission(e.target.value)}>{routes.missions.map(m => <option key={m} value={m}>{m}</option>)}</select>
-              <select value={rMarkup} onChange={e => setRMarkup(Number(e.target.value))} title="Demand a premium over the fair rate — more per filled trip, but the client ships fewer">{MARKUP_OPTS.map(m => <option key={m} value={m}>{markupLabel(m)} · {fillFor(m)}% fill</option>)}</select>
-              <button className="primary" disabled={busy} onClick={createRoute}>Open route</button>
+              {rScheduled
+                ? <span className="hint" style={{ alignSelf: 'center' }}>Scheduled: seats × load × yield, frozen at creation — your name fills the seats.</span>
+                : <>
+                    <select value={rMission} onChange={e => setRMission(e.target.value)}>{routes.missions.map(m => <option key={m} value={m}>{m}</option>)}</select>
+                    <select value={rMarkup} onChange={e => setRMarkup(Number(e.target.value))} title="Demand a premium over the fair rate — more per filled trip, but the client ships fewer">{MARKUP_OPTS.map(m => <option key={m} value={m}>{markupLabel(m)} · {fillFor(m)}% fill</option>)}</select>
+                  </>}
+              {routes.hasAoc &&
+                <label className="sched-toggle" title="Requires a valid Air Operator Certificate">
+                  <input type="checkbox" checked={rScheduled} onChange={e => setRScheduled(e.target.checked)} /> Scheduled service
+                </label>}
+              <button className="primary" disabled={busy} onClick={createRoute}>{rScheduled ? 'Open scheduled service' : 'Open route'}</button>
             </div>
           )}
       </section>

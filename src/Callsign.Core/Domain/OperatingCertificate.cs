@@ -7,6 +7,8 @@ public enum CertificateKind
     Charter = 1,
     /// <summary>Dangerous-goods endorsement — required to carry hazardous loads.</summary>
     Hazmat = 2,
+    /// <summary>Air operator certificate (Phase 11f) — required to run a scheduled-passenger network.</summary>
+    AirOperator = 3,
 }
 
 /// <summary>

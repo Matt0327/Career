@@ -648,6 +648,10 @@ input { font: inherit; }
 .unlock.horizon{color:var(--muted)}
 .unlock.horizon .unlock-tag{background:transparent;border:1px solid var(--line);color:var(--faint)}
 
+/* Phase 11f — scheduled-service toggle on the route form */
+.sched-toggle{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);white-space:nowrap}
+.sched-toggle input{margin:0}
+
 /* Phase 9f — the aircraft catalogs (rent/lease) collapse so the hangar leads with YOUR fleet, not 71 offer cards */
 details.card.shop{padding-bottom:0}
 details.card.shop[open]{padding-bottom:14px}

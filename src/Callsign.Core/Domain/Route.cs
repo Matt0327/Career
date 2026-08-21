@@ -22,6 +22,14 @@ public sealed class Route : ISyncable
     public int PriceMultiplierMilli { get; set; } = 1000;
     public Guid AircraftInstanceId { get; set; }
     public Guid StaffId { get; set; }
+
+    // --- Scheduled passenger service (Phase 11f). Non-null only on an AOC-gated scheduled-pax route: the frozen
+    // economics behind its RewardPerTripCents (= SeatCapacity × LoadFactorMilli/1000 × SeatYieldCents). A plain
+    // cargo/charter route leaves these null and is unchanged. ---
+    public int? SeatCapacity { get; set; }
+    public int? LoadFactorMilli { get; set; }              // frozen seat fill (thousandths), driven by operating reputation
+    public long? SeatYieldCents { get; set; }              // frozen per-seat round-trip revenue
+
     public bool Active { get; set; } = true;
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset LastReconciledAt { get; set; } // reconcile watermark

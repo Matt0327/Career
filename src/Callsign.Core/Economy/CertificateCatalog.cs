@@ -34,6 +34,11 @@ public static class CertificateCatalog
         new(CertificateKind.Hazmat, "Dangerous Goods Endorsement",
             "Authorises carriage of hazardous loads — chemicals, compressed gas, explosives.",
             [MissionType.Hazardous], FeeCents: 6_500_000, ValidityDays: 120, MinReputationMilli: 7_000, MinCompletedFlights: 25),
+        // Phase 11f — the marquee endgame gate. GatesTypes is empty: it authorises a ROUTE CATEGORY (scheduled
+        // passenger service), checked directly in RouteService, not a freelance job mission type.
+        new(CertificateKind.AirOperator, "Air Operator Certificate",
+            "Authorises a scheduled-passenger network — real seats, timetabled service, and load-factor economics.",
+            Array.Empty<MissionType>(), FeeCents: 15_000_000, ValidityDays: 180, MinReputationMilli: 35_000, MinCompletedFlights: 60),
     ];
 
     public static CertificateDef Def(CertificateKind kind) => All.First(d => d.Kind == kind);
