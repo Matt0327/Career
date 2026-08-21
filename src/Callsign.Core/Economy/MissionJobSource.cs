@@ -21,8 +21,15 @@ public sealed class MissionJobSource : IJobSource
 
     public IReadOnlyList<GeneratedJob> Generate(JobGenerationRequest request)
     {
+        // Phase 12 — the board only offers work the pilot can actually take. If this whole mission type sits above
+        // the pilot's rank, it produces nothing (the composite backfills the board from the missions they CAN fly);
+        // and destinations far enough to demand a higher rank than they hold are dropped, so a leg is never posted
+        // stamped above the pilot. As they rank up, longer legs and premium mission types appear on their own.
+        if (_def.MinRank > request.PilotRank)
+            return Array.Empty<GeneratedJob>();
         var eligible = request.Candidates
             .Where(c => c.DistanceNm >= _cfg.MinJobDistanceNm && c.DistanceNm <= _cfg.MaxJobDistanceNm)
+            .Where(c => _cfg.RankForDistance(c.DistanceNm) <= request.PilotRank)
             .OrderBy(c => c.DistanceNm)
             .ToList();
         if (eligible.Count == 0)

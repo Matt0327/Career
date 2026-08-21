@@ -23,12 +23,40 @@ public sealed class CompositeJobSource : IJobSource
     {
         var counts = Split(request.Count, _sources.Select(s => s.Weight).ToList());
         var result = new List<GeneratedJob>(request.Count);
+        var produced = new bool[_sources.Count];
         for (int i = 0; i < _sources.Count; i++)
         {
             if (counts[i] == 0)
                 continue;
             int seed = unchecked(request.Seed * 397 + i * 31 + 17); // distinct, deterministic per source
-            result.AddRange(_sources[i].Source.Generate(request with { Count = counts[i], Seed = seed }));
+            var jobs = _sources[i].Source.Generate(request with { Count = counts[i], Seed = seed });
+            produced[i] = jobs.Count > 0;
+            result.AddRange(jobs);
+        }
+
+        // Backfill (Phase 12): a source can now come back empty — e.g. every mission of that type sits above the
+        // pilot's rank — which would leave the board short of the count we asked for. Re-apportion the shortfall
+        // across the sources that DID produce work (with a fresh, distinct seed), so the board still fills up with
+        // jobs the pilot can actually take instead of showing a handful. Deterministic, and a single pass: if no
+        // source produced anything (an isolated field with no reachable work), the board is simply empty.
+        int deficit = request.Count - result.Count;
+        if (deficit > 0)
+        {
+            var live = new List<int>();
+            for (int i = 0; i < _sources.Count; i++)
+                if (produced[i]) live.Add(i);
+            if (live.Count > 0)
+            {
+                var fill = Split(deficit, live.Select(i => _sources[i].Weight).ToList());
+                for (int k = 0; k < live.Count; k++)
+                {
+                    if (fill[k] == 0)
+                        continue;
+                    int i = live[k];
+                    int seed = unchecked(request.Seed * 911 + i * 53 + 29); // distinct from the first pass
+                    result.AddRange(_sources[i].Source.Generate(request with { Count = fill[k], Seed = seed }));
+                }
+            }
         }
         return result;
     }

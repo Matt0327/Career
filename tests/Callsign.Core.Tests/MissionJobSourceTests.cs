@@ -8,10 +8,12 @@ public class MissionJobSourceTests
 {
     private static readonly EconomyConfig Cfg = EconomyConfig.Default;
 
-    private static JobGenerationRequest Req(int seed, int count = 8) => new(
+    // These generation tests exercise every mission type's pricing/rank-stamping, so they run at the TOP rank —
+    // the Phase 12 rank filter (tested separately below) would otherwise hide the premium missions from a rookie.
+    private static JobGenerationRequest Req(int seed, int count = 8, PilotRank rank = PilotRank.Chief) => new(
         "EHAM",
         [new JobCandidate("EHRD", 24), new JobCandidate("EHEH", 63), new JobCandidate("EGLL", 200), new JobCandidate("KFAR", 900)],
-        PilotRank.Trainee, count, seed);
+        rank, count, seed);
 
     [Fact]
     public void Cargo_Reward_And_Xp_Follow_Multipliers()
@@ -74,5 +76,28 @@ public class MissionJobSourceTests
         Assert.Equal(
             a.Select(j => (j.DestIcao, j.RewardCents, j.RequiredRank)),
             b.Select(j => (j.DestIcao, j.RewardCents, j.RequiredRank)));
+    }
+
+    // ── Phase 12: the board only offers work the pilot can actually take ──────────────────────────────
+
+    [Fact]
+    public void RankFilter_HidesMissionTypesAboveThePilotsRank()
+    {
+        // Express requires Copilot; a Trainee should be offered NONE of it (it's backfilled by cargo elsewhere).
+        var jobs = new MissionJobSource(MissionCatalog.Def(MissionType.Express), Cfg).Generate(Req(5, rank: PilotRank.Trainee));
+        Assert.Empty(jobs);
+    }
+
+    [Fact]
+    public void RankFilter_HidesDestinationsThatWouldDemandAHigherRank()
+    {
+        // Plain cargo to a Trainee: only legs whose distance-rank is Trainee (≤ ~89 nm) — EHRD/EHEH — never EGLL.
+        var jobs = new MissionJobSource(MissionCatalog.Def(MissionType.Cargo), Cfg).Generate(Req(5, rank: PilotRank.Trainee));
+        Assert.NotEmpty(jobs);
+        Assert.All(jobs, j =>
+        {
+            Assert.True(j.RequiredRank <= PilotRank.Trainee);   // every offer is takeable
+            Assert.NotEqual("EGLL", j.DestIcao);                // the 200 nm leg needs a Captain — not offered
+        });
     }
 }

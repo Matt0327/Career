@@ -1371,7 +1371,7 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
 
   const refresh = async () => {
     setBusy(true); setMsg(null)
-    try { await api.refreshJobs(8); await load(); setSelected(null) } catch (e) { setMsg(String(e)) } finally { setBusy(false) }
+    try { await api.refreshJobs(12); await load(); setSelected(null) } catch (e) { setMsg(String(e)) } finally { setBusy(false) }
   }
   const accept = async (id: string) => {
     setBusy(true); setMsg(null)

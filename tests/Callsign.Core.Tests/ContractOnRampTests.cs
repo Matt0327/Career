@@ -20,7 +20,8 @@ public class ContractOnRampTests
     [Fact]
     public void Source_GeneratesContractCargo_BelowFreelanceRate()
     {
-        var candidates = new List<JobCandidate> { new("EHRD", 60), new("EHEH", 90), new("EHGG", 150) };
+        // All within a Trainee's reach (Phase 12 rank filter), so the pay formula is exercised across distances.
+        var candidates = new List<JobCandidate> { new("EHRD", 30), new("EHEH", 55), new("EHGG", 80) };
         var jobs = new ContractJobSource(Cfg).Generate(new JobGenerationRequest("EHAM", candidates, PilotRank.Trainee, 6, 42));
 
         Assert.NotEmpty(jobs);

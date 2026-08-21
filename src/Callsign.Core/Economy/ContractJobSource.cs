@@ -36,6 +36,7 @@ public sealed class ContractJobSource : IJobSource
     {
         var eligible = request.Candidates
             .Where(c => c.DistanceNm >= _cfg.MinJobDistanceNm && c.DistanceNm <= _cfg.MaxJobDistanceNm)
+            .Where(c => _cfg.RankForDistance(c.DistanceNm) <= request.PilotRank) // Phase 12 — only rank-appropriate overflow work
             .OrderBy(c => c.DistanceNm)
             .ToList();
         if (eligible.Count == 0)
