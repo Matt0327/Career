@@ -81,9 +81,11 @@ public static class CallsignWebApp
         builder.Services.AddSingleton<IJobSource>(sp =>
         {
             var cfg = sp.GetRequiredService<EconomyConfig>();
-            // The board mixes the full mission roster (Phase 3e), each type by its catalogue share.
+            // The board mixes the full mission roster (Phase 3e), each type by its catalogue share, plus the
+            // Phase-11d contract on-ramp (invented-carrier overflow work) as a modest extra share.
             var sources = MissionCatalog.Generated
                 .Select(d => ((IJobSource)new MissionJobSource(d, cfg), d.BoardShare))
+                .Append(((IJobSource)new ContractJobSource(cfg), cfg.ContractCarrierBoardShare))
                 .ToArray();
             return new CompositeJobSource(sources);
         });

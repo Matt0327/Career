@@ -302,6 +302,20 @@ public sealed record EconomyConfig
     public int HubReputationOfferCount(int baseCount, int reputationMilli)
         => (int)Math.Round(baseCount * (1.0 + HubReputationCountSwing * HubReputationRamp(reputationMilli)));
 
+    // --- Contract on-ramp (Phase 11d): flying the majors' overflow — the distinct flavour of the bottom rung.
+    // A contract-carrier job is an ordinary Cargo job (existing settlement path, no new money seam) priced BELOW
+    // the freelance owner rate. It is the safe, lower-yield early option, never a higher-yield idle pump. ---
+    /// <summary>What a contract-carrier job pays as a fraction of the freelance owner rate for the same leg — the
+    /// on-ramp's price. INVARIANT: strictly below 1.0 (the owner margin it substitutes), with enough headroom that
+    /// even a maxed loyalty premium (<see cref="ClientLoyaltyBonusPct"/> ≤ ~0.12) keeps it under 1.0 — so the safe,
+    /// reliable contract option always yields LESS than flying your own freight. 0.72 × 1.12 = 0.806 &lt; 1.0.
+    /// The contract rate also never takes the 11c hub-reputation lift (the carrier's rate is fixed, not yours).</summary>
+    public double ContractCarrierPayFactor { get; init; } = 0.72;
+
+    /// <summary>The contract on-ramp's share of the job board (a modest weight beside the mission roster), so
+    /// overflow work is a visible minority of a beginner's options, not the whole board.</summary>
+    public double ContractCarrierBoardShare { get; init; } = 0.7;
+
     /// <summary>Skill a hired pilot needs to be trusted with a category (their "type rating", Phase 7f) — a
     /// green crew flies light singles; bigger, faster iron demands a sharper pilot. Assignment is gated on it.</summary>
     public int MinSkillMilliForCategory(AircraftCategory category) => category switch

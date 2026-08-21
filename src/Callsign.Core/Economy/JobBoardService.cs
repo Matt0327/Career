@@ -70,8 +70,24 @@ public sealed class JobBoardService
         {
             var g = generated[i];
             // Whose job this is (Phase 8d): a client drawn deterministically from the origin's roster, so the
-            // stable key maps back to their persisted loyalty when the leg settles.
-            var client = ClientRoster.Pick(originIcao, origin.Name, i);
+            // stable key maps back to their persisted loyalty when the leg settles. A contract job (Phase 11d) is
+            // instead branded to its carrier as the client, and the carrier pays its OWN fixed rate — the hub-
+            // reputation lift (11c) is withheld, since your name lifts your freelance work, not the majors'.
+            string clientKey, clientName;
+            double jobLift;
+            if (g.ContractCarrier is { } carrier)
+            {
+                clientKey = $"contract:{carrier}";
+                clientName = carrier;
+                jobLift = 1.0;
+            }
+            else
+            {
+                var client = ClientRoster.Pick(originIcao, origin.Name, i);
+                clientKey = client.Key;
+                clientName = client.Name;
+                jobLift = hubPay;
+            }
             _db.Jobs.Add(new Job
             {
                 Id = Guid.NewGuid(),
@@ -82,11 +98,11 @@ public sealed class JobBoardService
                 WeightLbs = g.WeightLbs,
                 Pax = g.Pax,
                 DistanceNm = g.DistanceNm,
-                RewardCents = (long)Math.Round(g.RewardCents * demand * hubPay),
+                RewardCents = (long)Math.Round(g.RewardCents * demand * jobLift),
                 Xp = g.Xp,
                 RequiredRank = g.RequiredRank,
-                ClientKey = client.Key,
-                ClientName = client.Name,
+                ClientKey = clientKey,
+                ClientName = clientName,
                 GeneratedAt = now,
                 ExpiresAt = now.AddHours(_cfg.JobOfferHours),
                 LoadByAt = now.AddHours(_cfg.JobOfferHours),
