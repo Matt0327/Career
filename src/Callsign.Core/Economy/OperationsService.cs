@@ -253,7 +253,7 @@ public sealed class OperationsService
 
             // FTL: the lone crew can only fly so many duty hours per day. Cap the trips to that — the rest of
             // the window is rest, not deferred flying — so one pilot can't run a tail round the clock.
-            int soMaxTrips = o.RoundTripHours > 0 ? (int)Math.Floor(_cfg.MaxDutyHoursPerDay / 24.0 * elapsedH / o.RoundTripHours) : 0;
+            int soMaxTrips = _cfg.AutonomousTripsFlown(elapsedH, o.RoundTripHours); // duty cap — same formula the UI shows as "trips ready"
             int trips = Math.Min(rawTrips, soMaxTrips);
             bool dutyCapped = trips < rawTrips;
             if (trips <= 0)
@@ -396,7 +396,7 @@ public sealed class OperationsService
                 continue; // held until serviced (Law 4)
             }
 
-            int rtMaxTrips = route.RoundTripHours > 0 ? (int)Math.Floor(_cfg.MaxDutyHoursPerDay / 24.0 * elapsedH / route.RoundTripHours) : 0;
+            int rtMaxTrips = _cfg.AutonomousTripsFlown(elapsedH, route.RoundTripHours); // duty cap — same formula the UI shows as "trips ready"
             int trips = Math.Min(rawTrips, rtMaxTrips);
             bool dutyCapped = trips < rawTrips;
             if (trips <= 0)

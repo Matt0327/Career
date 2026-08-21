@@ -209,6 +209,13 @@ public sealed record EconomyConfig
     public int IncidentDiversionWearMilli { get; init; } = 800;
     public int IncidentMajorWearMilli { get; init; } = 2_500;
     public double MaxDutyHoursPerDay { get; init; } = 8;          // FTL: one crew flies ~8 of 24 h — own crew depth to run a tail harder
+
+    /// <summary>How many autonomous round trips one crew flies over <paramref name="elapsedHours"/> of wall-clock,
+    /// under the daily duty cap. The reconcile books this many (before incidents/fills); the UI uses it to show
+    /// "trips ready to bank" so the autonomous operation is VISIBLE. Keep this the single source of the formula so
+    /// the estimate the player sees and the trips reconcile actually flies can never drift apart.</summary>
+    public int AutonomousTripsFlown(double elapsedHours, double roundTripHours)
+        => roundTripHours > 0 ? (int)Math.Floor(MaxDutyHoursPerDay / 24.0 * Math.Max(0, elapsedHours) / roundTripHours) : 0;
     public int CrewProficiencyGainMilliPerTrip { get; init; } = 40;  // a hired pilot sharpens ~0.04%/trip flown — hire green cheap, they improve
     public int CrewSkillCeilingMilli { get; init; } = 95_000;        // experience tops out at 95% (nobody is perfect)
 

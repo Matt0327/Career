@@ -962,21 +962,23 @@ public static class CallsignWebApp
             return Results.Ok(new { id = s.Id, name = s.Name });
         });
 
-        app.MapGet("/api/ops/orders", async (CallsignDbContext db, EconomyConfig cfg) =>
+        app.MapGet("/api/ops/orders", async (CallsignDbContext db, EconomyConfig cfg, IClock clock) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             var orders = await db.StandingOrders.Where(o => o.CompanyId == pilot.CompanyId && o.IsActive && !o.IsDeleted).ToListAsync();
             var staffNames = await db.Staff.Where(s => s.CompanyId == pilot.CompanyId).ToDictionaryAsync(s => s.Id, s => s.Name);
             var tails = await db.AircraftInstances.Where(a => a.CompanyId == pilot.CompanyId).ToDictionaryAsync(a => a.Id, a => a.Tail);
+            var now = clock.UtcNow;
             return Results.Ok(orders.Select(o =>
             {
                 long effReward = (long)Math.Round(o.RewardPerTripCents * (o.PriceMultiplierMilli / 1000.0));
                 int fillPct = (int)Math.Round(cfg.ContractFillProbability(o.PriceMultiplierMilli) * 100);
+                int pending = cfg.AutonomousTripsFlown((now - o.LastReconciledAt).TotalHours, o.RoundTripHours); // trips ready to bank
                 return new StandingOrderDto(o.Id,
                     staffNames.GetValueOrDefault(o.StaffId, "?"), tails.GetValueOrDefault(o.AircraftInstanceId, "?"),
                     o.OriginIcao, o.DestIcao, o.DistanceNm, o.RoundTripHours, effReward,
-                    o.PriceMultiplierMilli, fillPct, o.RewardPerTripCents);
+                    o.PriceMultiplierMilli, fillPct, o.RewardPerTripCents, pending, pending * effReward);
             }));
         });
 
@@ -1172,6 +1174,9 @@ public static class CallsignWebApp
             if (pilot is null) return Results.NotFound();
             var active = await routes.GetRoutesAsync(pilot.CompanyId);
             var baseViews = await bases.GetBasesAsync(pilot.CompanyId);
+            var routeStaff = await db.Staff.Where(s => s.CompanyId == pilot.CompanyId).ToDictionaryAsync(s => s.Id, s => s.Name);
+            var routeTails = await db.AircraftInstances.Where(a => a.CompanyId == pilot.CompanyId).ToDictionaryAsync(a => a.Id, a => a.Tail);
+            var nowR = clock.UtcNow;
             var missions = MissionCatalog.All.Where(d => d.MinReputationMilli == 0 && d.ReputationMilliReward >= 0)
                 .Select(d => d.Type.ToString()).ToList();
             // Phase 11f — whether we hold a valid Air Operator Certificate, so the UI can offer scheduled service.
@@ -1182,9 +1187,12 @@ public static class CallsignWebApp
                 {
                     long effReward = (long)Math.Round(r.RewardPerTripCents * (r.PriceMultiplierMilli / 1000.0));
                     int fillPct = (int)Math.Round(cfg.ContractFillProbability(r.PriceMultiplierMilli) * 100);
+                    int pending = cfg.AutonomousTripsFlown((nowR - r.LastReconciledAt).TotalHours, r.RoundTripHours); // trips ready to bank
                     return new RouteDto(r.Id, r.Name, r.OriginIcao, r.DestIcao, r.Mission.ToString(),
                         r.DistanceNm, r.RoundTripHours, effReward, r.PriceMultiplierMilli, fillPct, r.RewardPerTripCents,
-                        r.SeatCapacity, r.LoadFactorMilli);
+                        r.SeatCapacity, r.LoadFactorMilli,
+                        routeStaff.GetValueOrDefault(r.StaffId, "?"), routeTails.GetValueOrDefault(r.AircraftInstanceId, "?"),
+                        pending, pending * effReward);
                 }),
                 bases = baseViews.Select(b => new RouteBaseDto(b.Icao, b.Name)),
                 missions,

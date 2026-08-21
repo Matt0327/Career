@@ -2875,16 +2875,27 @@ function Ops({ onChanged }: { onChanged: () => void }) {
     } catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
 
+  // What the autonomous operation has flown but not yet banked — so "Process now" isn't a mystery button.
+  const pendingTrips = orders.reduce((s, o) => s + (o.pendingTrips || 0), 0)
+    + (routes?.routes.reduce((s, r) => s + (r.pendingTrips || 0), 0) ?? 0)
+  const pendingIncome = orders.reduce((s, o) => s + (o.pendingIncomeCents || 0), 0)
+    + (routes?.routes.reduce((s, r) => s + (r.pendingIncomeCents || 0), 0) ?? 0)
+
   return (
     <div className="grid">
       <section className="card">
-        <div className="row-head"><h2>Standing orders</h2><button className="primary" disabled={busy} onClick={process}>Process now</button></div>
+        <div className="row-head"><h2>Standing orders</h2>
+          <span className="ops-process">
+            {pendingTrips > 0 && <span className="pending-note">{pendingTrips} trip{pendingTrips === 1 ? '' : 's'} ready · ~{money(pendingIncome)}</span>}
+            <button className="primary" disabled={busy} onClick={process}>Process now</button>
+          </span>
+        </div>
         {msg && <div className="banner">{msg}</div>}
         {orders.length === 0
           ? <div className="empty">No standing orders. Set one below to earn while you're away.</div>
           : (
             <table className="tbl">
-              <thead><tr><th>Pilot</th><th>Aircraft</th><th>Route</th><th className="r">Per trip</th><th className="r">Price</th><th className="r">Cycle</th><th></th></tr></thead>
+              <thead><tr><th>Pilot</th><th>Aircraft</th><th>Route</th><th className="r">Per trip</th><th className="r">Price</th><th className="r">Cycle</th><th className="r">Ready</th><th></th></tr></thead>
               <tbody>
                 {orders.map(o => (
                   <tr key={o.id}>
@@ -2899,6 +2910,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
                       <span className={`fill-hint${o.fillPct < 100 ? ' warn' : ''}`}>{o.fillPct}% fill</span>
                     </td>
                     <td className="r num">{o.roundTripHours.toFixed(1)} h</td>
+                    <td className="r">{o.pendingTrips > 0 ? <span className="pending-ready" title={`${o.pendingTrips} round trip${o.pendingTrips === 1 ? '' : 's'} flown since your last "Process now" — bank them for ~${money(o.pendingIncomeCents)}`}>{o.pendingTrips} · ~{money(o.pendingIncomeCents)}</span> : <span className="muted">—</span>}</td>
                     <td className="r"><button className="primary small" disabled={busy} onClick={() => cancel(o)}>Stop</button></td>
                   </tr>
                 ))}
@@ -2945,12 +2957,15 @@ function Ops({ onChanged }: { onChanged: () => void }) {
         <div className="row-head"><h2>Routes</h2><span className="hint">Base-to-base lines — fee-free, earning while you fly</span></div>
         {routes && routes.routes.length > 0 && (
           <div className="tbl-wrap"><table className="tbl">
-            <thead><tr><th>Route</th><th>Leg</th><th className="r">Reward/trip</th><th className="r">Price</th><th></th></tr></thead>
+            <thead><tr><th>Route</th><th>Leg</th><th className="r">Reward/trip</th><th className="r">Cycle</th><th className="r">Price</th><th className="r">Ready</th><th></th></tr></thead>
             <tbody>{routes.routes.map(r => (
               <tr key={r.id}>
-                <td>{r.name} <span className="muted">· {r.seatCapacity != null ? `scheduled · ${r.seatCapacity} seats · ${Math.round((r.loadFactorMilli ?? 0) / 10)}% load` : r.mission}</span></td>
+                <td>{r.name} <span className="muted">· {r.seatCapacity != null ? `scheduled · ${r.seatCapacity} seats · ${Math.round((r.loadFactorMilli ?? 0) / 10)}% load` : r.mission}</span>
+                  <div className="route-crew">{r.crewName} · <span className="num">{r.aircraftTail}</span></div>
+                </td>
                 <td><span className="loc">{r.origin}</span> → <span className="loc">{r.dest}</span> <span className="muted">· {Math.round(r.distanceNm)} nm</span></td>
                 <td className="r num pos">{money(r.rewardPerTripCents)}{r.priceMultiplierMilli > 1000 && <span className="fair-ref"> vs {money(r.fairRewardPerTripCents)}</span>}</td>
+                <td className="r num">{r.roundTripHours.toFixed(1)} h</td>
                 <td className="r">
                   {r.seatCapacity != null
                     ? <span className="muted">fixed</span>
@@ -2961,6 +2976,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
                         <span className={`fill-hint${r.fillPct < 100 ? ' warn' : ''}`}>{r.fillPct}% fill</span>
                       </>}
                 </td>
+                <td className="r">{r.pendingTrips > 0 ? <span className="pending-ready" title={`${r.pendingTrips} round trip${r.pendingTrips === 1 ? '' : 's'} flown since your last "Process now" — bank them for ~${money(r.pendingIncomeCents)}`}>{r.pendingTrips} · ~{money(r.pendingIncomeCents)}</span> : <span className="muted">—</span>}</td>
                 <td className="r"><button disabled={busy} onClick={() => cancelRoute(r.id)}>Cancel</button></td>
               </tr>
             ))}</tbody>

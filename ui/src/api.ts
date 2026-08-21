@@ -484,6 +484,8 @@ export interface StandingOrder {
   priceMultiplierMilli: number // Phase 7g — your markup over the fair rate (1000 = fair)
   fillPct: number // Phase 7g — expected share of trips the client actually ships at this price
   fairRewardPerTripCents: number // Phase 7g — the frozen fair rate the markup rides on
+  pendingTrips: number // trips accrued since the last reconcile, ready to bank
+  pendingIncomeCents: number // estimated income of those pending trips
 }
 
 export interface ReconcileResult {
@@ -550,6 +552,10 @@ export interface RouteInfo {
   fairRewardPerTripCents: number // Phase 7g — the frozen fair rate the markup rides on
   seatCapacity: number | null   // Phase 11f — non-null on a scheduled-passenger route
   loadFactorMilli: number | null // Phase 11f — frozen seat fill (thousandths)
+  crewName: string      // the pilot flying this route
+  aircraftTail: string  // the tail flying this route
+  pendingTrips: number  // trips accrued since the last reconcile, ready to bank
+  pendingIncomeCents: number // estimated income of those pending trips
 }
 
 export interface RouteData {

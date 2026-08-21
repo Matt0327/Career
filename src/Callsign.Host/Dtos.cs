@@ -114,7 +114,8 @@ public record HireRequest(int CandidateSeed);
 public record StandingOrderDto(
     Guid Id, string StaffName, string Tail, string Origin, string Dest,
     double DistanceNm, double RoundTripHours, long RewardPerTripCents,
-    int PriceMultiplierMilli, int FillPct, long FairRewardPerTripCents);
+    int PriceMultiplierMilli, int FillPct, long FairRewardPerTripCents,
+    int PendingTrips = 0, long PendingIncomeCents = 0); // trips accrued since the last reconcile, ready to bank (+ est. income)
 public record StandingOrderRequest(Guid StaffId, Guid AircraftInstanceId, string DestIcao, int? PriceMultiplierMilli);
 public record OrderPriceRequest(int PriceMultiplierMilli);
 public record ReconcileDto(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed, int EmptyLegs, IReadOnlyList<string> LoanWarnings, IReadOnlyList<string> Defaults, IReadOnlyList<string> CertLapsed, int WeatheredOut, IReadOnlyList<string> CertExpiring, long RentalCents, IReadOnlyList<string> RentalsExpiring, IReadOnlyList<string> RentalsAutoReturned, int OperatingRepDeltaMilli = 0);
@@ -128,7 +129,8 @@ public record TakeLoanRequest(long PrincipalCents);
 // --- Phase 4d: routes ---
 public record RouteDto(Guid Id, string Name, string Origin, string Dest, string Mission, double DistanceNm, double RoundTripHours, long RewardPerTripCents,
     int PriceMultiplierMilli, int FillPct, long FairRewardPerTripCents,
-    int? SeatCapacity, int? LoadFactorMilli); // Phase 11f — non-null on a scheduled-passenger route
+    int? SeatCapacity, int? LoadFactorMilli, // Phase 11f — non-null on a scheduled-passenger route
+    string CrewName = "?", string AircraftTail = "?", int PendingTrips = 0, long PendingIncomeCents = 0); // who flies it + trips ready to bank
 public record RouteBaseDto(string Icao, string Name);
 public record CreateRouteRequest(string? Name, string OriginIcao, string DestIcao, Guid AircraftInstanceId, Guid StaffId, string Mission, int? PriceMultiplierMilli);
 public record ScheduledRouteRequest(string? Name, string OriginIcao, string DestIcao, Guid AircraftInstanceId, Guid StaffId); // Phase 11f
