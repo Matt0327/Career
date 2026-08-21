@@ -16,14 +16,14 @@
 
 ## The plan — three waves
 
-### Wave 1 — "make the moat land" (cheap · I do it solo · almost no time from you)
-- [x] **Fix the lying ladder copy** — the career screen said shipped features "aren't switched on." *(done — first thing)*
-- [ ] **Deliver the score + coaching debrief at settlement** — put the instructor debrief on the end-of-flight screen (it's the single biggest win; the data + markup already exist). ← **the one thing**
-- [ ] **Show the flywheel's receipt** — a hub-reputation pay line + badge on jobs, so reputation→money is visible.
-- [ ] **Make overall score the headline metric** — a Score column/sort in the logbook; stop headlining raw fpm.
-- [ ] **Make the calendar bite** — let seasons tilt the economy (holiday mail, ski/harvest spikes, winter weather).
+### Wave 1 — "make the moat land" — ✅ DONE (35eccb7, e4e92ca, aee680d, e75268a)
+- [x] **Fix the lying ladder copy** — the career screen said shipped features "aren't switched on."
+- [x] **Deliver the score + coaching debrief at settlement** — the instructor debrief now lands on the end-of-flight screen, not a tab away.
+- [x] **Show the flywheel's receipt** — jobs show a "⌂ +$X" hub note; the detail shows "your reputation lifts this hub."
+- [x] **Make overall score the headline metric** — logbook has a sortable Score column, avg/best-score stats, and a Flight-score trend.
+- [x] **Make the calendar bite** — a small, bounded seasonal tilt on job demand; the season chip tooltip explains it.
 
-*Expected: experience ~65 → ~75, all from data that already exists.*
+*Delivered: the depth you shipped now shows up and is felt — the biggest win being the score + coaching at the moment you land.*
 
 ### Wave 2 — "fix the curve + feel pass" (I build, then we tune together — needs your eyes)
 - [ ] **Rebalance so mastery pays**: charge fuel on autonomous trips (today crew flying is *cheaper* than flying yourself), soften crew perfection, add route-pay saturation, make top yields reachable only by hand-flying.
