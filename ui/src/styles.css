@@ -482,6 +482,39 @@ input { font: inherit; }
   .simdot.warn { animation: none; }
 }
 
+/* ── Per-tab tutorials (Phase 12): the header ? button + the first-visit guide modal ── */
+.ctx-titlerow { display: flex; align-items: center; gap: 8px; }
+.ctx-help {
+  width: 20px; height: 20px; flex: none; border-radius: 50%; border: 1px solid var(--line);
+  background: var(--panel); color: var(--muted); font-size: 12px; font-weight: 700; line-height: 1;
+  display: grid; place-items: center; cursor: pointer; transition: border-color .15s, color .15s, background .15s;
+}
+.ctx-help:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+
+.guide-backdrop {
+  position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px;
+  background: color-mix(in srgb, #000 46%, transparent); backdrop-filter: blur(2px);
+  animation: gfade .16s ease;
+}
+.guide-card {
+  width: min(440px, 100%); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 16px; padding: 22px 22px 18px; box-shadow: var(--shadow);
+  display: flex; flex-direction: column; gap: 10px; animation: gpop .18s ease;
+}
+.guide-kicker { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+.guide-card h2 { margin: 0; font-size: 20px; font-weight: 720; letter-spacing: -.01em; }
+.guide-lead { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.guide-points { margin: 4px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 9px; }
+.guide-points li { position: relative; padding-left: 20px; font-size: 13.5px; line-height: 1.45; }
+.guide-points li::before {
+  content: ''; position: absolute; left: 4px; top: 7px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+}
+.guide-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; }
+.guide-hint { font-size: 12px; color: var(--faint); }
+@keyframes gfade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes gpop { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .guide-backdrop, .guide-card { animation: none; } }
+
 /* ── Dashboard — airline hero (Phase 6 premium pass) ────────────────────────── */
 .hero{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:var(--radius);
   background:linear-gradient(135deg,color-mix(in srgb,var(--livery) 22%,var(--panel)),var(--panel) 60%);box-shadow:var(--shadow)}

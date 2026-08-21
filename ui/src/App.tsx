@@ -19,6 +19,15 @@ export function App() {
   const [error, setError] = useState<string | null>(null)
   const [airline, setAirline] = useState<AirlineData | null>(null)
 
+  // Per-tab first-visit tutorials: show the guide the first time a tab is opened; remember it per device.
+  const [seenTabs, setSeenTabs] = useState<Set<string>>(loadSeenTabs)
+  const [guide, setGuide] = useState<Tab | null>(null)
+  useEffect(() => { if (state && !seenTabs.has(tab) && TAB_GUIDES[tab]) setGuide(tab) }, [tab, state]) // eslint-disable-line react-hooks/exhaustive-deps
+  const closeGuide = useCallback(() => {
+    if (guide) setSeenTabs(prev => { const next = new Set(prev); next.add(guide); saveSeenTabs(next); return next })
+    setGuide(null)
+  }, [guide])
+
   // Grow the shared aircraft catalog with the types this install knows (facts only, best-effort).
   useEffect(() => { void api.cloud.reportAircraft().catch(() => undefined) }, [])
 
@@ -43,7 +52,7 @@ export function App() {
       <div className="app">
       <NavRail tab={tab} setTab={setTab} airline={airline} />
       <div className="work">
-        <ContextHeader state={state} tab={tab} />
+        <ContextHeader state={state} tab={tab} onHelp={TAB_GUIDES[tab] ? () => setGuide(tab) : undefined} />
         <main className="main">
         {error && <div className="banner error" onClick={() => setError(null)}>{error} — tap to dismiss</div>}
         {tab === 'dashboard' && <Dashboard state={state} airline={airline} go={setTab} />}
@@ -64,6 +73,7 @@ export function App() {
         </main>
       </div>
       </div>
+      {guide && <TabGuide tab={guide} onClose={closeGuide} />}
     </div>
   )
 }
@@ -113,6 +123,150 @@ const TABS: { id: Tab; label: string; sub: string }[] = [
   { id: 'settings', label: 'Settings', sub: 'Preferences & your save' },
 ]
 
+// ── Per-tab first-visit tutorials (Phase 12): the first time you open a tab, a short card explains what
+//    it's for and what you can do there. "Seen" is remembered per device; a ? in the header reopens it. ──
+const SEEN_TABS_KEY = 'callsign.seenTabs.v1'
+function loadSeenTabs(): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem(SEEN_TABS_KEY) ?? '[]') as string[]) } catch { return new Set() }
+}
+function saveSeenTabs(s: Set<string>) {
+  try { localStorage.setItem(SEEN_TABS_KEY, JSON.stringify([...s])) } catch { /* private mode — just teach again next time */ }
+}
+
+const TAB_GUIDES: Partial<Record<Tab, { title: string; lead: string; points: string[] }>> = {
+  dashboard: {
+    title: 'Your command deck', lead: 'Everything about your operation, at a glance.',
+    points: [
+      'Net worth, cash and profit run across the top — tap any stat to jump to its detail.',
+      'The map shows your bases, every aircraft, and the legs in the air right now.',
+      'Alerts flag anything that needs you — a service due, a lapsing certificate, a loan.',
+    ],
+  },
+  airline: {
+    title: 'Your identity & standing', lead: 'This is your airline — its name, its look, and how far it has climbed.',
+    points: [
+      'Name the airline and choose a tail code, accent colour and emblem.',
+      'Track your operating reputation and your rung on the career ladder.',
+      'Reputation is earned by flying well — and it lifts what your hubs pay.',
+    ],
+  },
+  jobs: {
+    title: 'The job board', lead: 'Work waiting at the field you’re parked at right now.',
+    points: [
+      'Cargo, passengers and charters — each shows its pay, distance and what it needs.',
+      'Pay is locked in the moment you accept, so weather and the market can’t claw it back.',
+      'A ⌂ +$ note means your reputation is lifting the pay at this hub.',
+      'Accept a job here, then fly it on the Flight tab.',
+    ],
+  },
+  clients: {
+    title: 'Who you fly for', lead: 'The carriers and companies whose work you take on.',
+    points: [
+      'Completing a client’s jobs builds loyalty over time.',
+      'Loyal clients pay a premium — and drift back down if you neglect them.',
+    ],
+  },
+  flight: {
+    title: 'Fly your objectives', lead: 'Where an accepted job becomes a real flight in the simulator.',
+    points: [
+      'Pick an accepted job, load up, and fly it in MSFS.',
+      'Callsign watches your takeoff, cruise and landing live — nothing to press.',
+      'Land well and you’re scored; the score drives your pay and your reputation.',
+    ],
+  },
+  hangar: {
+    title: 'Your fleet & the market', lead: 'Every aircraft you own, and where to buy more.',
+    points: [
+      'Service and inspect your planes to keep them airworthy.',
+      'Buy new or used aircraft as your bankroll grows.',
+      'Each shows its condition, value and the class rating it needs.',
+    ],
+  },
+  ops: {
+    title: 'Crew, standing orders & routes', lead: 'Grow beyond flying every leg yourself.',
+    points: [
+      'Hire crew to fly legs autonomously while you do other things.',
+      'Set standing orders and run scheduled routes for steady income.',
+      'Your crew’s skill shapes how those legs pay and how your reputation settles.',
+    ],
+  },
+  bases: {
+    title: 'Your network', lead: 'The airports you operate from.',
+    points: [
+      'Open a base to land there fee-free and park aircraft.',
+      'Upgrade a base into a hub — it amplifies the pay your reputation earns at that field.',
+      'Bases carry a daily cost, so open them where you actually fly.',
+    ],
+  },
+  trade: {
+    title: 'The commodity market', lead: 'Buy low at one field, sell high at another.',
+    points: [
+      'Prices differ by airport and drift with the economy and the weather.',
+      'Carry goods in your aircraft to move them — your hold is your capacity.',
+    ],
+  },
+  finances: {
+    title: 'The books', lead: 'The full financial picture of your airline.',
+    points: [
+      'Balance sheet, profit & loss, and any loans you carry.',
+      'Every cent runs through an append-only ledger — nothing is hidden.',
+    ],
+  },
+  campaigns: {
+    title: 'Fly a story', lead: 'Curated multi-leg campaigns with a payoff at the end.',
+    points: [
+      'Follow a themed set of flights across a region.',
+      'Finish one for a reward and a mark on your record.',
+    ],
+  },
+  awards: {
+    title: 'Achievements earned', lead: 'The milestones you unlock as you fly.',
+    points: ['A record of what you’ve accomplished, from first flights to long-haul feats.'],
+  },
+  community: {
+    title: 'Leaderboards', lead: 'How you stack up against pilots around the world.',
+    points: [
+      'Rankings for net worth, flights flown and reputation.',
+      'Sign in with a free cloud account to appear on the boards.',
+    ],
+  },
+  logbook: {
+    title: 'Flights & the ledger', lead: 'The complete history of your career.',
+    points: [
+      'Every flight you’ve flown, sortable by score, distance or date.',
+      'The full money trail sits alongside it — earnings, costs, everything.',
+    ],
+  },
+  settings: {
+    title: 'Preferences & your save', lead: 'Make Callsign yours, and keep your career safe.',
+    points: ['Theme and motion settings.', 'Back your career up to the cloud, or manage local save files.'],
+  },
+}
+
+function TabGuide({ tab, onClose }: { tab: Tab; onClose: () => void }) {
+  const g = TAB_GUIDES[tab]
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+  if (!g) return null
+  return (
+    <div className="guide-backdrop" onClick={onClose}>
+      <div className="guide-card" role="dialog" aria-modal="true" aria-label={g.title} onClick={e => e.stopPropagation()}>
+        <div className="guide-kicker">Quick guide</div>
+        <h2>{g.title}</h2>
+        <p className="guide-lead">{g.lead}</p>
+        <ul className="guide-points">{g.points.map((p, i) => <li key={i}>{p}</li>)}</ul>
+        <div className="guide-foot">
+          <span className="guide-hint">Reopen any time with the <b>?</b> up top.</span>
+          <button className="primary" onClick={onClose}>Got it →</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function NavRail({ tab, setTab, airline }: { tab: Tab; setTab: (t: Tab) => void; airline: AirlineData | null }) {
   const item = (t: Tab, label: string) => (
     <button key={t} className={`ric ${tab === t ? 'on' : ''}`} onClick={() => setTab(t)} aria-label={label}>
@@ -135,7 +289,7 @@ function NavRail({ tab, setTab, airline }: { tab: Tab; setTab: (t: Tab) => void;
 // Weather at the current field is rough enough to matter to a departure (Phase 8) — flag it.
 const roughWx = (c: string) => c === 'Storm' || c === 'Fog' || c === 'Snow'
 
-function ContextHeader({ state, tab }: { state: State; tab: Tab }) {
+function ContextHeader({ state, tab, onHelp }: { state: State; tab: Tab; onHelp?: () => void }) {
   const meta = TABS.find(t => t.id === tab)
   const [wx, setWx] = useState<Weather | null>(null)
   const [world, setWorld] = useState<WorldState | null>(null)
@@ -152,7 +306,10 @@ function ContextHeader({ state, tab }: { state: State; tab: Tab }) {
   return (
     <header className="ctxbar">
       <div className="ctx-title">
-        <h1>{meta?.label ?? 'Callsign'}</h1>
+        <div className="ctx-titlerow">
+          <h1>{meta?.label ?? 'Callsign'}</h1>
+          {onHelp && <button className="ctx-help" onClick={onHelp} title="What is this tab?" aria-label="What is this tab?">?</button>}
+        </div>
         <div className="sub">{meta?.sub ?? ''}</div>
       </div>
       <div className="ctx">
