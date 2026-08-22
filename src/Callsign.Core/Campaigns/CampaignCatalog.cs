@@ -48,5 +48,33 @@ public static class CampaignCatalog
                 new CampaignStepDef("Making the grade", "Reach the rank of Captain.", (int)PilotRank.Captain, m => m.RankIndex),
                 new CampaignStepDef("Seven figures", "Reach a net worth of $1,000,000.", 1_000_000_00, m => m.NetWorthCents),
             }),
+
+        new CampaignDef("the-long-haul", "The Long Haul",
+            "Put in the hours and become a pilot people trust with anything.", 75_000_00, new[]
+            {
+                new CampaignStepDef("Building hours", "Settle 25 flights.", 25, m => m.Flights),
+                new CampaignStepDef("Smooth operator", "Grease 15 landings (within 60 fpm).", 15, m => m.SmoothLandings),
+                new CampaignStepDef("Type-rated", "Earn three qualifications.", 3, m => m.Qualifications),
+                new CampaignStepDef("Well regarded", "Reach a pilot reputation of 50.", 50_000, m => m.ReputationMilli),
+            }),
+
+        new CampaignDef("sound-books", "Sound Books",
+            "Run the company like a business — insured, out of debt, money in reserve.", 60_000_00, new[]
+            {
+                new CampaignStepDef("Covered", "Insure an aircraft.", 1, m => m.Policies),
+                new CampaignStepDef("Square with the bank", "Pay off a loan in full.", 1, m => m.LoansPaidOff),
+                new CampaignStepDef("Not all your eggs", "Own two aircraft.", 2, m => m.Aircraft),
+                new CampaignStepDef("Reserves", "Reach a net worth of $500,000.", 500_000_00, m => m.NetWorthCents),
+            }),
+
+        new CampaignDef("flag-carrier", "Flag Carrier",
+            "The long game: a trusted name flying a real network from coast to coast.", 500_000_00, new[]
+            {
+                new CampaignStepDef("Trusted name", "Reach an operating reputation of 50.", 50_000, m => m.OperatingReputationMilli),
+                new CampaignStepDef("A real network", "Run five routes.", 5, m => m.Routes),
+                new CampaignStepDef("Coast to coast", "Operate four bases.", 4, m => m.Bases),
+                new CampaignStepDef("The top seat", "Reach the rank of Chief.", (int)PilotRank.Chief, m => m.RankIndex),
+                new CampaignStepDef("Flag carrier", "Reach a net worth of $5,000,000.", 5_000_000_00, m => m.NetWorthCents),
+            }),
     };
 }

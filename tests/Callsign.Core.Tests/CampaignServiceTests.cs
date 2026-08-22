@@ -19,6 +19,21 @@ public class CampaignServiceTests
             new ProgressMetricsService(db, new FinanceService(db, clock, EconomyConfig.Default)),
             new LedgerService(db, clock));
 
+    [Fact]
+    public void Catalog_IsWellFormed_UniqueKeys_PositiveTargetsAndRewards()
+    {
+        var all = CampaignCatalog.All;
+        Assert.True(all.Count >= 5); // the original two + the Phase-12 additions
+        Assert.Equal(all.Count, all.Select(c => c.Key).Distinct().Count());   // unique keys
+        Assert.All(all, c =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(c.Name));
+            Assert.True(c.RewardCents > 0);
+            Assert.NotEmpty(c.Steps);
+            Assert.All(c.Steps, s => Assert.True(s.Target > 0 && !string.IsNullOrWhiteSpace(s.Title)));
+        });
+    }
+
     private static (Company Company, Pilot Pilot) Seed(CallsignDbContext db)
     {
         var company = new Company { Id = Guid.NewGuid(), Name = "Co" };
