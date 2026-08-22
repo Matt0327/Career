@@ -1113,7 +1113,10 @@ function NetworkMap({ bases, fleet, assignments, tele, link, selectedTail, onSel
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
-    const isLive = link === 'Connected' && tele && (tele.lat !== 0 || tele.lon !== 0)
+    // Only a genuinely AIRBORNE aircraft gets a live plane marker; a parked plane is already shown by its
+    // fleet dot at its field, and the synthetic source's idle frames are zeroed server-side. This keeps a
+    // phantom "flight" off the network map before a leg is actually flown.
+    const isLive = link === 'Connected' && tele && !tele.onGround && (tele.lat !== 0 || tele.lon !== 0)
     if (!isLive) { if (planeRef.current) { planeRef.current.remove(); planeRef.current = null } return }
     const pos: [number, number] = [tele!.lat, tele!.lon]
     if (!planeRef.current) planeRef.current = L.marker(pos, { icon: planeIcon(0), interactive: false, zIndexOffset: 1000 }).addTo(map)
@@ -1857,15 +1860,22 @@ function planeIcon(hdg: number): L.DivIcon {
 
 // The live moving-map on the Flight screen. Built ONCE; each telemetry frame just moves the aircraft
 // marker and extends the trail (never rebuilds the map, so tracking stays smooth). Esri satellite tiles.
-function FlightMap({ tele, leg }: { tele: Telemetry | null; leg?: Assignment | null }) {
+//
+// Until a leg is ARMED (begun), the map shows the selected aircraft PARKED AT ITS OWN FIELD (`home`) and
+// ignores telemetry entirely — so an always-streaming synthetic source, or a real sim sitting at some
+// unrelated spot, never paints a phantom "flight" before you've actually started one (the NeoFly rule:
+// your aircraft lives where it is; the moving map only comes alive once you fly the leg).
+function FlightMap({ tele, leg, home }: { tele: Telemetry | null; leg?: Assignment | null; home?: { lat: number; lon: number; label: string } | null }) {
   const host = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
   const marker = useRef<L.Marker | null>(null)
+  const parked = useRef<L.Marker | null>(null)
   const trail = useRef<L.Polyline | null>(null)
   const legLayer = useRef<L.LayerGroup | null>(null)
   const path = useRef<[number, number][]>([])
   const centred = useRef(false)
   const online = typeof navigator === 'undefined' ? true : navigator.onLine
+  const armed = !!leg
 
   useEffect(() => {
     if (!host.current || !online) return
@@ -1878,7 +1888,7 @@ function FlightMap({ tele, leg }: { tele: Telemetry | null; leg?: Assignment | n
     trail.current = L.polyline([], { color: '#6d84ff', weight: 3, opacity: .85 }).addTo(map)
     mapRef.current = map
     const t = setTimeout(() => map.invalidateSize(), 60) // WebView2 flex layout can settle a beat late
-    return () => { clearTimeout(t); map.remove(); mapRef.current = null; marker.current = null; trail.current = null; legLayer.current = null; path.current = []; centred.current = false }
+    return () => { clearTimeout(t); map.remove(); mapRef.current = null; marker.current = null; parked.current = null; trail.current = null; legLayer.current = null; path.current = []; centred.current = false }
   }, [online])
 
   // The planned leg — departure + destination pins, a dashed planned track, and the 5 nm arrival ring.
@@ -1903,9 +1913,28 @@ function FlightMap({ tele, leg }: { tele: Telemetry | null; leg?: Assignment | n
     }
   }, [leg])
 
+  // Idle: park the selected aircraft at its own field and ignore telemetry. Once a leg is armed, this
+  // marker is torn down so the live plot below can take over.
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !tele || (tele.lat === 0 && tele.lon === 0)) return
+    if (!map) return
+    if (armed || !home || (home.lat === 0 && home.lon === 0)) {
+      if (parked.current) { parked.current.remove(); parked.current = null }
+      return
+    }
+    // Disarmed → drop any live plot + trail so nothing lingers from a prior flight.
+    if (marker.current) { marker.current.remove(); marker.current = null }
+    path.current = []; trail.current?.setLatLngs([]); centred.current = false
+    const pos: [number, number] = [home.lat, home.lon]
+    if (!parked.current) parked.current = L.marker(pos, { icon: planeIcon(0), interactive: false }).addTo(map).bindTooltip(`${home.label} · parked at ${home.label}`, { direction: 'top', className: 'sat-tip' })
+    else parked.current.setLatLng(pos)
+    parked.current.bindTooltip(`parked at ${home.label}`, { direction: 'top', className: 'sat-tip' })
+    map.setView(pos, 9)
+  }, [home, armed])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !armed || !tele || (tele.lat === 0 && tele.lon === 0)) return
     const pos: [number, number] = [tele.lat, tele.lon]
     const prev = path.current[path.current.length - 1]
     if (!prev || prev[0] !== pos[0] || prev[1] !== pos[1]) {
@@ -1918,7 +1947,7 @@ function FlightMap({ tele, leg }: { tele: Telemetry | null; leg?: Assignment | n
     else { marker.current.setLatLng(pos); marker.current.setIcon(planeIcon(hdg)) }
     if (!centred.current) { map.setView(pos, 8); centred.current = true }
     else map.panTo(pos, { animate: true, duration: .5 })
-  }, [tele])
+  }, [tele, armed])
 
   if (!online) return <div className="flightmap-empty">The moving-map needs a connection for satellite imagery.</div>
   return <div className="satmap flightmap" ref={host} role="img" aria-label="Live flight map" />
@@ -1991,10 +2020,13 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
     api.hangar().then(hs => {
       const avail = hs.filter(h => h.availability === 'Available')
       setFleet(avail)
-      // Default to an aircraft you're actually rated to fly (3c), else the first available.
-      setAircraftId(prev => prev || avail.find(h => h.rated)?.id || avail[0]?.id || '')
+      // Default to an aircraft that's rated AND parked here with you (the only kind you can actually fly a job
+      // in), else a rated one, else the first available.
+      setAircraftId(prev => prev
+        || avail.find(h => h.rated && h.locationIcao === state.currentIcao)?.id
+        || avail.find(h => h.rated)?.id || avail[0]?.id || '')
     }).catch(() => {})
-  }, [])
+  }, [state.currentIcao])
   useEffect(() => { loadAssignments(); loadFleet(); loadQuals() }, [loadAssignments, loadFleet, loadQuals])
 
   const { tele, wsOpen, link } = useTelemetry(
@@ -2060,6 +2092,11 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
     }
   }
 
+  // The aircraft picked to fly, and where it's parked — drives the idle map (parked at its field) and the
+  // readiness check below.
+  const selAc = fleet.find(f => f.id === aircraftId) ?? null
+  const home = selAc && (selAc.lat !== 0 || selAc.lon !== 0) ? { lat: selAc.lat, lon: selAc.lon, label: selAc.locationIcao } : null
+
   return (
     <div className="grid">
       <section className="card hud">
@@ -2069,9 +2106,9 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
         </div>
         <div className="hud-live">
           <div className="flightmap-wrap">
-            <FlightMap tele={tele} leg={begun} />
+            <FlightMap tele={tele} leg={begun} home={home} />
             <div className="fm-overlay">
-              <span className="fm-phase num">{tele?.phase ?? 'STANDING BY'}</span>
+              <span className="fm-phase num">{begun ? (tele?.phase ?? 'STANDING BY') : (home ? 'PARKED' : 'STANDING BY')}</span>
               <span className="fm-reads">
                 <span className="fm-read"><b className="num">{tele ? Math.round(tele.alt).toLocaleString() : '—'}</b> ft</span>
                 <span className="fm-read"><b className="num">{tele ? Math.round(tele.ias) : '—'}</b> kt</span>
@@ -2079,7 +2116,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
                 <span className="fm-read"><b>{tele ? (tele.onGround ? 'GND' : 'AIR') : '—'}</b></span>
               </span>
             </div>
-            {!tele && <div className="flightmap-veil">Waiting for your aircraft — start MSFS and begin a leg.</div>}
+            {!begun && !home && <div className="flightmap-veil">Select an available aircraft — it'll show parked at its field. Begin a leg to fly.</div>}
           </div>
           <FlightLog log={log} />
         </div>
@@ -2099,7 +2136,11 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
           {fleet.length > 0
             ? <label className="pick">Aircraft&nbsp;
                 <select value={aircraftId} onChange={e => setAircraftId(e.target.value)}>
-                  {fleet.map(f => <option key={f.id} value={f.id} disabled={!f.rated}>{f.tail} · {f.name} — {f.locationIcao}{f.rated ? '' : ' · not rated'}</option>)}
+                  {fleet.map(f => {
+                    const here = f.locationIcao === state.currentIcao
+                    const note = !f.rated ? ' · not rated' : !here ? ` · at ${f.locationIcao}, not here` : ''
+                    return <option key={f.id} value={f.id} disabled={!f.rated || !here}>{f.tail} · {f.name} — {f.locationIcao}{note}</option>
+                  })}
                 </select>
               </label>
             : <span className="hint">No available aircraft — buy one in the Hangar.</span>}
@@ -2109,20 +2150,31 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
           ? <div className="empty"><p>No accepted jobs. Accept one on the Jobs board first.</p></div>
           : (
             <ul className="assign-list">
-              {assignments.map(a => (
-                <li key={a.id} className="assign">
-                  <div className="leg"><b>{a.origin}</b> → <b>{a.dest}</b> <span className="muted">{a.destName} · {a.commodity}</span></div>
-                  <div className="assign-meta">
-                    <span>{Math.round(a.distanceNm)} nm</span>
-                    <span>{loadText(a.type, a.weightLbs, a.pax)}</span>
-                    <span className="pos">{money(a.rewardQuoteCents)}</span>
-                    {a.deadlineAt && <span className={`due ${Date.parse(a.deadlineAt) < Date.now() ? 'neg' : 'warn'}`}>{dueText(a.deadlineAt)}</span>}
-                  </div>
-                  <button className="primary" disabled={begun?.id === a.id || !aircraftId} onClick={() => begin(a)}>
-                    {begun?.id === a.id ? 'In progress…' : 'Begin flight'}
-                  </button>
-                </li>
-              ))}
+              {assignments.map(a => {
+                const atOrigin = state.currentIcao === a.origin           // you're at the departure field
+                const acHere = !!selAc && selAc.locationIcao === a.origin  // the chosen aircraft is too
+                const canFly = atOrigin && acHere && !!aircraftId
+                const why = begun?.id === a.id ? null
+                  : !aircraftId ? 'Pick an aircraft'
+                  : !atOrigin ? `You're at ${state.currentIcao} — this leg departs ${a.origin}`
+                  : !acHere ? `${selAc?.tail ?? 'That aircraft'} isn't at ${a.origin} — ferry it there first`
+                  : null
+                return (
+                  <li key={a.id} className="assign">
+                    <div className="leg"><b>{a.origin}</b> → <b>{a.dest}</b> <span className="muted">{a.destName} · {a.commodity}</span></div>
+                    <div className="assign-meta">
+                      <span>{Math.round(a.distanceNm)} nm</span>
+                      <span>{loadText(a.type, a.weightLbs, a.pax)}</span>
+                      <span className="pos">{money(a.rewardQuoteCents)}</span>
+                      {a.deadlineAt && <span className={`due ${Date.parse(a.deadlineAt) < Date.now() ? 'neg' : 'warn'}`}>{dueText(a.deadlineAt)}</span>}
+                    </div>
+                    <button className="primary" disabled={begun?.id === a.id || !canFly} onClick={() => begin(a)} title={why ?? ''}>
+                      {begun?.id === a.id ? 'In progress…' : 'Begin flight'}
+                    </button>
+                    {why && begun?.id !== a.id && <div className="assign-why muted">{why}</div>}
+                  </li>
+                )
+              })}
             </ul>
           )}
         <p className="hint muted">Signed in as {state.name} · flying out of {state.currentIcao}.</p>

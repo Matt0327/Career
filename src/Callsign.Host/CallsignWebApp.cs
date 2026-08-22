@@ -1629,11 +1629,14 @@ public static class CallsignWebApp
         // --- Live flight: begin tracking an accepted assignment; the next landing auto-settles it ---
         app.MapPost("/api/flight/begin", async (BeginFlightRequest req, CallsignDbContext db, QualificationService quals, AircraftDealerService dealer, FlightSessionService session) =>
         {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            var assignment = await db.JobAssignments.FirstOrDefaultAsync(a => a.Id == req.AssignmentId);
+            Callsign.Core.Domain.AircraftInstance? inst = null;
+
             // Rating gate (Phase 3c): dispatching an OWNED airframe needs the licence class for its category.
             if (req.AircraftInstanceId is { } aid)
             {
-                var pilot = await db.Pilots.FirstOrDefaultAsync();
-                var inst = await db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == aid);
+                inst = await db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == aid);
                 var type = inst is null ? null : await db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == inst.TypeId);
                 if (pilot is not null && type is not null)
                 {
@@ -1645,6 +1648,21 @@ public static class CallsignWebApp
                 if (inst is not null && dealer.Airworthiness(inst) is { Airworthy: false } aw)
                     return Results.BadRequest(new { error = $"{inst.Tail} is grounded: {aw.Reason}." });
             }
+
+            // Location gate (Phase 12 — the NeoFly rule: you fly a job FROM where you and the aircraft actually
+            // are). Both you and the chosen airframe must be at the job's departure field; if not, reposition
+            // (ferry the aircraft / fly yourself there) first. Origin is empty only on legacy data — skip then.
+            if (pilot is not null && assignment is not null && !string.IsNullOrWhiteSpace(assignment.OriginIcao))
+            {
+                var origin = assignment.OriginIcao;
+                if (!string.IsNullOrWhiteSpace(pilot.CurrentIcao) &&
+                    !string.Equals(pilot.CurrentIcao, origin, StringComparison.OrdinalIgnoreCase))
+                    return Results.BadRequest(new { error = $"You're at {pilot.CurrentIcao}; this job departs {origin}. Fly or reposition there first." });
+                if (inst is not null && !string.IsNullOrWhiteSpace(inst.LocationIcao) &&
+                    !string.Equals(inst.LocationIcao, origin, StringComparison.OrdinalIgnoreCase))
+                    return Results.BadRequest(new { error = $"{inst.Tail} is parked at {inst.LocationIcao}, not {origin}. Ferry it there first (Hangar → bring the aircraft to you)." });
+            }
+
             session.BeginFlight(req.AssignmentId, req.AircraftInstanceId);
             return Results.Ok(new { begun = req.AssignmentId, aircraft = req.AircraftInstanceId });
         });
