@@ -14,6 +14,7 @@ public class CrewDispatchTests
     private static readonly EconomyConfig Cfg = EconomyConfig.Default;
     private const double EhamLat = 52.3086, EhamLon = 4.7639;
     private const double EhrdLat = 51.9569, EhrdLon = 4.4372;
+    private const double EhehLat = 51.4501, EhehLon = 5.3745;
 
     private static Airport A(string id, double lat, double lon)
         => new() { Ident = id, IcaoCode = id, Name = id, Latitude = lat, Longitude = lon, Kind = AirportKind.LargeAirport, LongestRunwayFt = 10_000 };
@@ -143,6 +144,85 @@ public class CrewDispatchTests
             var job2 = new Job { Id = Guid.NewGuid(), Type = MissionType.Cargo, OriginIcao = "EHAM", DestIcao = "EHRD", Commodity = "Mail", WeightLbs = 400, DistanceNm = 300, RewardCents = 100_000, RequiredRank = PilotRank.Trainee, GeneratedAt = clock.UtcNow, ExpiresAt = clock.UtcNow.AddHours(6) };
             db.Jobs.Add(job2); await db.SaveChangesAsync();
             await Assert.ThrowsAsync<InvalidOperationException>(() => Ops(db, clock).DispatchJobAsync(companyId, job2.Id, staffId, aircraftId));
+        }
+    }
+
+    private static Job Jb(string origin, string dest, FakeClock c)
+        => new() { Id = Guid.NewGuid(), Type = MissionType.Cargo, OriginIcao = origin, DestIcao = dest, Commodity = "Mail", WeightLbs = 200, DistanceNm = 300, RewardCents = 100_000, RequiredRank = PilotRank.Trainee, GeneratedAt = c.UtcNow, ExpiresAt = c.UtcNow.AddHours(6) };
+
+    [Fact]
+    public async Task Dispatch_ChainsUpToThreeConnectedLegs_ThenFliesTheWholeItinerary()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var (companyId, aircraftId, staffId, jobId) = await SeedAsync(tdb, clock); // leg 1: EHAM → EHRD
+        Job j2, j3, j4;
+        using (var db = tdb.NewContext())
+        {
+            db.Airports.AddRange(A("EHEH", EhehLat, EhehLon), A("EHGG", 53.12, 6.58), A("EHTW", 52.27, 6.87));
+            db.Jobs.AddRange(j2 = Jb("EHRD", "EHEH", clock), j3 = Jb("EHEH", "EHGG", clock), j4 = Jb("EHGG", "EHTW", clock));
+            await db.SaveChangesAsync();
+        }
+        using (var db = tdb.NewContext()) await Ops(db, clock).DispatchJobAsync(companyId, jobId, staffId, aircraftId); // leg 1
+        using (var db = tdb.NewContext()) await Ops(db, clock).DispatchJobAsync(companyId, j2.Id, staffId, aircraftId); // append leg 2
+        using (var db = tdb.NewContext()) await Ops(db, clock).DispatchJobAsync(companyId, j3.Id, staffId, aircraftId); // append leg 3
+        using (var db = tdb.NewContext()) // a 4th leg exceeds the cap
+            await Assert.ThrowsAsync<InvalidOperationException>(() => Ops(db, clock).DispatchJobAsync(companyId, j4.Id, staffId, aircraftId));
+
+        clock.UtcNow = clock.UtcNow.AddHours(20); // all three legs' duty-scaled times elapse (6h + 6h + 6h)
+        using (var db = tdb.NewContext()) await Ops(db, clock).ReconcileAsync(companyId);
+        using (var db = tdb.NewContext())
+        {
+            var ac = await db.AircraftInstances.FindAsync(aircraftId);
+            Assert.Equal("EHGG", ac!.LocationIcao);                       // ended at the last leg's destination
+            Assert.Equal(AircraftAvailability.Available, ac.Availability); // whole itinerary flown → freed
+            Assert.Equal("EHGG", (await db.Staff.FindAsync(staffId))!.CurrentIcao);
+            Assert.Equal(3, await db.DispatchLegs.CountAsync(d => d.StaffId == staffId && d.Status == DispatchStatus.Flown));
+            Assert.Equal(3, await db.LedgerEntries.CountAsync(e => e.Category == LedgerCategory.JobPayout && e.DedupeKey != null && e.DedupeKey.StartsWith("dispatch:")));
+        }
+    }
+
+    [Fact]
+    public async Task Dispatch_Append_RejectsADisconnectedOrigin()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var (companyId, aircraftId, staffId, jobId) = await SeedAsync(tdb, clock); // leg 1 ends at EHRD
+        Job bad;
+        using (var db = tdb.NewContext())
+        {
+            db.Airports.Add(A("EHEH", EhehLat, EhehLon));
+            db.Jobs.Add(bad = Jb("EHAM", "EHEH", clock)); // departs EHAM, but the run is at EHRD after leg 1
+            await db.SaveChangesAsync();
+        }
+        using (var db = tdb.NewContext()) await Ops(db, clock).DispatchJobAsync(companyId, jobId, staffId, aircraftId);
+        using (var db = tdb.NewContext())
+            await Assert.ThrowsAsync<InvalidOperationException>(() => Ops(db, clock).DispatchJobAsync(companyId, bad.Id, staffId, aircraftId));
+    }
+
+    [Fact]
+    public async Task RecallDispatch_CancelsTheLegAndEverythingDownstream()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var (companyId, aircraftId, staffId, jobId) = await SeedAsync(tdb, clock); // leg 1 EHAM→EHRD
+        Job j2, j3;
+        using (var db = tdb.NewContext())
+        {
+            db.Airports.AddRange(A("EHEH", EhehLat, EhehLon), A("EHGG", 53.12, 6.58));
+            db.Jobs.AddRange(j2 = Jb("EHRD", "EHEH", clock), j3 = Jb("EHEH", "EHGG", clock));
+            await db.SaveChangesAsync();
+        }
+        Guid leg2Id;
+        using (var db = tdb.NewContext()) await Ops(db, clock).DispatchJobAsync(companyId, jobId, staffId, aircraftId);
+        using (var db = tdb.NewContext()) leg2Id = (await Ops(db, clock).DispatchJobAsync(companyId, j2.Id, staffId, aircraftId)).Id;
+        using (var db = tdb.NewContext()) await Ops(db, clock).DispatchJobAsync(companyId, j3.Id, staffId, aircraftId);
+        // recall the SECOND leg → legs 2 and 3 go, leg 1 stays
+        using (var db = tdb.NewContext()) await Ops(db, clock).CancelDispatchAsync(companyId, leg2Id);
+        using (var db = tdb.NewContext())
+        {
+            Assert.Equal(1, await db.DispatchLegs.CountAsync(d => d.StaffId == staffId && d.Status == DispatchStatus.Flying && !d.IsDeleted)); // only leg 1
+            Assert.Equal(AircraftAvailability.Reserved, (await db.AircraftInstances.FindAsync(aircraftId))!.Availability); // leg 1 still holds it
         }
     }
 

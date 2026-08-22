@@ -228,12 +228,21 @@ public sealed class OperationsService
                   ?? throw new InvalidOperationException("That job is no longer on the board.");
         var staff = await _db.Staff.FirstOrDefaultAsync(s => s.Id == staffId && s.CompanyId == companyId && s.IsActive && !s.IsDeleted, ct)
                     ?? throw new InvalidOperationException("Pilot not found.");
-        if (await CrewAlreadyFlyingAsync(staffId, ct))
+        // One crew flies one line. A standing order / route blocks dispatch outright; a dispatch itinerary can
+        // instead grow to MaxDispatchLegs one-way legs (Phase 12), each departing where the previous one lands.
+        if (await _db.StandingOrders.AnyAsync(o => o.StaffId == staffId && o.IsActive && !o.IsDeleted, ct)
+            || await _db.Routes.AnyAsync(r => r.StaffId == staffId && r.Active && !r.IsDeleted, ct))
             throw new InvalidOperationException($"{staff.Name} already flies a line — dispatch a different pilot or hire one.");
+        var queue = await _db.DispatchLegs.Where(d => d.StaffId == staffId && d.Status == DispatchStatus.Flying && !d.IsDeleted).OrderBy(d => d.ReadyAt).ToListAsync(ct);
+        if (queue.Count >= _cfg.MaxDispatchLegs)
+            throw new InvalidOperationException($"{staff.Name}'s itinerary is full — a crew flies up to {_cfg.MaxDispatchLegs} legs at a time.");
+        var tail = queue.Count > 0 ? queue[^1] : null; // the leg this one continues from, when appending to a run
         var aircraft = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == aircraftId && a.CompanyId == companyId && !a.IsDeleted, ct)
                        ?? throw new InvalidOperationException("Aircraft not found in your fleet.");
-        if (aircraft.Availability != AircraftAvailability.Available)
+        if (tail is null && aircraft.Availability != AircraftAvailability.Available)
             throw new InvalidOperationException("That aircraft isn't available.");
+        if (tail is not null && aircraftId != tail.AircraftInstanceId)
+            throw new InvalidOperationException($"{staff.Name} is mid-itinerary — the next leg continues in the same aircraft.");
         // A rented tail is fine (its per-flight-hour usage fee keeps a dispatched leg strictly less profitable
         // than an owned one), but a LEASE isn't: a lease bills a flat weekly rate with NO per-hour usage fee, so
         // a leased leg would only TIE an owned one's margin. Fly a lease by hand, or dispatch an owned/rented tail.
@@ -254,12 +263,19 @@ public sealed class OperationsService
                 throw new InvalidOperationException($"Requires reputation {missionDef.MinReputationMilli / 1000.0:0.0} — a locked job can't be dispatched.");
         }
 
-        // Co-location: crew + aircraft must both be AT the job's origin to depart it. Un-positioned legacy crew
+        // Co-location. A FIRST leg departs where the crew + aircraft physically are (the job's origin). An
+        // APPENDED leg must instead depart where the crew's itinerary currently ENDS — the previous leg's
+        // destination — since that's where this tail will be by the time it flies. Un-positioned legacy crew
         // (null CurrentIcao) grandfather in and are placed at the origin below.
-        if (!string.Equals(aircraft.LocationIcao, job.OriginIcao, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException($"The aircraft is at {aircraft.LocationIcao}, but this job departs {job.OriginIcao} — ferry it there first.");
-        if (!string.IsNullOrEmpty(staff.CurrentIcao) && !string.Equals(staff.CurrentIcao, job.OriginIcao, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException($"{staff.Name} is at {staff.CurrentIcao}, but this job departs {job.OriginIcao} — reposition them there first (Crew tab).");
+        if (tail is null)
+        {
+            if (!string.Equals(aircraft.LocationIcao, job.OriginIcao, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"The aircraft is at {aircraft.LocationIcao}, but this job departs {job.OriginIcao} — ferry it there first.");
+            if (!string.IsNullOrEmpty(staff.CurrentIcao) && !string.Equals(staff.CurrentIcao, job.OriginIcao, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"{staff.Name} is at {staff.CurrentIcao}, but this job departs {job.OriginIcao} — reposition them there first (Crew tab).");
+        }
+        else if (!string.Equals(tail.DestIcao, job.OriginIcao, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"{staff.Name}'s run ends at {tail.DestIcao} — the next leg must depart there.");
 
         var type = await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == aircraft.TypeId, ct);
         int need = _cfg.MinSkillMilliForCategory(type?.Category ?? AircraftCategory.Unknown);
@@ -282,32 +298,42 @@ public sealed class OperationsService
             WeightLbs = job.WeightLbs, Pax = job.Pax, DistanceNm = job.DistanceNm, OneWayHours = oneWayHours,
             RewardCents = Math.Max(0, reward), ClientKey = job.ClientKey, ClientName = job.ClientName,
             Status = DispatchStatus.Flying, DispatchedAt = now,
-            ReadyAt = now.AddHours(oneWayHours * 24.0 / Math.Max(1, _cfg.MaxDutyHoursPerDay)),
+            // Chained off the itinerary: an appended leg starts flying when the previous one lands, so the whole
+            // run's duty time accumulates and the FTL cap holds across all legs (not per leg).
+            ReadyAt = (tail?.ReadyAt ?? now).AddHours(oneWayHours * 24.0 / Math.Max(1, _cfg.MaxDutyHoursPerDay)),
             UpdatedAt = now,
         };
         _db.DispatchLegs.Add(leg);
         aircraft.Availability = AircraftAvailability.Reserved;
         aircraft.UpdatedAt = now;
-        staff.CurrentIcao = job.OriginIcao; // positions a grandfathered crew at the departure field
-        staff.UpdatedAt = now;
+        if (tail is null) { staff.CurrentIcao = job.OriginIcao; staff.UpdatedAt = now; } // position a grandfathered crew at the first leg's origin
         _db.Jobs.Remove(job); // committed to the crew — off the board (like accepting it)
         await _db.SaveChangesAsync(ct);
         return leg;
     }
 
-    /// <summary>Recall a dispatched leg still in the air: the job is forfeited (it already left the board), the tail
-    /// is freed at its origin (a Flying leg never departed), and the crew stays put. Reconcile-first banks a leg
-    /// that just landed. Idempotent — a no-op if the leg already completed or was recalled.</summary>
+    /// <summary>Recall a dispatched leg still in the air — and every LATER leg of that crew's itinerary, since a
+    /// downstream leg departs where an upstream one lands, so cancelling one orphans the rest. Those jobs are
+    /// forfeited (they already left the board). The tail is freed only if no EARLIER leg still holds it. Reconcile-
+    /// first banks a leg that just landed. Idempotent — a no-op if the leg already completed or was recalled.</summary>
     public async Task CancelDispatchAsync(Guid companyId, Guid legId, CancellationToken ct = default)
     {
         await ReconcileAsync(companyId, ct); // bank it if it just completed
         var leg = await _db.DispatchLegs.FirstOrDefaultAsync(d => d.Id == legId && d.CompanyId == companyId, ct);
         if (leg is null || leg.Status != DispatchStatus.Flying || leg.IsDeleted) return;
         var now = _clock.UtcNow;
-        leg.IsDeleted = true;
-        leg.UpdatedAt = now;
-        var aircraft = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == leg.AircraftInstanceId, ct);
-        if (aircraft is not null && aircraft.Availability == AircraftAvailability.Reserved) { aircraft.Availability = AircraftAvailability.Available; aircraft.UpdatedAt = now; }
+        // This leg and everything downstream of it in the same crew's itinerary.
+        var toCancel = await _db.DispatchLegs.Where(d => d.CompanyId == companyId && d.StaffId == leg.StaffId
+            && d.Status == DispatchStatus.Flying && !d.IsDeleted && d.ReadyAt >= leg.ReadyAt).ToListAsync(ct);
+        foreach (var c in toCancel) { c.IsDeleted = true; c.UpdatedAt = now; }
+        // Free the tail only if no EARLIER leg of this run is still flying it (those weren't cancelled).
+        bool earlierLegHolds = await _db.DispatchLegs.AnyAsync(d => d.CompanyId == companyId && d.AircraftInstanceId == leg.AircraftInstanceId
+            && d.Status == DispatchStatus.Flying && !d.IsDeleted && d.ReadyAt < leg.ReadyAt, ct);
+        if (!earlierLegHolds)
+        {
+            var aircraft = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == leg.AircraftInstanceId, ct);
+            if (aircraft is not null && aircraft.Availability == AircraftAvailability.Reserved) { aircraft.Availability = AircraftAvailability.Available; aircraft.UpdatedAt = now; }
+        }
         await _db.SaveChangesAsync(ct);
     }
 
@@ -521,7 +547,10 @@ public sealed class OperationsService
         // past its ReadyAt while the cert expires can't settle on a lapsed cert. HELD, not forfeited (it was
         // authorised when dispatched, and the airworthiness pattern above holds rather than forfeits) — L9.
         var validDispatchCerts = (await _db.OperatingCertificates.Where(c => c.CompanyId == companyId && c.ExpiresAt > now).Select(c => c.Kind).ToListAsync(ct)).ToHashSet();
-        foreach (var leg in await _db.DispatchLegs.Where(d => d.CompanyId == companyId && d.Status == DispatchStatus.Flying && !d.IsDeleted).ToListAsync(ct))
+        // Ordered by ReadyAt so a multi-leg itinerary settles IN SEQUENCE — leg A→B (moving the tail to B) before
+        // B→C, which departs B. The chained ReadyAt guarantees the order matches the physical route.
+        var dispatchLegs = await _db.DispatchLegs.Where(d => d.CompanyId == companyId && d.Status == DispatchStatus.Flying && !d.IsDeleted).OrderBy(d => d.ReadyAt).ToListAsync(ct);
+        foreach (var leg in dispatchLegs)
         {
             if (leg.ReadyAt > now)
                 continue; // still en route — the duty-scaled flight time hasn't elapsed yet
@@ -562,8 +591,7 @@ public sealed class OperationsService
                 legAircraft.HullConditionMilli = Math.Max(0, legAircraft.HullConditionMilli - wear);
                 legAircraft.EngineConditionMilli = Math.Max(0, legAircraft.EngineConditionMilli - wear);
                 legAircraft.LocationIcao = leg.DestIcao;                       // one-way: the tail is now at the destination
-                legAircraft.Availability = AircraftAvailability.Available;     // and free for its next task
-                legAircraft.UpdatedAt = now;
+                legAircraft.UpdatedAt = now;                                   // freed below — only once its whole itinerary is flown
             }
             if (legCrew is not null) { legCrew.CurrentIcao = leg.DestIcao; legCrew.UpdatedAt = now; } // the crew flew there too
             SharpenCrew(legCrew, 1, now);
@@ -577,6 +605,15 @@ public sealed class OperationsService
             grossIncome += roll.Income;
             totalFees += fees;
             totalIncidents += roll.Incidents;
+        }
+        // Free each dispatched tail only once its WHOLE itinerary is flown — a tail mid-run (a later leg still
+        // Flying, or a leg held for weather/airworthiness/cert) stays Reserved so it can't be double-booked.
+        foreach (var tailId in dispatchLegs.Select(l => l.AircraftInstanceId).Distinct())
+        {
+            if (dispatchLegs.Any(l => l.AircraftInstanceId == tailId && l.Status == DispatchStatus.Flying))
+                continue;
+            var freed = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == tailId, ct);
+            if (freed is not null && freed.Availability == AircraftAvailability.Reserved) { freed.Availability = AircraftAvailability.Available; freed.UpdatedAt = now; }
         }
 
         foreach (var s in await _db.Staff.Where(s => s.CompanyId == companyId && s.IsActive && !s.IsDeleted).ToListAsync(ct))

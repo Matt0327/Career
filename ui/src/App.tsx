@@ -1357,6 +1357,7 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
   const [jobs, setJobs] = useState<Job[] | null>(null)
   const [staff, setStaff] = useState<Staff[]>([])
   const [fleet, setFleet] = useState<OwnedAircraft[]>([])
+  const [dispatches, setDispatches] = useState<DispatchLeg[]>([])
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
@@ -1372,6 +1373,7 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
       setJobs(await api.jobs())
       setStaff(await api.staff())      // Phase 12 — for dispatching a hired crew to fly a job
       setFleet(await api.hangar())
+      setDispatches(await api.dispatches()) // to offer appending a leg to a crew's itinerary
     } catch (e) { setMsg(String(e)) }
   }, [])
   useEffect(() => { void load() }, [load])
@@ -1478,7 +1480,7 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
                   </table>
                 </div>
                 <div className="jobs-side">
-                  {sel ? <JobDetail job={sel} busy={busy} onAccept={accept} staff={staff} fleet={fleet} onDispatch={dispatch} /> : <div className="card jobs-pick"><div className="empty">Select a job for the full briefing.</div></div>}
+                  {sel ? <JobDetail job={sel} busy={busy} onAccept={accept} staff={staff} fleet={fleet} dispatches={dispatches} onDispatch={dispatch} /> : <div className="card jobs-pick"><div className="empty">Select a job for the full briefing.</div></div>}
                   <JobsMap jobs={shown} selectedId={selected} onSelect={setSelected} />
                 </div>
               </div>
@@ -1541,9 +1543,10 @@ function Clients() {
   )
 }
 
-function JobDetail({ job, busy, onAccept, staff, fleet, onDispatch }: {
+function JobDetail({ job, busy, onAccept, staff, fleet, dispatches, onDispatch }: {
   job: Job; busy: boolean; onAccept: (id: string) => void
-  staff: Staff[]; fleet: OwnedAircraft[]; onDispatch: (jobId: string, staffId: string, aircraftId: string) => void
+  staff: Staff[]; fleet: OwnedAircraft[]; dispatches: DispatchLeg[]
+  onDispatch: (jobId: string, staffId: string, aircraftId: string) => void
 }) {
   const [dStaff, setDStaff] = useState('')
   const [dAircraft, setDAircraft] = useState('')
@@ -1551,6 +1554,14 @@ function JobDetail({ job, busy, onAccept, staff, fleet, onDispatch }: {
   const eligibleCrew = staff.filter(s => !s.flying && (!s.currentIcao || s.currentIcao === job.origin))
   const eligibleAircraft = fleet.filter(f => f.availability === 'Available' && f.locationIcao === job.origin)
   const canDispatch = !job.locked && eligibleCrew.length > 0 && eligibleAircraft.length > 0
+  // Crews already mid-itinerary whose run ENDS at this job's origin (and has room for another leg, max 3) can
+  // append it — a connected one-way chain. One click: their existing tail continues on.
+  const byCrew = new Map<string, DispatchLeg[]>()
+  dispatches.forEach(d => byCrew.set(d.staffId, [...(byCrew.get(d.staffId) ?? []), d]))
+  const continuable = job.locked ? [] : [...byCrew.values()]
+    .filter(legs => legs.length < 3)
+    .map(legs => [...legs].sort((a, b) => a.readyAt < b.readyAt ? -1 : 1).at(-1)!)
+    .filter(last => last.dest === job.origin)
   const m = missionMeta(job.type)
   const geo = (job.originLat || job.originLon) && (job.destLat || job.destLon)
   const hdg = geo ? Math.round(bearing([job.originLat, job.originLon], [job.destLat, job.destLon])) : null
@@ -1589,14 +1600,21 @@ function JobDetail({ job, busy, onAccept, staff, fleet, onDispatch }: {
       {job.locked
         ? <div className="banner warn">🔒 {job.lockReason}</div>
         : <button className="primary jd-accept" disabled={busy} onClick={() => onAccept(job.id)}>Accept this job</button>}
-      {canDispatch && (
+      {(canDispatch || continuable.length > 0) && (
         <div className="jd-dispatch">
           <div className="metalabel">Or dispatch a hired crew — they fly it while you're away (one-way)</div>
-          <div className="dispatch-form">
-            <select value={dStaff} onChange={e => setDStaff(e.target.value)}><option value="">Crew…</option>{eligibleCrew.map(s => <option key={s.id} value={s.id}>{s.name} · {Math.round(s.skillMilli / 1000)}%</option>)}</select>
-            <select value={dAircraft} onChange={e => setDAircraft(e.target.value)}><option value="">Aircraft…</option>{eligibleAircraft.map(f => <option key={f.id} value={f.id}>{f.tail}{f.ownership === 'Rented' ? ' (rental)' : ''}</option>)}</select>
-            <button className="ghost" disabled={busy || !dStaff || !dAircraft} onClick={() => onDispatch(job.id, dStaff, dAircraft)}>Dispatch</button>
-          </div>
+          {canDispatch && (
+            <div className="dispatch-form">
+              <select value={dStaff} onChange={e => setDStaff(e.target.value)}><option value="">Crew…</option>{eligibleCrew.map(s => <option key={s.id} value={s.id}>{s.name} · {Math.round(s.skillMilli / 1000)}%</option>)}</select>
+              <select value={dAircraft} onChange={e => setDAircraft(e.target.value)}><option value="">Aircraft…</option>{eligibleAircraft.map(f => <option key={f.id} value={f.id}>{f.tail}{f.ownership === 'Rented' ? ' (rental)' : ''}</option>)}</select>
+              <button className="ghost" disabled={busy || !dStaff || !dAircraft} onClick={() => onDispatch(job.id, dStaff, dAircraft)}>Dispatch</button>
+            </div>
+          )}
+          {continuable.map(c => (
+            <button key={c.staffId} className="ghost jd-append" disabled={busy} onClick={() => onDispatch(job.id, c.staffId, c.aircraftInstanceId)}>
+              + Add to {c.crewName}'s run · {c.tail}
+            </button>
+          ))}
         </div>
       )}
     </div>

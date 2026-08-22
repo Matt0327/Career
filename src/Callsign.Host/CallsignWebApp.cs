@@ -1082,7 +1082,7 @@ public static class CallsignWebApp
             var now = clock.UtcNow;
             return Results.Ok(legs
                 .OrderBy(d => d.ReadyAt)
-                .Select(d => new DispatchLegDto(d.Id, crew.GetValueOrDefault(d.StaffId, "—"), tails.GetValueOrDefault(d.AircraftInstanceId, "—"),
+                .Select(d => new DispatchLegDto(d.Id, d.StaffId, d.AircraftInstanceId, crew.GetValueOrDefault(d.StaffId, "—"), tails.GetValueOrDefault(d.AircraftInstanceId, "—"),
                     d.OriginIcao, d.DestIcao, d.DistanceNm, d.RewardCents, d.DispatchedAt.ToString("o"), d.ReadyAt.ToString("o"), d.ReadyAt <= now)));
         });
 

@@ -113,7 +113,7 @@ public record StaffDto(Guid Id, string Name, long WagePerDayCents, int SkillMill
 public record HireRequest(int CandidateSeed);
 public record RelocateCrewRequest(string DestIcao);
 public record DispatchJobRequest(Guid StaffId, Guid AircraftInstanceId);
-public record DispatchLegDto(Guid Id, string CrewName, string Tail, string Origin, string Dest, double DistanceNm,
+public record DispatchLegDto(Guid Id, Guid StaffId, Guid AircraftInstanceId, string CrewName, string Tail, string Origin, string Dest, double DistanceNm,
     long RewardCents, string DispatchedAt, string ReadyAt, bool Ready);
 public record StandingOrderDto(
     Guid Id, string StaffName, string Tail, string Origin, string Dest,

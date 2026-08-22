@@ -476,6 +476,8 @@ export interface Staff {
 
 export interface DispatchLeg {
   id: string
+  staffId: string
+  aircraftInstanceId: string
   crewName: string
   tail: string
   origin: string

@@ -703,6 +703,9 @@ public sealed record EconomyConfig
     public long CrewPositionBaseCents { get; init; } = 15_000;   // $150 to reposition a pilot at all
     public long CrewPositionPerNmCents { get; init; } = 60;      // $0.60 per nm (a commercial-ticket rate)
 
+    // --- Crew dispatch (Phase 12) — how many one-way legs a crew can have queued as an itinerary at once. ---
+    public int MaxDispatchLegs { get; init; } = 3;
+
     // --- Insurance (Phase 4c) ---
     public int InsuranceDefaultCoverageMilli { get; init; } = 80_000;      // insure 80% of hull by default
     public int InsuranceWeeklyRateBps { get; init; } = 40;                 // 0.40%/week of the covered value
