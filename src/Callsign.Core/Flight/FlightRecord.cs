@@ -82,6 +82,13 @@ public sealed record FlightRecord(
     /// ground). An invalid flight forfeits any performance bonus (Phase 7c anti-cheat).</summary>
     public bool ScoreValid { get; init; } = true;
 
+    /// <summary>True when the leg hit a genuine in-flight emergency (an engine failure aloft) and the pilot still
+    /// brought it down with a valid score — recognised airmanship (Phase 12). Un-gameable: it fires only from the
+    /// sim's reported engine state, and only counts if the leg actually completes cleanly. Default false.</summary>
+    public bool HandledEmergency { get; init; }
+    /// <summary>What the emergency was, for the debrief (null = none).</summary>
+    public string? EmergencyKind { get; init; }
+
     /// <summary>Engine-damage percentage points this leg ADDED, as the sim's own damage model reported it
     /// (monotonic max − baseline; 0 below a small deadband, and when the sim doesn't publish damage). The
     /// economy prices this into engine-condition wear at settlement (Phase 9e) — because it's the sim's own

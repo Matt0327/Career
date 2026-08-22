@@ -113,6 +113,11 @@ public sealed class FlightTracker
     // raw reading so a rise must be confirmed across two samples before it bills (single-frame spike guard).
     private double _engDmgBaseline = -1, _engDmgMax, _engDmgPrev;
     private bool _engStressCoached;
+    // Phase 12 — in-flight emergency detection. If the engine quits ALOFT (was running, now isn't, above the
+    // gate so a normal short-final power-off / touchdown shutdown doesn't count), it's a genuine failure. If the
+    // pilot then completes the leg with a valid score, it's a HANDLED emergency — recognised airmanship (L9).
+    private string? _emergencyKind;   // the emergency that struck this leg, if any (also gates the once-only warning)
+    private const int EmergencyLandingBonus = 15; // grade earned back for bringing an emergency down (capped, like the weather bonus)
 
     public FlightPhase Phase { get; private set; } = FlightPhase.Parked;
     public IReadOnlyList<FlightEvent> Events => _events;
@@ -236,6 +241,23 @@ public sealed class FlightTracker
         CheckViolations(t);
         CheckIcing(t);
         CheckIntegrity(t);
+        CheckEmergency(t);
+    }
+
+    // Phase 12 — an engine that was RUNNING and quits while airborne (above the flare) is a genuine in-flight
+    // emergency, not a normal touchdown shutdown (which happens on the ground). Recorded ONCE; if the pilot then
+    // brings the aircraft down and the leg completes with a valid score, Complete() marks it a HANDLED emergency —
+    // airmanship the debrief recognises and the landing grade earns a little back for (L9: reward mastery). A leg
+    // whose engine was never seen running (a glider, or a source that doesn't report it) can't trip this (L10).
+    private void CheckEmergency(TelemetrySnapshot t)
+    {
+        if (_emergencyKind is not null || !_inFlight || !_sawEngineRunning || t.EngineRunning)
+            return;
+        double agl = t.AltitudeAglFt > 0 ? t.AltitudeAglFt : t.AltitudeFt;
+        if (agl < 50) return; // right at the ground — a flare-height power-off, not a failure
+        _emergencyKind = "Engine failure";
+        _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Warning,
+            "Engine failure aloft — fly the aircraft, pick a field, glide it in."));
     }
 
     // Phase from vertical speed, WITH hysteresis: the band LevelVsFpm..ClimbVsFpm HOLDS the current phase, so
@@ -513,10 +535,17 @@ public sealed class FlightTracker
         // plus low visibility. A firm arrival in tough air was better flying than the raw numbers suggest.
         double crosswind = Math.Abs(_tdWindKts * Math.Sin((_tdWindDir - _tdHeading) * Math.PI / 180.0));
         int weatherBonus = WeatherLandingBonus(crosswind, _tdVisSm);
-        int landing = Math.Min(100, rawLanding + weatherBonus);
+        // Phase 12 — if a genuine in-flight emergency struck and the leg still completed with a valid score, the
+        // pilot brought it down: recognised airmanship that earns a little grade back (L9, capped like weather).
+        bool handledEmergency = _emergencyKind is not null && _scoreValid;
+        int emergencyBonus = handledEmergency ? EmergencyLandingBonus : 0;
+        int landing = Math.Min(100, rawLanding + weatherBonus + emergencyBonus);
         if (weatherBonus > 0)
             _events.Add(new FlightEvent(_arrivedAt, FlightEventSeverity.Info,
                 $"Tough conditions — {crosswind:F0} kt crosswind{(_tdVisSm < VisEasySm ? $", {_tdVisSm:F1} sm vis" : "")} — +{weatherBonus} to the landing grade"));
+        if (handledEmergency)
+            _events.Add(new FlightEvent(_arrivedAt, FlightEventSeverity.Success,
+                $"Emergency handled — {_emergencyKind!.ToLowerInvariant()} aloft, and you brought it down. +{emergencyBonus} to the landing grade."));
         int approach = ApproachScore();
         int enroute = Math.Clamp(100 - _violationPoints, 0, 100);
         int overall = (int)Math.Round(0.55 * landing + 0.30 * approach + 0.15 * enroute);
@@ -541,6 +570,8 @@ public sealed class FlightTracker
             ViolationPoints = _violationPoints,
             Scored = true,
             ScoreValid = _scoreValid,
+            HandledEmergency = handledEmergency,        // Phase 12 — airmanship recognised at settlement/debrief
+            EmergencyKind = handledEmergency ? _emergencyKind : null,
             EngineDamagePctAccrued = EngineDamageAccrued(), // Phase 9e — priced into engine wear at settlement
         };
         _inFlight = false;

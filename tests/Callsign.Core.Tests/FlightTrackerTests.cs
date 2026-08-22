@@ -724,6 +724,51 @@ public class FlightTrackerTests
         Assert.NotNull(FlyStandardLeg().Result);
     }
 
+    // ── Phase 12: in-flight emergencies — an engine failure aloft, and the airmanship to bring it down ──
+
+    [Fact]
+    public void Emergency_EngineFailureAloft_IsFlagged_AndAHandledLandingIsRecognised()
+    {
+        var t = new FlightTracker();
+        t.Observe(Snap(0, 0, 0, 0, onGround: true, engineRunning: true));           // parked, running
+        t.Observe(Snap(10, 500, 80, 700, onGround: false, agl: 500, engineRunning: true)); // climb out
+        t.Observe(Snap(30, 3000, 120, 0, onGround: false, agl: 3000, engineRunning: false)); // ENGINE QUITS aloft
+        t.Observe(Snap(60, 400, 75, -600, onGround: false, agl: 400, engineRunning: false)); // dead-stick glide
+        t.Observe(Snap(61, 0, 55, 0, onGround: true, engineRunning: false));        // dead-stick touchdown
+        t.Observe(Snap(120, 0, 0, 0, onGround: true, engineRunning: false));        // stopped, engine off → secured → complete
+
+        var r = t.Result;
+        Assert.NotNull(r);
+        Assert.True(r!.HandledEmergency);
+        Assert.Equal("Engine failure", r.EmergencyKind);
+        Assert.Contains(r.Events, e => e.Severity == FlightEventSeverity.Warning && e.Message.Contains("Engine failure aloft"));
+        Assert.Contains(r.Events, e => e.Severity == FlightEventSeverity.Success && e.Message.Contains("Emergency handled"));
+    }
+
+    [Fact]
+    public void Emergency_WithACheat_IsNotCountedAsHandled()
+    {
+        var t = new FlightTracker();
+        t.Observe(Snap(0, 0, 0, 0, onGround: true, engineRunning: true));
+        t.Observe(Snap(10, 500, 80, 700, onGround: false, agl: 500, engineRunning: true));
+        t.Observe(Snap(30, 3000, 120, 0, onGround: false, agl: 3000, engineRunning: false)); // engine fails
+        t.Observe(Snap(40, 3000, 120, 0, onGround: false, agl: 3000, slew: true, engineRunning: false)); // slew → score void
+        t.Observe(Snap(60, 30, 60, -120, onGround: false, engineRunning: false));
+        t.Observe(Snap(61, 0, 55, 0, onGround: true, engineRunning: false));
+        t.Observe(Snap(120, 0, 0, 0, onGround: true, engineRunning: false));
+        var r = t.Result!;
+        Assert.False(r.ScoreValid);
+        Assert.False(r.HandledEmergency); // an emergency reached by cheating isn't airmanship
+    }
+
+    [Fact]
+    public void Emergency_NormalLeg_NeverFalseTriggers()
+    {
+        var r = FlyStandardLeg().Result!; // never reports a running engine → the detector can't trip (L10)
+        Assert.False(r.HandledEmergency);
+        Assert.DoesNotContain(r.Events, e => e.Message.Contains("Engine failure"));
+    }
+
     [Fact]
     public void Lifecycle_AirSpawn_IsNotATrackedDeparture_UntilARealGroundStart()
     {
