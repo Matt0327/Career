@@ -1099,7 +1099,7 @@ public static class CallsignWebApp
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             var d = await ops.ReconcileAsync(pilot.CompanyId);
-            return Results.Ok(new ReconcileDto(d.Trips, d.GrossIncomeCents, d.FeesCents, d.WagesCents, d.RentCents, d.LoanCents, d.InsuranceCents, d.NetCents, d.Incidents, d.Grounded, d.DutyMaxed, d.EmptyLegs, d.LoanWarnings ?? [], d.Defaults ?? [], d.CertLapsed ?? [], d.WeatheredOut, d.CertExpiring ?? [], d.RentalCents, d.RentalsExpiring ?? [], d.RentalsAutoReturned ?? [], d.OperatingRepDeltaMilli));
+            return Results.Ok(new ReconcileDto(d.Trips, d.GrossIncomeCents, d.FeesCents, d.WagesCents, d.RentCents, d.LoanCents, d.InsuranceCents, d.NetCents, d.Incidents, d.Grounded, d.DutyMaxed, d.EmptyLegs, d.LoanWarnings ?? [], d.Defaults ?? [], d.CertLapsed ?? [], d.WeatheredOut, d.CertExpiring ?? [], d.RentalCents, d.RentalsExpiring ?? [], d.RentalsAutoReturned ?? [], d.OperatingRepDeltaMilli, d.FuelCents));
         });
 
         // --- Loans (Phase 4a) ---

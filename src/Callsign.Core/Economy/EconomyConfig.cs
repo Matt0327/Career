@@ -181,6 +181,25 @@ public sealed record EconomyConfig
     public int HardLandingWearMilli { get; init; } = 1_500;        // extra hull wear on a hard touchdown
     public long FuelPriceCentsPerLb { get; init; } = 90;           // ~$0.90/lb of consumable fuel burned (Phase 7e)
 
+    // Estimated cruise fuel burn (lb/hour) by category — used to bill fuel on AUTONOMOUS legs (Phase 12 Wave-2),
+    // which have no telemetry to measure it. Hand-flown legs still bill the tracker's actual FuelUsedLbs. Billing
+    // it closes the "crew flying was cheaper than flying yourself" gap: an autonomous leg now carries its fuel too.
+    public int FuelBurnLbsPerHour(AircraftCategory category) => category switch
+    {
+        AircraftCategory.LightSingle => 70,
+        AircraftCategory.LightTwin => 140,
+        AircraftCategory.Turboprop => 500,
+        AircraftCategory.LightJet => 900,
+        AircraftCategory.Jet => 2_800,
+        AircraftCategory.Heavy => 18_000,
+        AircraftCategory.Helicopter => 400,
+        AircraftCategory.Glider => 0,
+        _ => 120, // Unknown / Other — a modest default so the charge is never zero for a real powered aircraft
+    };
+    /// <summary>Estimated fuel cost (cents) for an autonomous leg of <paramref name="hours"/> flight time.</summary>
+    public long EstimatedFuelCents(AircraftCategory category, double hours)
+        => (long)Math.Round(Math.Max(0, hours) * FuelBurnLbsPerHour(category)) * FuelPriceCentsPerLb;
+
     // Engine-abuse wear (Phase 9e, on the Fun Dial): the sim's OWN cumulative engine-damage model is the
     // authority — a leg's accrued damage-percent points (max − baseline) become engine-condition loss here,
     // which then bills through the existing maintenance visits + resale + insurance paths. Never a per-
@@ -199,7 +218,10 @@ public sealed record EconomyConfig
 
     // --- Crew skill on autonomous trips (Phase 7f): a green pilot has more incidents than an ace ---
     public double BaseIncidentRatePct { get; init; } = 0.06;      // incident chance per trip at 0% skill
-    public double IncidentSkillExponent { get; init; } = 2.0;     // p = base·(1-skill)^exp — skill bites hard
+    // p = base·(1-skill)^exp. Softened 2.0→1.3 (Phase 12 Wave-2): at the old 2.0 even a mid crew almost never
+    // botched a trip, so autonomous flying was near-flawless; a gentler exponent leaves real, skill-scaled risk
+    // in an autonomous leg, so hand-flying a telemetry-scored leg (which can hit 100%) is the reliable earner.
+    public double IncidentSkillExponent { get; init; } = 1.3;
     // An incident lands on a severity tier: mostly minor, sometimes a diversion, rarely a lost trip.
     public double IncidentMajorShare { get; init; } = 0.08;       // of incidents — a lost trip (no pay, heavy wear)
     public double IncidentDiversionShare { get; init; } = 0.27;   // of incidents — a diversion (half pay); rest are minor
@@ -217,7 +239,7 @@ public sealed record EconomyConfig
     public int AutonomousTripsFlown(double elapsedHours, double roundTripHours)
         => roundTripHours > 0 ? (int)Math.Floor(MaxDutyHoursPerDay / 24.0 * Math.Max(0, elapsedHours) / roundTripHours) : 0;
     public int CrewProficiencyGainMilliPerTrip { get; init; } = 40;  // a hired pilot sharpens ~0.04%/trip flown — hire green cheap, they improve
-    public int CrewSkillCeilingMilli { get; init; } = 95_000;        // experience tops out at 95% (nobody is perfect)
+    public int CrewSkillCeilingMilli { get; init; } = 80_000;        // experience tops out at 80% (Wave-2: was 95% — a hired crew stays good-not-flawless, so your OWN flying still sets the ceiling)
 
     // --- Airline operating reputation (Phase 11a) — the operation's own name, distinct from pilot reputation.
     // Money-neutral in 11a: these tunables move Company.OperatingReputationMilli only; no cash path is touched.

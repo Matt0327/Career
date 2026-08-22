@@ -13,7 +13,7 @@ namespace Callsign.Core.Economy;
 public sealed record StaffCandidate(int Seed, string Name, long WagePerDayCents, int SkillMilli);
 
 /// <summary>What a reconcile produced (for the reopen digest).</summary>
-public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed, int EmptyLegs = 0, IReadOnlyList<string>? LoanWarnings = null, IReadOnlyList<string>? Defaults = null, IReadOnlyList<string>? CertLapsed = null, int WeatheredOut = 0, IReadOnlyList<string>? CertExpiring = null, long RentalCents = 0, IReadOnlyList<string>? RentalsExpiring = null, IReadOnlyList<string>? RentalsAutoReturned = null, int OperatingRepDeltaMilli = 0);
+public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed, int EmptyLegs = 0, IReadOnlyList<string>? LoanWarnings = null, IReadOnlyList<string>? Defaults = null, IReadOnlyList<string>? CertLapsed = null, int WeatheredOut = 0, IReadOnlyList<string>? CertExpiring = null, long RentalCents = 0, IReadOnlyList<string>? RentalsExpiring = null, IReadOnlyList<string>? RentalsAutoReturned = null, int OperatingRepDeltaMilli = 0, long FuelCents = 0);
 
 /// <summary>
 /// Staff + standing orders (Phase 2d): hire pilots, set repeating autonomous routes, and reconcile the
@@ -419,7 +419,7 @@ public sealed class OperationsService
     {
         var now = _clock.UtcNow;
         int totalTrips = 0;
-        long grossIncome = 0, totalFees = 0, totalWages = 0, totalRent = 0, totalLoan = 0, totalInsurance = 0;
+        long grossIncome = 0, totalFees = 0, totalWages = 0, totalRent = 0, totalLoan = 0, totalInsurance = 0, totalFuel = 0;
         int totalIncidents = 0;            // trips a crew botched — skill is what keeps this down (Phase 7f)
         int totalEmpty = 0;                // legs that flew empty because a marked-up line priced out the client (Phase 7g)
         int totalWeatheredOut = 0;         // autonomous trips scrubbed by foul weather at the origin (Phase 8f-2)
@@ -500,6 +500,11 @@ public sealed class OperationsService
 
             if (flown > 0)
             {
+                double hours = flown * o.RoundTripHours;
+                var aircraft = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == o.AircraftInstanceId, ct);
+                var soType = aircraft is not null ? await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == aircraft.TypeId, ct) : null;
+                long fuel = aircraft is not null ? _cfg.EstimatedFuelCents(soType?.Category ?? AircraftCategory.Unknown, hours) : 0; // Wave-2: autonomous legs pay fuel too
+
                 var postings = new List<LedgerPosting>
                 {
                     new(LedgerCategory.JobPayout, income / 100m, $"Standing order {o.OriginIcao}↔{o.DestIcao} ×{flown}",
@@ -508,18 +513,20 @@ public sealed class OperationsService
                 if (fees > 0)
                     postings.Add(new(LedgerCategory.AirportFee, -(fees / 100m), $"Landing fees {o.OriginIcao}↔{o.DestIcao} ×{flown}",
                         AircraftInstanceId: o.AircraftInstanceId, DedupeKey: $"so:{o.Id}:{stamp}:fee"));
+                if (fuel > 0)
+                    postings.Add(new(LedgerCategory.Fuel, -(fuel / 100m), $"Fuel — standing order {o.OriginIcao}↔{o.DestIcao} ×{flown}",
+                        AircraftInstanceId: o.AircraftInstanceId, DedupeKey: $"so:{o.Id}:{stamp}:fuel"));
                 await _ledger.StageBatchAsync(companyId, postings, ct);
 
-                var aircraft = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == o.AircraftInstanceId, ct);
                 if (aircraft is not null)
                 {
-                    double hours = flown * o.RoundTripHours;
                     aircraft.AirframeHours += hours;
                     int wear = (int)Math.Round(hours * _cfg.ConditionWearMilliPerHour) + soRoll.ExtraWearMilli;
                     aircraft.HullConditionMilli = Math.Max(0, aircraft.HullConditionMilli - wear);
                     aircraft.EngineConditionMilli = Math.Max(0, aircraft.EngineConditionMilli - wear);
                     aircraft.UpdatedAt = now;
                 }
+                totalFuel += fuel; // Wave-2 — tracked distinctly from landing fees
             }
 
             // Duty-capped: consume the whole window (the excess was rest); else advance by whole trips only.
@@ -574,6 +581,8 @@ public sealed class OperationsService
             var dAir = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == leg.DestIcao, ct);
             long fees = (oAir is not null && !baseIcaos.Contains(leg.OriginIcao) ? _cfg.LandingFeeCents(oAir.Kind) : 0)
                       + (dAir is not null && !baseIcaos.Contains(leg.DestIcao) ? _cfg.LandingFeeCents(dAir.Kind) : 0);
+            var legType = legAircraft is not null ? await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == legAircraft.TypeId, ct) : null;
+            long fuel = legAircraft is not null ? _cfg.EstimatedFuelCents(legType?.Category ?? AircraftCategory.Unknown, leg.OneWayHours) : 0; // Wave-2: dispatched legs pay fuel too
             var postings = new List<LedgerPosting>
             {
                 new(LedgerCategory.JobPayout, roll.Income / 100m, $"Dispatch {leg.OriginIcao}→{leg.DestIcao} ({leg.ClientName ?? leg.Commodity})",
@@ -582,6 +591,9 @@ public sealed class OperationsService
             if (fees > 0)
                 postings.Add(new(LedgerCategory.AirportFee, -(fees / 100m), $"Landing fees {leg.OriginIcao}→{leg.DestIcao}",
                     AircraftInstanceId: leg.AircraftInstanceId, DedupeKey: $"dispatch:{leg.Id}:fee"));
+            if (fuel > 0)
+                postings.Add(new(LedgerCategory.Fuel, -(fuel / 100m), $"Fuel — dispatch {leg.OriginIcao}→{leg.DestIcao}",
+                    AircraftInstanceId: leg.AircraftInstanceId, DedupeKey: $"dispatch:{leg.Id}:fuel"));
             await _ledger.StageBatchAsync(companyId, postings, ct);
 
             if (legAircraft is not null)
@@ -604,6 +616,7 @@ public sealed class OperationsService
             totalTrips += 1;
             grossIncome += roll.Income;
             totalFees += fees;
+            totalFuel += fuel; // Wave-2 — tracked distinctly from landing fees
             totalIncidents += roll.Incidents;
         }
         // Free each dispatched tail only once its WHOLE itinerary is flown — a tail mid-run (a later leg still
@@ -713,22 +726,30 @@ public sealed class OperationsService
             long income = rtRoll.Income;
             if (flown > 0)
             {
-                await _ledger.StageBatchAsync(companyId, new[]
-                {
-                    new LedgerPosting(LedgerCategory.JobPayout, income / 100m, $"Route {route.Name} ×{flown}",
-                        AircraftInstanceId: route.AircraftInstanceId, DedupeKey: $"route:{route.Id}:{route.LastReconciledAt.UtcTicks}"),
-                }, ct);
-
+                double hours = flown * route.RoundTripHours;
                 var aircraft = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == route.AircraftInstanceId, ct);
+                var rtType = aircraft is not null ? await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == aircraft.TypeId, ct) : null;
+                long fuel = aircraft is not null ? _cfg.EstimatedFuelCents(rtType?.Category ?? AircraftCategory.Unknown, hours) : 0; // Wave-2: routes pay fuel too
+
+                var postings = new List<LedgerPosting>
+                {
+                    new(LedgerCategory.JobPayout, income / 100m, $"Route {route.Name} ×{flown}",
+                        AircraftInstanceId: route.AircraftInstanceId, DedupeKey: $"route:{route.Id}:{route.LastReconciledAt.UtcTicks}"),
+                };
+                if (fuel > 0)
+                    postings.Add(new(LedgerCategory.Fuel, -(fuel / 100m), $"Fuel — route {route.Name} ×{flown}",
+                        AircraftInstanceId: route.AircraftInstanceId, DedupeKey: $"route:{route.Id}:{route.LastReconciledAt.UtcTicks}:fuel"));
+                await _ledger.StageBatchAsync(companyId, postings, ct);
+
                 if (aircraft is not null)
                 {
-                    double hours = flown * route.RoundTripHours;
                     aircraft.AirframeHours += hours;
                     int wear = (int)Math.Round(hours * _cfg.ConditionWearMilliPerHour) + rtRoll.ExtraWearMilli;
                     aircraft.HullConditionMilli = Math.Max(0, aircraft.HullConditionMilli - wear);
                     aircraft.EngineConditionMilli = Math.Max(0, aircraft.EngineConditionMilli - wear);
                     aircraft.UpdatedAt = now;
                 }
+                totalFuel += fuel; // routes are fee-free at both bases; fuel is their operating cost
             }
             route.LastReconciledAt = dutyCapped ? now : route.LastReconciledAt.AddHours(trips * route.RoundTripHours);
             route.UpdatedAt = now;
@@ -933,8 +954,8 @@ public sealed class OperationsService
 
         await _db.SaveChangesAsync(ct);
         return new ReconcileDigest(totalTrips, grossIncome, totalFees, totalWages, totalRent, totalLoan, totalInsurance,
-            grossIncome - totalFees - totalWages - totalRent - totalLoan - totalInsurance - totalRental + totalRentalRefund, totalIncidents, grounded, dutyMaxed, totalEmpty,
-            loanWarnings, defaults, certLapsed, totalWeatheredOut, certExpiring, totalRental, rentalsExpiring, rentalsReturned, operatingRepDelta);
+            grossIncome - totalFees - totalWages - totalRent - totalLoan - totalInsurance - totalRental + totalRentalRefund - totalFuel, totalIncidents, grounded, dutyMaxed, totalEmpty,
+            loanWarnings, defaults, certLapsed, totalWeatheredOut, certExpiring, totalRental, rentalsExpiring, rentalsReturned, operatingRepDelta, totalFuel);
     }
 
     /// <summary>

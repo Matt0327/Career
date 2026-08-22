@@ -2937,7 +2937,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
       const d: ReconcileResult = await api.reconcile()
       await load(); onChanged()
       const base = d.trips > 0 || d.wagesCents > 0 || d.rentCents > 0
-        ? `Booked ${d.trips} trip${d.trips === 1 ? '' : 's'}: ${money(d.grossIncomeCents)} gross − ${money(d.feesCents)} fees − ${money(d.wagesCents)} wages − ${money(d.rentCents)} rent = ${money(d.netCents)} net.`
+        ? `Booked ${d.trips} trip${d.trips === 1 ? '' : 's'}: ${money(d.grossIncomeCents)} gross − ${money(d.feesCents)} fees − ${money(d.fuelCents)} fuel − ${money(d.wagesCents)} wages − ${money(d.rentCents)} rent = ${money(d.netCents)} net.`
         : 'Up to date — nothing new.'
       const inc = d.incidents > 0 ? ` ${d.incidents} trip${d.incidents === 1 ? '' : 's'} diverted — a sharper crew loses fewer.` : ''
       const empty = d.emptyLegs > 0 ? ` ${d.emptyLegs} leg${d.emptyLegs === 1 ? '' : 's'} flew empty — a lower markup keeps clients shipping.` : ''

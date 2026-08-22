@@ -49,8 +49,9 @@ public class OperationsServiceTests
             digest = await new OperationsService(db, new LedgerService(db, clock), clock, Cfg).ReconcileAsync(companyId);
 
         Assert.True(digest.Trips > 0);
-        Assert.Equal(digest.GrossIncomeCents - digest.FeesCents - digest.WagesCents - digest.RentCents, digest.NetCents);
+        Assert.Equal(digest.GrossIncomeCents - digest.FeesCents - digest.WagesCents - digest.RentCents - digest.FuelCents, digest.NetCents);
         Assert.True(digest.WagesCents > 0);
+        Assert.True(digest.FuelCents > 0); // Wave-2 — autonomous trips now bill fuel
 
         using (var db = tdb.NewContext())
         {

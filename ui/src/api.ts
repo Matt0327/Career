@@ -509,6 +509,7 @@ export interface ReconcileResult {
   trips: number
   grossIncomeCents: number
   feesCents: number
+  fuelCents: number // Phase 12 Wave-2 — fuel billed on autonomous trips this pass
   wagesCents: number
   rentCents: number
   loanCents: number
