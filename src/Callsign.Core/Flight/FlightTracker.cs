@@ -118,6 +118,8 @@ public sealed class FlightTracker
     // pilot then completes the leg with a valid score, it's a HANDLED emergency — recognised airmanship (L9).
     private string? _emergencyKind;   // the emergency that struck this leg, if any (also gates the once-only warning)
     private const int EmergencyLandingBonus = 15; // grade earned back for bringing an emergency down (capped, like the weather bonus)
+    private bool _gearUpLanding;      // Phase 12 — gear wasn't down at touchdown; caps the landing grade
+    private const int GearUpLandingCap = 15; // a gear-up landing can't grade above this, whatever the touchdown rate
 
     public FlightPhase Phase { get; private set; } = FlightPhase.Parked;
     public IReadOnlyList<FlightEvent> Events => _events;
@@ -317,6 +319,15 @@ public sealed class FlightTracker
 
             _events.Add(new FlightEvent(t.CapturedAt, LandingSeverity(_touchdownFpm),
                 $"Landed at {_touchdownFpm:F0} fpm"));
+            // Phase 12 — configuration discipline: gear not down at the first touchdown is a gear-up/partial-gear
+            // landing, a serious airmanship failure that caps the landing grade (set in Complete). L10-safe: gear
+            // defaults to 100 (down), and a fixed-gear aircraft reports 100, so a non-reporting sim never trips it.
+            if (t.GearPercent < 50 && !_gearUpLanding)
+            {
+                _gearUpLanding = true;
+                _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Warning,
+                    $"Gear-up landing — gear only {t.GearPercent:F0}% extended at touchdown."));
+            }
             // Fun Dial (L9): a firm de-crab side-load at touchdown coaches, it doesn't penalise (Phase 9c).
             // Bounded on BOTH sides: below CoachLateralFps it's a clean landing (no nudge); above
             // MaxPlausibleLateralFps the sim is reporting crash/cartwheel physics (a real touchdown side-load
@@ -540,6 +551,7 @@ public sealed class FlightTracker
         bool handledEmergency = _emergencyKind is not null && _scoreValid;
         int emergencyBonus = handledEmergency ? EmergencyLandingBonus : 0;
         int landing = Math.Min(100, rawLanding + weatherBonus + emergencyBonus);
+        if (_gearUpLanding) landing = Math.Min(landing, GearUpLandingCap); // a gear-up landing can't grade well, however soft
         if (weatherBonus > 0)
             _events.Add(new FlightEvent(_arrivedAt, FlightEventSeverity.Info,
                 $"Tough conditions — {crosswind:F0} kt crosswind{(_tdVisSm < VisEasySm ? $", {_tdVisSm:F1} sm vis" : "")} — +{weatherBonus} to the landing grade"));

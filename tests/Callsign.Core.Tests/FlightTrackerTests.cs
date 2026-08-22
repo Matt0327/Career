@@ -17,7 +17,7 @@ public class FlightTrackerTests
         double tdNormalFps = 0, double tdLateralFps = 0,
         double totalWt = 0, double maxGross = 0, double cg = 0, double cgFwd = 0, double cgAft = 0,
         double engDmg = 0, double xtrack = 0, double ice = 0,
-        bool parkingBrake = false, bool engineRunning = false)
+        bool parkingBrake = false, bool engineRunning = false, double gear = 100)
         => new()
         {
             Sequence = sec,
@@ -54,6 +54,7 @@ public class FlightTrackerTests
             StructuralIcePct = ice,
             ParkingBrakeSet = parkingBrake,
             EngineRunning = engineRunning,
+            GearPercent = gear,
         };
 
     private static FlightTracker FlyStandardLeg()
@@ -759,6 +760,28 @@ public class FlightTrackerTests
         var r = t.Result!;
         Assert.False(r.ScoreValid);
         Assert.False(r.HandledEmergency); // an emergency reached by cheating isn't airmanship
+    }
+
+    [Fact]
+    public void Config_GearUpLanding_IsWarned_AndCapsTheLandingGrade()
+    {
+        var t = new FlightTracker();
+        t.Observe(Snap(0, 0, 0, 0, onGround: true));
+        t.Observe(Snap(10, 50, 70, 500, onGround: false));
+        t.Observe(Snap(60, 30, 60, -120, onGround: false));       // a gentle final — would grade well
+        t.Observe(Snap(61, 0, 55, 0, onGround: true, gear: 0));   // touchdown with the GEAR UP
+        t.Observe(Snap(120, 0, 0, 0, onGround: true));
+        var r = t.Result!;
+        Assert.Contains(r.Events, e => e.Severity == FlightEventSeverity.Warning && e.Message.Contains("Gear-up"));
+        Assert.True(r.LandingScore <= 15); // even a soft touchdown can't grade well gear-up
+    }
+
+    [Fact]
+    public void Config_GearDown_IsSilent_AndDoesNotCapTheGrade()
+    {
+        var r = FlyStandardLeg().Result!; // default gear 100 (down) — no gear-up flag, grades normally (L10)
+        Assert.DoesNotContain(r.Events, e => e.Message.Contains("Gear-up"));
+        Assert.True(r.LandingScore > 15);
     }
 
     [Fact]
