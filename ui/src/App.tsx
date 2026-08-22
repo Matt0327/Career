@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import {
   api, money,
-  type Achievement, type AircraftHistory, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type CertificateStatus, type Client, type CheckFlightDone, type CloudSaveMeta, type CloudStatus, type Diverted,
+  type Achievement, type AircraftHistory, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type Challenge, type CertificateStatus, type Client, type CheckFlightDone, type CloudSaveMeta, type CloudStatus, type Diverted,
   type FinancesData, type FinanceDetail, type AttributionLine, type CashPoint, type StatementRow, type FlightLog, type FlightDetail, type FlightTotals, type Insurance, type Inventory, type Job, type LeaderboardRow, type LedgerEntry, type LiveEvent, type Loan, type LoanOffer, type Loans,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
   type DispatchLeg, type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type UsedListing, type VersionInfo, type Weather, type WorldState, type WsEvent,
@@ -721,6 +721,7 @@ function Dashboard({ state, airline, go }: { state: State; airline: AirlineData 
   const [flights, setFlights] = useState<FlightLog[]>([])
   const [ledger, setLedger] = useState<LedgerEntry[]>([])
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
+  const [challenges, setChallenges] = useState<Challenge[]>([])
   const [staff, setStaff] = useState<Staff[]>([])
   const [routes, setRoutes] = useState<RouteData | null>(null)
   const [ins, setIns] = useState<Insurance | null>(null)
@@ -747,10 +748,19 @@ function Dashboard({ state, airline, go }: { state: State; airline: AirlineData 
     api.flights().then(setFlights).catch(() => {})
     api.ledger(40).then(setLedger).catch(() => {})
     api.campaigns().then(setCampaigns).catch(() => {})
+    api.challenges().then(setChallenges).catch(() => {})
     api.staff().then(setStaff).catch(() => {})
     api.routes().then(setRoutes).catch(() => {})
     api.insurance().then(setIns).catch(() => {})
     api.loans().then(setLoans).catch(() => {})
+  }, [])
+
+  // Claiming a challenge pays cash through the ledger, so refresh the board + the money-sensitive slices.
+  const claimChallenge = useCallback(async (key: string) => {
+    await api.claimChallenge(key)
+    api.challenges().then(setChallenges).catch(() => {})
+    api.finances().then(setFin).catch(() => {})
+    api.ledger(40).then(setLedger).catch(() => {})
   }, [])
 
   // Live link to the sim — the same socket the Flight tab uses. Gives us the honest link badge AND the
@@ -894,6 +904,8 @@ function Dashboard({ state, airline, go }: { state: State; airline: AirlineData 
               </ul>
             )}
           </section>
+
+          {challenges.length > 0 && <DashChallengesCard challenges={challenges} onClaim={claimChallenge} />}
 
           {activeCampaign && <DashCampaignCard campaign={activeCampaign} go={go} />}
 
@@ -1184,6 +1196,64 @@ function FleetDetail({ a, go }: { a: OwnedAircraft; go: (t: Tab) => void }) {
           : <span className="muted num">Next service {money(a.maintenanceQuoteCents)}</span>}
       </div>
     </div>
+  )
+}
+
+// A short "resets in …" for a period boundary, so the player feels the clock.
+function resetsIn(iso: string): string {
+  const ms = new Date(iso).getTime() - Date.now()
+  if (ms <= 0) return 'resetting…'
+  const h = Math.floor(ms / 3_600_000)
+  if (h < 1) return `resets in ${Math.max(1, Math.floor(ms / 60_000))}m`
+  if (h < 48) return `resets in ${h}h`
+  return `resets in ${Math.floor(h / 24)}d`
+}
+
+// The rotating daily/weekly board — the retention hook. Each row is a period-delta goal with a claim button that
+// lights up when it's genuinely met; claiming pays the reward once. Sits up front on the dashboard.
+function DashChallengesCard({ challenges, onClaim }: { challenges: Challenge[]; onClaim: (key: string) => void }) {
+  const [busy, setBusy] = useState<string | null>(null)
+  const claim = async (key: string) => { setBusy(key); try { await onClaim(key) } finally { setBusy(null) } }
+  const daily = challenges.filter(c => c.cadence === 'Daily')
+  const weekly = challenges.filter(c => c.cadence === 'Weekly')
+  const claimable = challenges.filter(c => c.done && !c.claimed).length
+
+  const group = (label: string, hint: string, items: Challenge[]) => items.length === 0 ? null : (
+    <div className="chal-group">
+      <div className="chal-group-head"><b>{label}</b><span className="hint">{hint}</span></div>
+      {items.map(c => {
+        const pct = c.target > 0 ? Math.min(100, (c.progress / c.target) * 100) : 0
+        return (
+          <div key={c.key} className={`chal-row ${c.claimed ? 'done' : ''}`}>
+            <div className="chal-row-head">
+              <b>{c.title}</b>
+              <span className="num muted">{c.progress} / {c.target}</span>
+            </div>
+            <div className="chal-detail muted">{c.detail}</div>
+            <div className="rank-bar"><div className="rank-fill" style={{ width: `${pct}%` }} /></div>
+            <div className="chal-foot">
+              <span className="num pos">{money(c.rewardCents)}</span>
+              {c.claimed
+                ? <span className="pill-done">Claimed ✓</span>
+                : c.done
+                  ? <button className="primary small" disabled={busy === c.key} onClick={() => claim(c.key)}>{busy === c.key ? 'Claiming…' : 'Claim reward'}</button>
+                  : <span className="muted small">In progress</span>}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+
+  return (
+    <section className="card">
+      <div className="row-head">
+        <h2>Challenges</h2>
+        {claimable > 0 && <span className="pill-alert">{claimable} ready to claim</span>}
+      </div>
+      {group('Today', daily[0] ? resetsIn(daily[0].resetsAt) : '', daily)}
+      {group('This week', weekly[0] ? resetsIn(weekly[0].resetsAt) : '', weekly)}
+    </section>
   )
 }
 

@@ -244,6 +244,11 @@ public record CampaignDto(
     string Key, string Name, string Description, long RewardCents, int StepIndex, int StepCount,
     bool Completed, DateTimeOffset? CompletedAt, IReadOnlyList<CampaignStepDto> Steps);
 
+// --- Phase 12: rotating daily/weekly challenges ---
+public record ChallengeDto(
+    string Key, string Title, string Detail, string Cadence,
+    long Target, long Progress, long RewardCents, bool Done, bool Claimed, DateTimeOffset ResetsAt);
+
 // --- Phase 5c: airline identity + standing ---
 public record AirlineIdentityDto(string Name, string TailCode, string AccentColorHex, string EmblemKey, bool Customised);
 public record StandingContributionDto(string Label, int Points);

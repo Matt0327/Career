@@ -852,6 +852,19 @@ export interface Campaign {
   steps: CampaignStep[]
 }
 
+export interface Challenge {
+  key: string
+  title: string
+  detail: string
+  cadence: 'Daily' | 'Weekly'
+  target: number
+  progress: number
+  rewardCents: number
+  done: boolean
+  claimed: boolean
+  resetsAt: string
+}
+
 export interface AirlineIdentity {
   name: string
   tailCode: string
@@ -1080,6 +1093,8 @@ export const api = {
   sellGood: (good: string, qty: number) => POST_IDEM('/api/trade/sell', { good, qty }).then(ok<TradeResult>),
   achievements: () => fetch('/api/achievements').then(ok<Achievement[]>),
   campaigns: () => fetch('/api/campaigns').then(ok<Campaign[]>),
+  challenges: () => fetch('/api/challenges').then(ok<Challenge[]>),
+  claimChallenge: (key: string) => POST_IDEM(`/api/challenges/${key}/claim`, {}).then(ok<{ paidCents: number; challenge: Challenge | null }>),
   airline: () => fetch('/api/airline').then(ok<AirlineData>),
   setAirline: (body: { name: string; tailCode: string; accentColorHex: string; emblemKey: string }) =>
     POST('/api/airline', body).then(ok<AirlineIdentity>),

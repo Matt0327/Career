@@ -31,6 +31,7 @@ public enum LedgerCategory
     Transfer,
     Adjustment,
     CrewPositioning, // Phase 12 — the deadhead fee to reposition a hired pilot to another field
+    ChallengeReward, // Phase 12 — the payout for completing a rotating daily/weekly challenge
 }
 
 /// <summary>
@@ -47,6 +48,7 @@ public enum LedgerRefType
     InsuranceClaim = 6,
     Rental = 7,
     Fuel = 8,
+    Challenge = 9,
 }
 
 /// <summary>

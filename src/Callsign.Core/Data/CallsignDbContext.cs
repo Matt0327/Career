@@ -36,6 +36,7 @@ public sealed class CallsignDbContext : DbContext
     public DbSet<Route> Routes => Set<Route>();
     public DbSet<AchievementAward> AchievementAwards => Set<AchievementAward>();
     public DbSet<CampaignProgress> CampaignProgress => Set<CampaignProgress>();
+    public DbSet<ChallengeProgress> ChallengeProgress => Set<ChallengeProgress>();
     public DbSet<Client> Clients => Set<Client>();
     public DbSet<OperatingCertificate> OperatingCertificates => Set<OperatingCertificate>();
     public DbSet<RentalAgreement> RentalAgreements => Set<RentalAgreement>();
@@ -335,5 +336,13 @@ public sealed class CallsignDbContext : DbContext
         campaign.Property(c => c.CampaignKey).IsRequired().HasMaxLength(40);
         campaign.HasIndex(c => new { c.CompanyId, c.CampaignKey }).IsUnique();
         campaign.HasOne<Company>().WithMany().HasForeignKey(c => c.CompanyId).OnDelete(DeleteBehavior.Restrict);
+
+        // --- Challenges (Phase 12): one state row per (company, period, catalog key) ---
+        var challenge = model.Entity<ChallengeProgress>();
+        challenge.HasKey(c => c.Id);
+        challenge.Property(c => c.PeriodKey).IsRequired().HasMaxLength(20);
+        challenge.Property(c => c.ChallengeKey).IsRequired().HasMaxLength(40);
+        challenge.HasIndex(c => new { c.CompanyId, c.PeriodKey, c.ChallengeKey }).IsUnique();
+        challenge.HasOne<Company>().WithMany().HasForeignKey(c => c.CompanyId).OnDelete(DeleteBehavior.Restrict);
     }
 }

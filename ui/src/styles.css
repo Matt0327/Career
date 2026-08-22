@@ -990,6 +990,18 @@ details.card.shop[open]>summary.shop-head::after{transform:rotate(90deg)}
 .camp-step-head{display:flex;align-items:baseline;justify-content:space-between;font-size:14px}
 .camp-foot .num.pos{font-weight:700}
 .camp-foot .ghost{margin-left:auto}
+/* Challenges (Phase 12) — the rotating daily/weekly board */
+.chal-group{display:grid;gap:10px;margin-top:12px}
+.chal-group:first-of-type{margin-top:6px}
+.chal-group-head{display:flex;align-items:baseline;justify-content:space-between;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.chal-row{display:grid;gap:6px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:color-mix(in srgb, var(--panel) 60%, transparent)}
+.chal-row.done{opacity:.7}
+.chal-row-head{display:flex;align-items:baseline;justify-content:space-between;font-size:14px}
+.chal-detail{font-size:12px}
+.chal-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:2px}
+.chal-foot .num.pos{font-weight:700}
+.chal-foot .small{font-size:12px}
+.pill-alert{font-size:12px;font-weight:600;color:var(--accent);background:color-mix(in srgb, var(--accent) 14%, var(--panel));padding:3px 10px;border-radius:999px}
 .snap-sub{margin-top:16px}
 .snap-btn{margin-top:14px}
 .feed{display:grid;gap:2px}

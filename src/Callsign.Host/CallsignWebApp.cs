@@ -4,6 +4,7 @@ using Callsign.Core.Airline;
 using System.Text.Json;
 using Callsign.Core.Airports;
 using Callsign.Core.Campaigns;
+using Callsign.Core.Challenges;
 using Callsign.Core.Data;
 using Callsign.Core.Domain;
 using Callsign.Core.Economy;
@@ -118,6 +119,7 @@ public static class CallsignWebApp
         builder.Services.AddScoped<ProgressMetricsService>();
         builder.Services.AddScoped<AchievementService>();
         builder.Services.AddScoped<CampaignService>();
+        builder.Services.AddScoped<ChallengesService>();
         builder.Services.AddScoped<AirlineService>();
         builder.Services.AddSingleton<MarketService>(); // pure pricing (IClock + EconomyConfig)
         builder.Services.AddSingleton<Callsign.Core.World.WorldOracle>(); // pure synthetic world model (Phase 8)
@@ -1731,6 +1733,27 @@ public static class CallsignWebApp
             return Results.Ok(views.Select(v => new CampaignDto(
                 v.Key, v.Name, v.Description, v.RewardCents, v.StepIndex, v.StepCount, v.Completed, v.CompletedAt,
                 v.Steps.Select(s => new CampaignStepDto(s.Title, s.Detail, s.Target, s.Progress, s.Done)).ToList())));
+        });
+
+        // --- Challenges (Phase 12): the rotating daily/weekly board; claiming pays the reward once ---
+        static ChallengeDto ToChallengeDto(ChallengeView v) => new(
+            v.Key, v.Title, v.Detail, v.Cadence.ToString(),
+            v.Target, v.Progress, v.RewardCents, v.Done, v.Claimed, v.ResetsAt);
+        app.MapGet("/api/challenges", async (CallsignDbContext db, ChallengesService challenges) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var views = await challenges.GetActiveAsync(pilot.CompanyId, pilot.Id);
+            return Results.Ok(views.Select(ToChallengeDto).ToList());
+        });
+
+        app.MapPost("/api/challenges/{key}/claim", async (string key, CallsignDbContext db, ChallengesService challenges) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var result = await challenges.ClaimAsync(pilot.CompanyId, pilot.Id, key);
+            if (!result.Ok) return Results.BadRequest(new { error = result.Error });
+            return Results.Ok(new { paidCents = result.PaidCents, challenge = result.Challenge is { } c ? ToChallengeDto(c) : null });
         });
 
         // --- Airline identity + standing (Phase 5c) ---
