@@ -2950,7 +2950,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
         {orders.length === 0
           ? <div className="empty">No standing orders. Set one below to earn while you're away.</div>
           : (
-            <table className="tbl">
+            <div className="tbl-wrap"><table className="tbl">
               <thead><tr><th>Pilot</th><th>Aircraft</th><th>Route</th><th className="r">Per trip</th><th className="r">Price</th><th className="r">Cycle</th><th className="r">Ready</th><th></th></tr></thead>
               <tbody>
                 {orders.map(o => (
@@ -2971,7 +2971,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           )}
         {staff.length > 0 && fleet.length > 0 && dests.length > 0 && (
           <>
@@ -2990,7 +2990,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
       {dispatches.length > 0 && (
         <section className="card">
           <div className="row-head"><h2>Crew dispatches</h2><span className="hint">One-off jobs your crews are flying — banked by Process now</span></div>
-          <table className="tbl">
+          <div className="tbl-wrap"><table className="tbl">
             <thead><tr><th>Crew</th><th>Tail</th><th>Leg</th><th>Status</th><th className="r">Reward</th><th className="r"></th></tr></thead>
             <tbody>{dispatches.map(d => (
               <tr key={d.id}>
@@ -3002,14 +3002,14 @@ function Ops({ onChanged }: { onChanged: () => void }) {
                 <td className="r"><button className="linky" disabled={busy} onClick={() => cancelDispatch(d.id)}>Recall</button></td>
               </tr>
             ))}</tbody>
-          </table>
+          </table></div>
         </section>
       )}
 
       <section className="card">
         <h2>Your crew</h2>
         {staff.length === 0 ? <div className="empty">No pilots hired yet.</div> : (
-          <table className="tbl">
+          <div className="tbl-wrap"><table className="tbl">
             <thead><tr><th>Name</th><th>Based</th><th className="r">Skill</th><th className="r">Wage / day</th><th className="r"></th></tr></thead>
             <tbody>{staff.map(s => (
               <tr key={s.id}>
@@ -3027,7 +3027,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
                 </td>
               </tr>
             ))}</tbody>
-          </table>
+          </table></div>
         )}
         <h3 className="sub-h">Hire a pilot</h3>
         <div className="jobs">
@@ -3236,7 +3236,7 @@ function Bases({ state, onChanged }: { state: State; onChanged: () => void }) {
       <section className="card">
         <h2>Your bases</h2>
         {bases.length === 0 ? <div className="empty">No bases.</div> : (
-          <table className="tbl">
+          <div className="tbl-wrap"><table className="tbl">
             <thead><tr><th>Airport</th><th>Name</th><th className="r">Rent / day</th><th>Maintenance shop</th><th>Fuel farm</th><th>Hub</th></tr></thead>
             <tbody>{bases.map(b => (
               <tr key={b.id}>
@@ -3272,7 +3272,7 @@ function Bases({ state, onChanged }: { state: State; onChanged: () => void }) {
                 </td>
               </tr>
             ))}</tbody>
-          </table>
+          </table></div>
         )}
       </section>
 
