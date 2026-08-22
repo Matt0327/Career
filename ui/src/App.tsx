@@ -3370,12 +3370,12 @@ function Trade({ state, onChanged }: { state: State; onChanged: () => void }) {
   return (
     <div className="grid">
       <section className="card">
-        <div className="row-head"><h2>Market · <span className="loc">{state.currentIcao}</span></h2><span className="hint">Buy low here, fly it, sell high there</span></div>
+        <div className="row-head"><h2>Market · <span className="loc">{state.currentIcao}</span></h2><span className="hint">Buy low here, fly it, sell high there — best sell shown</span></div>
         {msg && <div className="banner">{msg}</div>}
         <div className="tbl-wrap">
           <table className="tbl">
-            <thead><tr><th>Commodity</th><th className="r">Buy</th><th className="r">Sell</th><th className="r">Unit wt</th><th className="r">Qty</th><th></th></tr></thead>
-            <tbody>{market.map(m => (
+            <thead><tr><th>Commodity</th><th className="r">Buy</th><th className="r">Sell</th><th>Best sell elsewhere</th><th className="r">Unit wt</th><th className="r">Qty</th><th></th></tr></thead>
+            <tbody>{[...market].sort((a, b) => b.bestSellMarginCents - a.bestSellMarginCents).map(m => (
               <tr key={m.good}>
                 <td>
                   {m.name}
@@ -3386,6 +3386,15 @@ function Trade({ state, onChanged }: { state: State; onChanged: () => void }) {
                 </td>
                 <td className="r num">{money(m.buyCents)}</td>
                 <td className="r num muted">{money(m.sellCents)}</td>
+                <td>
+                  {m.bestSellIcao
+                    ? <span className="best-sell" title={`Buy here at ${money(m.buyCents)}, fly ${Math.round(m.bestSellDistanceNm)} nm to ${m.bestSellIcao} and sell at ${money(m.bestSellCents)}`}>
+                        → <span className="loc">{m.bestSellIcao}</span>{' '}
+                        <span className={`num ${m.bestSellMarginCents > 0 ? 'pos' : 'muted'}`}>{m.bestSellMarginCents > 0 ? `+${money(m.bestSellMarginCents)}` : money(m.bestSellMarginCents)}/u</span>
+                        <span className="muted"> · {Math.round(m.bestSellDistanceNm)} nm</span>
+                      </span>
+                    : <span className="muted">—</span>}
+                </td>
                 <td className="r muted">{m.unitWeightLbs} lb</td>
                 <td className="r"><input className="qty" type="number" min={1} value={qty['buy-' + m.good] ?? '1'} onChange={e => setQ('buy-' + m.good, e.target.value)} /></td>
                 <td className="r"><button disabled={busy} onClick={() => buy(m.good)}>Buy</button></td>

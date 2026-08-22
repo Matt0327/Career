@@ -1463,8 +1463,13 @@ public static class CallsignWebApp
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             var quotes = await trade.GetMarketAsync(pilot.CompanyId, pilot.CurrentIcao);
-            return Results.Ok(quotes
-                .Select(q => new MarketQuoteDto(q.Good, q.Name, q.BuyCents, q.SellCents, q.UnitWeightLbs, q.Region, q.PressurePct, q.WeatherPct)));
+            var bestSells = await trade.BestNearbySellsAsync(pilot.CurrentIcao); // Phase 12 — where to sell each good for a profit
+            return Results.Ok(quotes.Select(q =>
+            {
+                bestSells.TryGetValue(q.Good, out var b);
+                return new MarketQuoteDto(q.Good, q.Name, q.BuyCents, q.SellCents, q.UnitWeightLbs, q.Region, q.PressurePct, q.WeatherPct,
+                    b?.Icao, b?.SellCents ?? 0, (b?.SellCents ?? 0) - q.BuyCents, b?.DistanceNm ?? 0);
+            }));
         });
 
         app.MapGet("/api/trade/inventory", async (CallsignDbContext db, TradeService trade) =>

@@ -1,3 +1,4 @@
+using Callsign.Core.Airports;
 using Callsign.Core.Data;
 using Callsign.Core.Domain;
 using Callsign.Core.Time;
@@ -10,6 +11,9 @@ namespace Callsign.Core.Economy;
 public sealed record InventoryView(
     Guid Id, string Good, string Name, int Quantity, long UnitCostCents,
     long MarketSellCents, long UnrealizedPnlCents, int UnitWeightLbs, string LocationIcao);
+
+/// <summary>The best nearby field to sell one commodity — the "sell high there" half of the trading loop.</summary>
+public sealed record BestSell(string Good, string Icao, long SellCents, double DistanceNm);
 
 /// <summary>What a sale realised.</summary>
 public sealed record TradeResult(int Quantity, long ProceedsCents, long CostBasisCents, long PnlCents);
@@ -67,6 +71,31 @@ public sealed class TradeService
             : 0;
         double weather = await WeatherFactorAsync(icao, now, ct);
         return TradeCatalog.Goods.Select(g => _market.Quote(icao, g, Eff(g.Key), weather)).ToList();
+    }
+
+    /// <summary>
+    /// For each commodity, the best nearby field to SELL it — the "sell high there" the market UI never showed.
+    /// Priced STRUCTURALLY (region + time-window only; no weather, no your-own-footprint) so it's the plannable
+    /// "where is this dear right now" signal a run can be built on — live weather/pressure on arrival only ever
+    /// sweetens or softens it. Scans the nearest suitable fields within trading range. Pure pricing, no writes.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, BestSell>> BestNearbySellsAsync(string originIcao, CancellationToken ct = default)
+    {
+        var best = new Dictionary<string, BestSell>(StringComparer.OrdinalIgnoreCase);
+        var origin = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == originIcao, ct);
+        if (origin is null) return best;
+        var nearby = (await new AirportRepository(_db).WithinRadiusAsync(origin.Latitude, origin.Longitude, _cfg.MaxJobDistanceNm, ct))
+            .Where(x => !string.Equals(x.Airport.Ident, originIcao, StringComparison.OrdinalIgnoreCase) && AirportSuitability.IsSuitable(x.Airport))
+            .Take(40) // the nearest suitable fields — bounds the scan
+            .ToList();
+        foreach (var g in TradeCatalog.Goods)
+            foreach (var (air, dist) in nearby)
+            {
+                long sell = _market.Quote(air.Ident, g).SellCents; // structural: no weather, no footprint
+                if (!best.TryGetValue(g.Key, out var cur) || sell > cur.SellCents)
+                    best[g.Key] = new BestSell(g.Key, air.Ident, sell, dist);
+            }
+        return best;
     }
 
     // The company's own decayed trading footprint on one market cell, plus the live row to fold into.

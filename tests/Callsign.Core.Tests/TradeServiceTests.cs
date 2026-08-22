@@ -41,6 +41,30 @@ public class TradeServiceTests
     }
 
     [Fact]
+    public async Task BestNearbySells_FindsAFieldForEachGood_FromNearbySuitableAirports_NeverTheOrigin()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        using (var db = tdb.NewContext())
+        {
+            db.Airports.AddRange(
+                new Airport { Ident = "EHAM", IcaoCode = "EHAM", Name = "Schiphol", Latitude = 52.3086, Longitude = 4.7639, Kind = AirportKind.LargeAirport, LongestRunwayFt = 11_000 },
+                new Airport { Ident = "EHRD", IcaoCode = "EHRD", Name = "Rotterdam", Latitude = 51.9569, Longitude = 4.4372, Kind = AirportKind.LargeAirport, LongestRunwayFt = 8_000 },
+                new Airport { Ident = "EHEH", IcaoCode = "EHEH", Name = "Eindhoven", Latitude = 51.4501, Longitude = 5.3745, Kind = AirportKind.LargeAirport, LongestRunwayFt = 9_000 });
+            await db.SaveChangesAsync();
+        }
+        using var db2 = tdb.NewContext();
+        var best = await Trade(db2, clock).BestNearbySellsAsync("EHAM");
+        Assert.Equal(TradeCatalog.Goods.Count, best.Count); // a best-sell for every commodity
+        Assert.All(best.Values, b =>
+        {
+            Assert.NotEqual("EHAM", b.Icao);                       // the point is to sell high SOMEWHERE ELSE
+            Assert.Contains(b.Icao, new[] { "EHRD", "EHEH" });
+            Assert.True(b.SellCents > 0 && b.DistanceNm > 0);
+        });
+    }
+
+    [Fact]
     public async Task Buy_SetsCostBasis_DebitsLedger_ReducesCash()
     {
         using var tdb = new TestDb();

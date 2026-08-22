@@ -721,6 +721,11 @@ export interface MarketQuote {
   region: string | null // Phase 7g — "export" (cheap here, buy) | "demand" (dear here, sell) | null
   pressurePct: number // Phase 7g — how far YOUR trading moved this price (+ bid up, − softened), decays to 0
   weatherPct: number // Phase 8f — how far the local weather lifted this price (foul air pays dearer), 0 in clear
+  // Phase 12 — the best nearby field to SELL this good, priced structurally (the "sell high there" of the loop).
+  bestSellIcao: string | null
+  bestSellCents: number
+  bestSellMarginCents: number // bestSell − buy-here: the per-unit margin of buying here and selling there
+  bestSellDistanceNm: number
 }
 
 export interface WorldState {
