@@ -748,6 +748,7 @@ details.card.shop[open]>summary.shop-head::after{transform:rotate(90deg)}
 .jf-sliders label{display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
 .jf-sliders label b{color:var(--ink);font-size:14px;text-transform:none;letter-spacing:0}
 .jf-sliders input[type=range]{width:100%;accent-color:var(--accent)}
+.jf-client select{padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font:inherit;text-transform:none;letter-spacing:0}
 .jobs-work{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
 @media (max-width:960px){.jobs-work{grid-template-columns:1fr}}
 .jobs-tablewrap{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);overflow:auto;max-height:640px}

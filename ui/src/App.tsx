@@ -1363,6 +1363,7 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
   const [types, setTypes] = useState<Set<string>>(new Set()) // empty = all types shown
   const [maxDist, setMaxDist] = useState<number>(Infinity)
   const [maxWeight, setMaxWeight] = useState<number>(Infinity)
+  const [client, setClient] = useState<string>('') // '' = every client (Phase 12 — grind one client's loyalty)
   const [sort, setSort] = useState<JobSort>('dist')
   const [asc, setAsc] = useState(true)
 
@@ -1394,11 +1395,13 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
   const distMax = Math.max(100, ...all.map(j => Math.ceil(j.distanceNm)))
   const wtMax = Math.max(100, ...all.map(j => j.weightLbs))
   const kinds = Array.from(new Set(all.map(j => j.type)))
+  const clients = Array.from(new Set(all.map(j => j.clientName).filter((n): n is string => !!n))).sort()
   const key = (j: Job) => sort === 'reward' ? j.rewardCents : sort === 'xp' ? j.xp : sort === 'weight' ? j.weightLbs : j.distanceNm
   const shown = all
     .filter(j => types.size === 0 || types.has(j.type))
     .filter(j => maxDist === Infinity || j.distanceNm <= maxDist)
     .filter(j => maxWeight === Infinity || j.weightLbs <= maxWeight)
+    .filter(j => !client || j.clientName === client)
     .sort((a, b) => (key(a) - key(b)) * (asc ? 1 : -1))
   const sel = shown.find(j => j.id === selected) ?? null
 
@@ -1434,6 +1437,14 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
                   <label>Max payload <b className="num">{maxWeight === Infinity ? `any` : `${Math.round(maxWeight).toLocaleString()} lb`}</b>
                     <input type="range" min={0} max={wtMax} step={100} value={maxWeight === Infinity ? wtMax : maxWeight} onChange={e => { const v = Number(e.target.value); setMaxWeight(v >= wtMax ? Infinity : v) }} />
                   </label>
+                  {clients.length > 1 && (
+                    <label className="jf-client">Client
+                      <select value={client} onChange={e => setClient(e.target.value)}>
+                        <option value="">All clients</option>
+                        {clients.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </label>
+                  )}
                 </div>
               </div>
 
