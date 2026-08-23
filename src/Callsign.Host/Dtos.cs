@@ -109,8 +109,9 @@ public record ActiveLeaseDto(Guid AgreementId, Guid AircraftInstanceId, string T
 
 // --- Phase 2d: staff + standing orders ---
 public record StaffCandidateDto(int Seed, string Name, long WagePerDayCents, int SkillMilli);
-public record StaffDto(Guid Id, string Name, long WagePerDayCents, int SkillMilli, string? CurrentIcao, bool Flying);
+public record StaffDto(Guid Id, string Name, long WagePerDayCents, int SkillMilli, string? CurrentIcao, bool Flying, string Role = "Pilot");
 public record HireRequest(int CandidateSeed);
+public record HireManagerRequest(string Icao);
 public record RelocateCrewRequest(string DestIcao);
 public record DispatchJobRequest(Guid StaffId, Guid AircraftInstanceId);
 public record DispatchLegDto(Guid Id, Guid StaffId, Guid AircraftInstanceId, string CrewName, string Tail, string Origin, string Dest, double DistanceNm,
@@ -122,7 +123,7 @@ public record StandingOrderDto(
     int PendingTrips = 0, long PendingIncomeCents = 0); // trips accrued since the last reconcile, ready to bank (+ est. income)
 public record StandingOrderRequest(Guid StaffId, Guid AircraftInstanceId, string DestIcao, int? PriceMultiplierMilli);
 public record OrderPriceRequest(int PriceMultiplierMilli);
-public record ReconcileDto(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed, int EmptyLegs, IReadOnlyList<string> LoanWarnings, IReadOnlyList<string> Defaults, IReadOnlyList<string> CertLapsed, int WeatheredOut, IReadOnlyList<string> CertExpiring, long RentalCents, IReadOnlyList<string> RentalsExpiring, IReadOnlyList<string> RentalsAutoReturned, int OperatingRepDeltaMilli = 0, long FuelCents = 0);
+public record ReconcileDto(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed, int EmptyLegs, IReadOnlyList<string> LoanWarnings, IReadOnlyList<string> Defaults, IReadOnlyList<string> CertLapsed, int WeatheredOut, IReadOnlyList<string> CertExpiring, long RentalCents, IReadOnlyList<string> RentalsExpiring, IReadOnlyList<string> RentalsAutoReturned, int OperatingRepDeltaMilli = 0, long FuelCents = 0, long RepairCents = 0);
 
 // --- Phase 4a: loans ---
 public record LoanOfferDto(int Tier, string Name, long MinPrincipalCents, long MaxPrincipalCents, int AprBps, int EffectiveAprBps);

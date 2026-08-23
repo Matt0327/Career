@@ -622,4 +622,81 @@ public class OperationsServiceTests
             Assert.True(rep <= 95_000);  // ...but never PAST their 95% competence, even summing two full lines (L12)
         }
     }
+
+    [Fact]
+    public async Task Manager_AutoServicesDueOwnedTailsAtItsField_AtReconcile_AndIsIdempotent()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Guid companyId, instId;
+
+        using (var db = tdb.NewContext())
+        {
+            var company = new Company { Id = Guid.NewGuid(), Name = "Co" };
+            db.Companies.Add(company);
+            db.Bases.Add(new Base { Id = Guid.NewGuid(), CompanyId = company.Id, AirportIcao = "EHAM", IsActive = true, OpenedAt = clock.UtcNow, LastRentBilledAt = clock.UtcNow });
+            var type = new AircraftType { Id = Guid.NewGuid(), Key = "PC12", CanonicalName = "PC-12", Category = AircraftCategory.Turboprop, CruiseKtas = 270, UsefulLoadLbs = 2000 };
+            db.AircraftTypes.Add(type);
+            // Overdue: 80 airframe hours since the last service (interval 50), worn condition.
+            db.AircraftInstances.Add(new AircraftInstance
+            {
+                Id = Guid.NewGuid(), TypeId = type.Id, CompanyId = company.Id, Tail = "CS-1", LocationIcao = "EHAM",
+                Ownership = OwnershipKind.Owned, Availability = AircraftAvailability.Available,
+                AirframeHours = 80, MaintenanceHoursWatermark = 0, HullConditionMilli = 40_000, EngineConditionMilli = 55_000,
+            });
+            await db.SaveChangesAsync();
+            await new LedgerService(db, clock).PostAsync(company.Id, LedgerCategory.StartingBalance, 1_000_000m, "start");
+            companyId = company.Id;
+            instId = (await db.AircraftInstances.FirstAsync()).Id;
+        }
+
+        using (var db = tdb.NewContext())
+            await new OperationsService(db, new LedgerService(db, clock), clock, Cfg).HireManagerAsync(companyId, "EHAM");
+
+        clock.UtcNow = clock.UtcNow.AddDays(1);
+        ReconcileDigest digest;
+        using (var db = tdb.NewContext())
+            digest = await new OperationsService(db, new LedgerService(db, clock), clock, Cfg).ReconcileAsync(companyId);
+
+        Assert.True(digest.RepairCents > 0);        // the manager serviced the due tail
+        Assert.True(digest.WagesCents > 0);         // and drew their wage
+        using (var db = tdb.NewContext())
+        {
+            var inst = await db.AircraftInstances.FindAsync(instId);
+            Assert.Equal(100_000, inst!.HullConditionMilli);
+            Assert.Equal(100_000, inst.EngineConditionMilli);
+            Assert.Equal(80.0, inst.MaintenanceHoursWatermark); // watermark reset to current hours
+        }
+
+        // Idempotent: nothing new is due next pass, so no more servicing is charged.
+        clock.UtcNow = clock.UtcNow.AddDays(1);
+        using (var db = tdb.NewContext())
+        {
+            var d2 = await new OperationsService(db, new LedgerService(db, clock), clock, Cfg).ReconcileAsync(companyId);
+            Assert.Equal(0, d2.RepairCents);
+        }
+    }
+
+    [Fact]
+    public async Task HireManager_RequiresABaseAtTheField_AndOnlyOnePerField()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Guid companyId;
+        using (var db = tdb.NewContext())
+        {
+            var company = new Company { Id = Guid.NewGuid(), Name = "Co" };
+            db.Companies.Add(company);
+            db.Bases.Add(new Base { Id = Guid.NewGuid(), CompanyId = company.Id, AirportIcao = "EHAM", IsActive = true, OpenedAt = clock.UtcNow, LastRentBilledAt = clock.UtcNow });
+            await db.SaveChangesAsync();
+            companyId = company.Id;
+        }
+        using (var db = tdb.NewContext())
+        {
+            var ops = new OperationsService(db, new LedgerService(db, clock), clock, Cfg);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => ops.HireManagerAsync(companyId, "EHRD")); // no base there
+            await ops.HireManagerAsync(companyId, "EHAM");
+            await Assert.ThrowsAsync<InvalidOperationException>(() => ops.HireManagerAsync(companyId, "EHAM")); // already managed
+        }
+    }
 }

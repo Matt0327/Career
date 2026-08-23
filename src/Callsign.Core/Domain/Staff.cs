@@ -1,7 +1,8 @@
 namespace Callsign.Core.Domain;
 
-/// <summary>What a staff member does. Only pilots in 2d; crew roles come later.</summary>
-public enum StaffRole { Pilot = 1 }
+/// <summary>What a staff member does. Pilots fly your lines; a Manager (Phase 12) runs a base — keeping the
+/// owned fleet parked there serviced and airworthy automatically, for a daily wage.</summary>
+public enum StaffRole { Pilot = 1, Manager = 2 }
 
 /// <summary>
 /// A hired employee (Phase 2d). Pilots fly <see cref="StandingOrder"/>s autonomously while you're away.

@@ -1663,7 +1663,7 @@ function JobDetail({ job, busy, onAccept, staff, fleet, dispatches, onDispatch }
   const [dStaff, setDStaff] = useState('')
   const [dAircraft, setDAircraft] = useState('')
   // Phase 12 — a hired crew + an aircraft, BOTH co-located at the job's origin, can fly it autonomously.
-  const eligibleCrew = staff.filter(s => !s.flying && (!s.currentIcao || s.currentIcao === job.origin))
+  const eligibleCrew = staff.filter(s => s.role !== 'Manager' && !s.flying && (!s.currentIcao || s.currentIcao === job.origin))
   const eligibleAircraft = fleet.filter(f => f.availability === 'Available' && f.locationIcao === job.origin)
   const canDispatch = !job.locked && eligibleCrew.length > 0 && eligibleAircraft.length > 0
   // Crews already mid-itinerary whose run ENDS at this job's origin (and has room for another leg, max 3) can
@@ -3122,6 +3122,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
   const [rOrigin, setROrigin] = useState('')
   const [rDest, setRDest] = useState('')
   const [rStaff, setRStaff] = useState('')
+  const [mgrBase, setMgrBase] = useState('') // Phase 12 — base to station a new manager
   const [rAircraft, setRAircraft] = useState('')
   const [rMission, setRMission] = useState('Cargo')
   const [rMarkup, setRMarkup] = useState(1000)
@@ -3176,6 +3177,11 @@ function Ops({ onChanged }: { onChanged: () => void }) {
     try { await api.hire(c.seed); await load(); onChanged(); setMsg(`Hired ${c.name}.`) }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
+  const hireManager = async (icao: string) => {
+    setBusy(true); setMsg(null)
+    try { await api.hireManager(icao); await load(); onChanged(); setMsg(`Hired a manager at ${icao} — they'll keep the fleet there serviced.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
   const relocateCrew = async (s: Staff) => {
     const dest = window.prompt(`Reposition ${s.name} — destination airport ICAO:`, s.currentIcao ?? '')?.trim().toUpperCase()
     if (!dest || dest === s.currentIcao) return
@@ -3189,6 +3195,11 @@ function Ops({ onChanged }: { onChanged: () => void }) {
     try { await api.dismissStaff(s.id); await load(); onChanged(); setMsg(`${s.name} has left the company.`) }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
+  // Managers are staff too, but they run a base rather than fly — keep them out of the pilot pickers/roster.
+  const pilots = staff.filter(s => s.role !== 'Manager')
+  const managers = staff.filter(s => s.role === 'Manager')
+  const managedIcaos = new Set(managers.map(m => m.currentIcao))
+  const manageableBases = (routes?.bases ?? []).filter(b => !managedIcaos.has(b.icao))
   // Phase 12 — co-location: the pilot must be where the aircraft (standing order) / base (route) is.
   const oPilot = staff.find(s => s.id === oStaff)
   const oPlane = fleet.find(f => f.id === oAircraft)
@@ -3236,7 +3247,8 @@ function Ops({ onChanged }: { onChanged: () => void }) {
       const airep = d.operatingRepDeltaMilli !== 0
         ? ` · Airline reputation ${d.operatingRepDeltaMilli > 0 ? 'rose' : 'slipped'} ${(Math.abs(d.operatingRepDeltaMilli) / 1000).toFixed(1)} — ${d.operatingRepDeltaMilli > 0 ? 'your crews are flying well' : 'greener crews are dragging your name'}.`
         : ''
-      setMsg(base + inc + empty + duty + warn + owed + def + cert + wx + cx + rtn + rx + airep)
+      const svc = d.repairCents > 0 ? ` · Managers serviced the fleet: ${money(d.repairCents)}.` : ''
+      setMsg(base + inc + empty + duty + warn + owed + def + cert + wx + cx + rtn + rx + airep + svc)
     } catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
 
@@ -3282,10 +3294,10 @@ function Ops({ onChanged }: { onChanged: () => void }) {
               </tbody>
             </table></div>
           )}
-        {staff.length > 0 && fleet.length > 0 && dests.length > 0 && (
+        {pilots.length > 0 && fleet.length > 0 && dests.length > 0 && (
           <>
           <div className="order-form">
-            <select value={oStaff} onChange={e => setOStaff(e.target.value)}><option value="">Pilot…</option>{staff.map(s => <option key={s.id} value={s.id} disabled={s.flying}>{s.name}{s.currentIcao ? ` · ${s.currentIcao}` : ''}{s.flying ? ' · busy' : ''}</option>)}</select>
+            <select value={oStaff} onChange={e => setOStaff(e.target.value)}><option value="">Pilot…</option>{pilots.map(s => <option key={s.id} value={s.id} disabled={s.flying}>{s.name}{s.currentIcao ? ` · ${s.currentIcao}` : ''}{s.flying ? ' · busy' : ''}</option>)}</select>
             <select value={oAircraft} onChange={e => setOAircraft(e.target.value)}><option value="">Aircraft…</option>{fleet.map(f => <option key={f.id} value={f.id}>{f.tail} — {f.locationIcao}</option>)}</select>
             <select value={oDest} onChange={e => setODest(e.target.value)}><option value="">Destination…</option>{dests.map(d => <option key={d.icao} value={d.icao}>{d.icao} · {d.name}</option>)}</select>
             <select value={oMarkup} onChange={e => setOMarkup(Number(e.target.value))} title="Demand a premium over the fair rate — more per filled trip, but the client ships fewer">{MARKUP_OPTS.map(m => <option key={m} value={m}>{markupLabel(m)} · {fillFor(m)}% fill</option>)}</select>
@@ -3317,10 +3329,10 @@ function Ops({ onChanged }: { onChanged: () => void }) {
 
       <section className="card">
         <h2>Your crew</h2>
-        {staff.length === 0 ? <div className="empty">No pilots hired yet.</div> : (
+        {pilots.length === 0 ? <div className="empty">No pilots hired yet.</div> : (
           <div className="tbl-wrap"><table className="tbl">
             <thead><tr><th>Name</th><th>Based</th><th className="r">Skill</th><th className="r">Wage / day</th><th className="r"></th></tr></thead>
-            <tbody>{staff.map(s => (
+            <tbody>{pilots.map(s => (
               <tr key={s.id}>
                 <td>{s.name}</td>
                 <td className="loc">{s.flying ? <span className="muted">flying a line</span> : (s.currentIcao ?? '—')}</td>
@@ -3351,6 +3363,34 @@ function Ops({ onChanged }: { onChanged: () => void }) {
             </div>
           ))}
         </div>
+      </section>
+
+      <section className="card">
+        <div className="row-head"><h2>Base managers</h2><span className="hint">A manager keeps the owned fleet at their base serviced — no more grounded tails while you're away</span></div>
+        {managers.length > 0 && (
+          <div className="tbl-wrap"><table className="tbl">
+            <thead><tr><th>Name</th><th>Base</th><th className="r">Wage / day</th><th className="r"></th></tr></thead>
+            <tbody>{managers.map(m => (
+              <tr key={m.id}>
+                <td>{m.name}</td>
+                <td className="loc">{m.currentIcao}</td>
+                <td className="r num neg">{money(m.wagePerDayCents)}</td>
+                <td className="r"><button className="linky" disabled={busy} onClick={() => dismiss(m)}>Let go</button></td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        )}
+        {(routes?.bases.length ?? 0) === 0
+          ? <div className="hint muted">Open a base first (Bases tab) — a manager runs one of your fields.</div>
+          : manageableBases.length === 0
+            ? <div className="hint muted">Every base has a manager.</div>
+            : <div className="order-form">
+                <select value={mgrBase} onChange={e => setMgrBase(e.target.value)}>
+                  <option value="">Base…</option>
+                  {manageableBases.map(b => <option key={b.icao} value={b.icao}>{b.icao} · {b.name}</option>)}
+                </select>
+                <button className="primary" disabled={busy || !mgrBase} onClick={() => mgrBase && hireManager(mgrBase)}>Hire manager</button>
+              </div>}
       </section>
 
       <section className="card">
@@ -3390,7 +3430,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
               <input className="qty" style={{ width: 110 }} placeholder="Name" value={rName} onChange={e => setRName(e.target.value)} />
               <select value={rOrigin} onChange={e => setROrigin(e.target.value)}><option value="">From base…</option>{routes.bases.map(b => <option key={b.icao} value={b.icao}>{b.icao} · {b.name}</option>)}</select>
               <select value={rDest} onChange={e => setRDest(e.target.value)}><option value="">To base…</option>{routes.bases.map(b => <option key={b.icao} value={b.icao}>{b.icao} · {b.name}</option>)}</select>
-              <select value={rStaff} onChange={e => setRStaff(e.target.value)}><option value="">Pilot…</option>{staff.map(s => <option key={s.id} value={s.id} disabled={s.flying}>{s.name}{s.currentIcao ? ` · ${s.currentIcao}` : ''}{s.flying ? ' · busy' : ''}</option>)}</select>
+              <select value={rStaff} onChange={e => setRStaff(e.target.value)}><option value="">Pilot…</option>{pilots.map(s => <option key={s.id} value={s.id} disabled={s.flying}>{s.name}{s.currentIcao ? ` · ${s.currentIcao}` : ''}{s.flying ? ' · busy' : ''}</option>)}</select>
               <select value={rAircraft} onChange={e => setRAircraft(e.target.value)}><option value="">Aircraft…</option>{fleet.map(f => <option key={f.id} value={f.id}>{f.tail} — {f.locationIcao}</option>)}</select>
               {rScheduled
                 ? <span className="hint" style={{ alignSelf: 'center' }}>Scheduled: seats × load × yield, frozen at creation — your name fills the seats.</span>

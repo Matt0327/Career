@@ -980,7 +980,7 @@ public static class CallsignWebApp
             var flyingIds = new HashSet<Guid>(await db.StandingOrders.Where(o => o.CompanyId == pilot.CompanyId && o.IsActive && !o.IsDeleted).Select(o => o.StaffId).ToListAsync());
             flyingIds.UnionWith(await db.Routes.Where(r => r.CompanyId == pilot.CompanyId && r.Active && !r.IsDeleted).Select(r => r.StaffId).ToListAsync());
             flyingIds.UnionWith(await db.DispatchLegs.Where(d => d.CompanyId == pilot.CompanyId && d.Status == DispatchStatus.Flying && !d.IsDeleted).Select(d => d.StaffId).ToListAsync()); // Phase 12 — a dispatched crew is flying too
-            return Results.Ok(staff.Select(s => new StaffDto(s.Id, s.Name, s.WagePerDayCents, s.SkillMilli, s.CurrentIcao, flyingIds.Contains(s.Id))));
+            return Results.Ok(staff.Select(s => new StaffDto(s.Id, s.Name, s.WagePerDayCents, s.SkillMilli, s.CurrentIcao, flyingIds.Contains(s.Id), s.Role.ToString())));
         });
 
         app.MapPost("/api/staff/hire", async (HireRequest req, CallsignDbContext db, OperationsService ops) =>
@@ -991,6 +991,19 @@ public static class CallsignWebApp
             var atIcao = string.IsNullOrWhiteSpace(pilot.CurrentIcao) ? pilot.HomeIcao : pilot.CurrentIcao;
             var s = await ops.HireAsync(pilot.CompanyId, req.CandidateSeed, atIcao);
             return Results.Ok(new { id = s.Id, name = s.Name, currentIcao = s.CurrentIcao });
+        });
+
+        // Phase 12 — hire a base MANAGER at one of your fields; they auto-service the owned fleet parked there.
+        app.MapPost("/api/staff/hire-manager", async (HireManagerRequest req, CallsignDbContext db, OperationsService ops) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                var s = await ops.HireManagerAsync(pilot.CompanyId, req.Icao);
+                return Results.Ok(new { id = s.Id, name = s.Name, currentIcao = s.CurrentIcao });
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
         // Phase 12 — reposition (deadhead) a hired pilot to another field for a fee (crew equivalent of a ferry).
@@ -1101,7 +1114,7 @@ public static class CallsignWebApp
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             var d = await ops.ReconcileAsync(pilot.CompanyId);
-            return Results.Ok(new ReconcileDto(d.Trips, d.GrossIncomeCents, d.FeesCents, d.WagesCents, d.RentCents, d.LoanCents, d.InsuranceCents, d.NetCents, d.Incidents, d.Grounded, d.DutyMaxed, d.EmptyLegs, d.LoanWarnings ?? [], d.Defaults ?? [], d.CertLapsed ?? [], d.WeatheredOut, d.CertExpiring ?? [], d.RentalCents, d.RentalsExpiring ?? [], d.RentalsAutoReturned ?? [], d.OperatingRepDeltaMilli, d.FuelCents));
+            return Results.Ok(new ReconcileDto(d.Trips, d.GrossIncomeCents, d.FeesCents, d.WagesCents, d.RentCents, d.LoanCents, d.InsuranceCents, d.NetCents, d.Incidents, d.Grounded, d.DutyMaxed, d.EmptyLegs, d.LoanWarnings ?? [], d.Defaults ?? [], d.CertLapsed ?? [], d.WeatheredOut, d.CertExpiring ?? [], d.RentalCents, d.RentalsExpiring ?? [], d.RentalsAutoReturned ?? [], d.OperatingRepDeltaMilli, d.FuelCents, d.RepairCents));
         });
 
         // --- Loans (Phase 4a) ---

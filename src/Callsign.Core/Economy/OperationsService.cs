@@ -13,7 +13,7 @@ namespace Callsign.Core.Economy;
 public sealed record StaffCandidate(int Seed, string Name, long WagePerDayCents, int SkillMilli);
 
 /// <summary>What a reconcile produced (for the reopen digest).</summary>
-public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed, int EmptyLegs = 0, IReadOnlyList<string>? LoanWarnings = null, IReadOnlyList<string>? Defaults = null, IReadOnlyList<string>? CertLapsed = null, int WeatheredOut = 0, IReadOnlyList<string>? CertExpiring = null, long RentalCents = 0, IReadOnlyList<string>? RentalsExpiring = null, IReadOnlyList<string>? RentalsAutoReturned = null, int OperatingRepDeltaMilli = 0, long FuelCents = 0);
+public sealed record ReconcileDigest(int Trips, long GrossIncomeCents, long FeesCents, long WagesCents, long RentCents, long LoanCents, long InsuranceCents, long NetCents, int Incidents, IReadOnlyList<string> Grounded, IReadOnlyList<string> DutyMaxed, int EmptyLegs = 0, IReadOnlyList<string>? LoanWarnings = null, IReadOnlyList<string>? Defaults = null, IReadOnlyList<string>? CertLapsed = null, int WeatheredOut = 0, IReadOnlyList<string>? CertExpiring = null, long RentalCents = 0, IReadOnlyList<string>? RentalsExpiring = null, IReadOnlyList<string>? RentalsAutoReturned = null, int OperatingRepDeltaMilli = 0, long FuelCents = 0, long RepairCents = 0);
 
 /// <summary>
 /// Staff + standing orders (Phase 2d): hire pilots, set repeating autonomous routes, and reconcile the
@@ -77,6 +77,30 @@ public sealed class OperationsService
             WagePerDayCents = c.WagePerDayCents, SkillMilli = c.SkillMilli,
             CurrentIcao = string.IsNullOrWhiteSpace(atIcao) ? null : atIcao.Trim().ToUpperInvariant(),
             HiredAt = now, LastPaidAt = now, IsActive = true, UpdatedAt = now,
+        };
+        _db.Staff.Add(staff);
+        await _db.SaveChangesAsync(ct);
+        return staff;
+    }
+
+    /// <summary>Hire a base MANAGER at one of your fields (Phase 12). A manager auto-services the owned fleet
+    /// parked at their field each reconcile, for a flat daily wage. One manager per field; the field must be a
+    /// base you run.</summary>
+    public async Task<Staff> HireManagerAsync(Guid companyId, string atIcao, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(atIcao)) throw new InvalidOperationException("Choose a base for the manager.");
+        var icao = atIcao.Trim().ToUpperInvariant();
+        bool hasBase = await _db.Bases.AnyAsync(b => b.CompanyId == companyId && b.AirportIcao == icao && b.IsActive && !b.IsDeleted, ct);
+        if (!hasBase) throw new InvalidOperationException($"You need a base at {icao} to station a manager there.");
+        bool already = await _db.Staff.AnyAsync(s => s.CompanyId == companyId && s.Role == StaffRole.Manager && s.CurrentIcao == icao && s.IsActive && !s.IsDeleted, ct);
+        if (already) throw new InvalidOperationException($"{icao} already has a manager.");
+        int seed = icao.Aggregate(17, (h, c) => unchecked(h * 31 + c));
+        var now = _clock.UtcNow;
+        var staff = new Staff
+        {
+            Id = Guid.NewGuid(), CompanyId = companyId, Name = MakeCandidate(seed).Name,
+            Role = StaffRole.Manager, WagePerDayCents = _cfg.ManagerWagePerDayCents, SkillMilli = 0,
+            CurrentIcao = icao, HiredAt = now, LastPaidAt = now, IsActive = true, UpdatedAt = now,
         };
         _db.Staff.Add(staff);
         await _db.SaveChangesAsync(ct);
@@ -419,7 +443,7 @@ public sealed class OperationsService
     {
         var now = _clock.UtcNow;
         int totalTrips = 0;
-        long grossIncome = 0, totalFees = 0, totalWages = 0, totalRent = 0, totalLoan = 0, totalInsurance = 0, totalFuel = 0;
+        long grossIncome = 0, totalFees = 0, totalWages = 0, totalRent = 0, totalLoan = 0, totalInsurance = 0, totalFuel = 0, totalRepair = 0;
         int totalIncidents = 0;            // trips a crew botched — skill is what keeps this down (Phase 7f)
         int totalEmpty = 0;                // legs that flew empty because a marked-up line priced out the client (Phase 7g)
         int totalWeatheredOut = 0;         // autonomous trips scrubbed by foul weather at the origin (Phase 8f-2)
@@ -643,6 +667,35 @@ public sealed class OperationsService
             s.LastPaidAt = now;
             s.UpdatedAt = now;
             totalWages += wage;
+        }
+
+        // Base managers (Phase 12): each manager keeps the OWNED fleet parked AT THEIR FIELD airworthy —
+        // auto-servicing any tail that's come due, so an autonomous operation isn't grounded while you're away.
+        // Billed like a manual service (same dedupe key, so a manual service this window isn't double-charged),
+        // staged into this one reconcile transaction. Condition + watermark are reset exactly as MaintainAsync does.
+        var managers = await _db.Staff.Where(s => s.CompanyId == companyId && s.Role == StaffRole.Manager
+            && s.IsActive && !s.IsDeleted && s.CurrentIcao != null).ToListAsync(ct);
+        foreach (var mgr in managers)
+        {
+            var tails = await _db.AircraftInstances.Where(a => a.CompanyId == companyId && !a.IsDeleted
+                && a.Ownership == OwnershipKind.Owned && a.LocationIcao == mgr.CurrentIcao
+                && a.Availability == AircraftAvailability.Available).ToListAsync(ct);
+            foreach (var t in tails)
+            {
+                if (t.AirframeHours - t.MaintenanceHoursWatermark < _cfg.MaintenanceIntervalHours) continue; // not due yet
+                long cost = _cfg.MaintenanceBaseCents
+                    + (long)Math.Round(Math.Max(0, t.AirframeHours - t.MaintenanceHoursWatermark) * _cfg.MaintenancePerHourCents);
+                await _ledger.StageBatchAsync(companyId, new[]
+                {
+                    new LedgerPosting(LedgerCategory.Repair, -(cost / 100m), $"Manager service on {t.Tail} at {mgr.CurrentIcao}",
+                        AircraftInstanceId: t.Id, DedupeKey: $"maint:{t.Id}:{t.AirframeHours:F1}"),
+                }, ct);
+                t.HullConditionMilli = 100_000;
+                t.EngineConditionMilli = 100_000;
+                t.MaintenanceHoursWatermark = t.AirframeHours;
+                t.UpdatedAt = now;
+                totalRepair += cost;
+            }
         }
 
         foreach (var b in await _db.Bases.Where(b => b.CompanyId == companyId && b.IsActive && !b.IsDeleted).ToListAsync(ct))
@@ -954,8 +1007,8 @@ public sealed class OperationsService
 
         await _db.SaveChangesAsync(ct);
         return new ReconcileDigest(totalTrips, grossIncome, totalFees, totalWages, totalRent, totalLoan, totalInsurance,
-            grossIncome - totalFees - totalWages - totalRent - totalLoan - totalInsurance - totalRental + totalRentalRefund - totalFuel, totalIncidents, grounded, dutyMaxed, totalEmpty,
-            loanWarnings, defaults, certLapsed, totalWeatheredOut, certExpiring, totalRental, rentalsExpiring, rentalsReturned, operatingRepDelta, totalFuel);
+            grossIncome - totalFees - totalWages - totalRent - totalLoan - totalInsurance - totalRental + totalRentalRefund - totalFuel - totalRepair, totalIncidents, grounded, dutyMaxed, totalEmpty,
+            loanWarnings, defaults, certLapsed, totalWeatheredOut, certExpiring, totalRental, rentalsExpiring, rentalsReturned, operatingRepDelta, totalFuel, totalRepair);
     }
 
     /// <summary>

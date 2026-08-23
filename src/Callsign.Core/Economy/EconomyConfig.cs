@@ -728,6 +728,10 @@ public sealed record EconomyConfig
     // --- Crew dispatch (Phase 12) — how many one-way legs a crew can have queued as an itinerary at once. ---
     public int MaxDispatchLegs { get; init; } = 3;
 
+    // --- Base managers (Phase 12) — a salaried manager runs one field, auto-servicing your owned fleet parked
+    // there so an autonomous operation never grinds to a halt on a grounded tail while you're away.
+    public long ManagerWagePerDayCents { get; init; } = 25_000;   // $250/day — a standing overhead you opt into
+
     // --- Insurance (Phase 4c) ---
     public int InsuranceDefaultCoverageMilli { get; init; } = 80_000;      // insure 80% of hull by default
     public int InsuranceWeeklyRateBps { get; init; } = 40;                 // 0.40%/week of the covered value

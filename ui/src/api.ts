@@ -472,6 +472,7 @@ export interface Staff {
   skillMilli: number
   currentIcao: string | null // Phase 12 — where this pilot is based; null = un-positioned
   flying: boolean            // Phase 12 — crewing a live line (can't be repositioned/let go until freed)
+  role: 'Pilot' | 'Manager'  // Phase 12 — a Manager runs a base (auto-services the fleet there)
 }
 
 export interface DispatchLeg {
@@ -528,6 +529,7 @@ export interface ReconcileResult {
   rentalsExpiring: string[] // Phase 9f-1 — rentals nearing auto-return, warned first (Law 4)
   rentalsAutoReturned: string[] // Phase 9f-1 — rentals auto-returned at expiry this pass
   operatingRepDeltaMilli: number // Phase 11a — net move in the airline's operating reputation this pass (milli; ± )
+  repairCents: number // Phase 12 — maintenance your base managers auto-serviced this pass
 }
 
 export interface InsurancePolicy {
@@ -1081,6 +1083,7 @@ export const api = {
   staffCandidates: () => fetch('/api/staff/candidates').then(ok<StaffCandidate[]>),
   staff: () => fetch('/api/staff').then(ok<Staff[]>),
   hire: (candidateSeed: number) => POST('/api/staff/hire', { candidateSeed }).then(ok),
+  hireManager: (icao: string) => POST('/api/staff/hire-manager', { icao }).then(ok),
   relocateCrew: (id: string, destIcao: string) =>
     POST_IDEM(`/api/staff/${id}/relocate`, { destIcao }).then(ok<{ feeCents: number }>),
   dismissStaff: (id: string) => fetch(`/api/staff/${id}`, { method: 'DELETE' }).then(ok),
