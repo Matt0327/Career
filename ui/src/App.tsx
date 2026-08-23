@@ -1563,6 +1563,15 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
         <h2>Jobs from <span className="loc">{state.currentIcao}</span> <span className="muted">· {shown.length} of {all.length}</span></h2>
         <button className="primary" disabled={busy} onClick={refresh}>{busy ? '…' : 'Refresh board'}</button>
       </div>
+      {all.length > 0 && (
+        <div className="hero-stats tab-summary">
+          <HeroStat label="On the board" value={String(all.length)} accent />
+          <HeroStat label="Best reward" value={money(Math.max(...all.map(j => j.rewardCents)))} tone="pos" />
+          <HeroStat label="Top XP" value={`+${Math.max(...all.map(j => j.xp))}`} />
+          <HeroStat label="Nearest" value={String(Math.round(Math.min(...all.map(j => j.distanceNm))))} unit="nm" />
+          {clients.length > 0 && <HeroStat label="Clients hiring" value={String(clients.length)} />}
+        </div>
+      )}
             {jobs === null ? <div className="empty">Loading…</div>
         : all.length === 0 ? <div className="empty"><p>No jobs on the board.</p><button className="primary" onClick={refresh}>Generate jobs</button></div>
           : (
@@ -2965,6 +2974,14 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
     <div className="hangar-screen">
       <section className="card">
         <div className="row-head"><h2>Your hangar <span className="muted">· {fleet.length} {fleet.length === 1 ? 'tail' : 'tails'}</span></h2></div>
+        {fleet.length > 0 && (
+          <div className="hero-stats tab-summary">
+            <HeroStat label="Aircraft" value={String(fleet.length)} accent />
+            <HeroStat label="Available" value={String(fleet.filter(f => f.availability === 'Available').length)} tone="pos" />
+            <HeroStat label="Needs service" value={String(fleet.filter(f => f.maintenanceDue).length)} tone={fleet.some(f => f.maintenanceDue) ? 'neg' : undefined} />
+            <HeroStat label="Uninsured" value={String(fleet.filter(f => !f.insured).length)} tone={fleet.some(f => !f.insured) ? 'neg' : undefined} />
+          </div>
+        )}
                 {owned === null ? <div className="empty">Loading…</div>
           : fleet.length === 0 ? <div className="empty">No aircraft yet — buy one below.</div>
           : (
@@ -3347,6 +3364,15 @@ function Ops({ onChanged }: { onChanged: () => void }) {
 
   return (
     <div className="grid">
+      {(staff.length > 0 || orders.length > 0 || (routes?.routes.length ?? 0) > 0 || dispatches.length > 0) && (
+        <div className="hero-stats tab-summary">
+          <HeroStat label="Pilots" value={String(pilots.length)} accent />
+          <HeroStat label="Managers" value={String(managers.length)} />
+          <HeroStat label="Standing orders" value={String(orders.length)} />
+          <HeroStat label="Routes" value={String(routes?.routes.length ?? 0)} />
+          <HeroStat label="Dispatches" value={String(dispatches.length)} tone={dispatches.some(d => d.ready) ? 'pos' : undefined} />
+        </div>
+      )}
       <section className="card">
         <div className="row-head"><h2>Standing orders</h2>
           <span className="ops-process">
@@ -3664,6 +3690,15 @@ function Bases({ state, onChanged }: { state: State; onChanged: () => void }) {
 
   return (
     <div className="grid">
+      {bases.length > 0 && (
+        <div className="hero-stats tab-summary">
+          <HeroStat label="Bases" value={String(bases.length)} accent />
+          <HeroStat label="Hubs" value={String(bases.filter(b => b.hubLevel > 0).length)} />
+          <HeroStat label="Maintenance shops" value={String(bases.filter(b => b.maintenanceLevel > 0).length)} />
+          <HeroStat label="Fuel farms" value={String(bases.filter(b => b.fuelFarmLevel > 0).length)} />
+          <HeroStat label="Daily rent" value={money(bases.reduce((s, b) => s + b.rentPerDayCents, 0))} tone="neg" />
+        </div>
+      )}
       <section className="card">
         <div className="row-head"><h2>Your network</h2><span className="hint">satellite · {bases.length} base{bases.length === 1 ? '' : 's'}</span></div>
         <SatelliteMap points={mapPoints} />
@@ -3779,6 +3814,19 @@ function Trade({ state, onChanged }: { state: State; onChanged: () => void }) {
 
   return (
     <div className="grid">
+      {(() => {
+        const margins = market.map(m => m.bestSellMarginCents).filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
+        const bestMargin = margins.length ? Math.max(...margins) : 0
+        const perishing = inv.filter(v => v.spoiled || (v.freshDaysLeft != null && v.freshDaysLeft <= 2)).length
+        return (
+          <div className="hero-stats tab-summary">
+            <HeroStat label="Cash" value={money(state.cashCents)} accent />
+            <HeroStat label="Holdings value" value={money(inv.reduce((s, v) => s + v.marketSellCents * v.quantity, 0))} />
+            {bestMargin > 0 && <HeroStat label="Best margin out" value={`${money(bestMargin)}/u`} tone="pos" />}
+            {perishing > 0 && <HeroStat label="Perishing" value={String(perishing)} tone="neg" />}
+          </div>
+        )
+      })()}
       <section className="card">
         <div className="row-head"><h2>Market · <span className="loc">{state.currentIcao}</span></h2><span className="hint">Buy low here, fly it, sell high there — best sell shown</span></div>
                 <div className="tbl-wrap">
