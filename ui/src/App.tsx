@@ -3646,6 +3646,11 @@ function Trade({ state, onChanged }: { state: State; onChanged: () => void }) {
       setMsg(`Sold ${r.quantity} — proceeds ${money(r.proceedsCents)}, P&L ${pnl}.`)
     } catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
+  const discard = async (good: string) => {
+    setBusy(true); setMsg(null)
+    try { await api.discardGood(good); await load(); onChanged(); setMsg('Discarded the spoiled goods — the hold is free again.') }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
 
   return (
     <div className="grid">
@@ -3663,6 +3668,7 @@ function Trade({ state, onChanged }: { state: State; onChanged: () => void }) {
                   {m.pressurePct >= 1 ? <span className="pressure-tag up" title="Your buying has bid this market up. It drifts back to normal once you stop.">you bid +{m.pressurePct}%</span>
                     : m.pressurePct <= -1 ? <span className="pressure-tag down" title="Your selling has flooded this market. It drifts back to normal once you stop.">you softened −{Math.abs(m.pressurePct)}%</span> : null}
                   {m.weatherPct >= 1 ? <span className="weather-tag" title="Foul weather here has lifted local prices — sell into it dear, but the landing is harder.">weather +{m.weatherPct}%</span> : null}
+                  {m.shelfLifeDays != null ? <span className="region-tag perish" title={`Perishable — spoils ${m.shelfLifeDays} days after you buy it. Sell it before then or it's a total loss.`}>perishable {m.shelfLifeDays}d</span> : null}
                 </td>
                 <td className="r num">{money(m.buyCents)}</td>
                 <td className="r num muted">{money(m.sellCents)}</td>
@@ -3692,16 +3698,24 @@ function Trade({ state, onChanged }: { state: State; onChanged: () => void }) {
               <thead><tr><th>Commodity</th><th className="r">Qty</th><th className="r">Avg cost</th><th className="r">Sell here</th><th className="r">Unrealised</th><th>At</th><th className="r">Qty</th><th></th></tr></thead>
               <tbody>{inv.map(v => {
                 const here = v.locationIcao === state.currentIcao
+                const freshTag = v.spoiled
+                  ? <span className="region-tag spoiled" title="Spoiled — worthless. Discard it to free the hold.">spoiled</span>
+                  : v.freshDaysLeft != null
+                    ? <span className={`region-tag ${v.freshDaysLeft <= 2 ? 'perish-warn' : 'perish'}`} title={`Spoils in about ${Math.max(0, Math.ceil(v.freshDaysLeft))} day(s) — sell before then`}>fresh {Math.max(0, Math.ceil(v.freshDaysLeft))}d</span>
+                    : null
                 return (
-                  <tr key={v.id}>
-                    <td>{v.name}</td>
+                  <tr key={v.id} className={v.spoiled ? 'spoiled-row' : ''}>
+                    <td>{v.name}{freshTag}</td>
                     <td className="r num">{v.quantity}</td>
                     <td className="r num muted">{money(v.unitCostCents)}</td>
-                    <td className="r num">{money(v.marketSellCents)}</td>
+                    <td className="r num">{v.spoiled ? <span className="neg">worthless</span> : money(v.marketSellCents)}</td>
                     <td className={`r num ${v.unrealizedPnlCents >= 0 ? 'pos' : 'neg'}`}>{money(v.unrealizedPnlCents)}</td>
                     <td><span className="loc">{v.locationIcao}</span></td>
-                    <td className="r"><input className="qty" type="number" min={1} max={v.quantity} value={qty['sell-' + v.id] ?? '1'} onChange={e => setQ('sell-' + v.id, e.target.value)} /></td>
-                    <td className="r"><button disabled={busy || !here} title={here ? '' : `Fly to ${v.locationIcao} to sell`} onClick={() => sell(v.good, v.id, v.quantity)}>Sell</button></td>
+                    <td className="r">{!v.spoiled && <input className="qty" type="number" min={1} max={v.quantity} value={qty['sell-' + v.id] ?? '1'} onChange={e => setQ('sell-' + v.id, e.target.value)} />}</td>
+                    <td className="r">{v.spoiled
+                      ? <button className="danger" disabled={busy || !here} title={here ? 'Throw away the spoiled goods' : `Fly to ${v.locationIcao} to discard`} onClick={() => discard(v.good)}>Discard</button>
+                      : <button disabled={busy || !here} title={here ? '' : `Fly to ${v.locationIcao} to sell`} onClick={() => sell(v.good, v.id, v.quantity)}>Sell</button>}
+                    </td>
                   </tr>
                 )
               })}</tbody>

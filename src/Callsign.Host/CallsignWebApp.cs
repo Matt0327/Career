@@ -1470,7 +1470,8 @@ public static class CallsignWebApp
             {
                 bestSells.TryGetValue(q.Good, out var b);
                 return new MarketQuoteDto(q.Good, q.Name, q.BuyCents, q.SellCents, q.UnitWeightLbs, q.Region, q.PressurePct, q.WeatherPct,
-                    b?.Icao, b?.SellCents ?? 0, (b?.SellCents ?? 0) - q.BuyCents, b?.DistanceNm ?? 0);
+                    b?.Icao, b?.SellCents ?? 0, (b?.SellCents ?? 0) - q.BuyCents, b?.DistanceNm ?? 0,
+                    Callsign.Core.Economy.TradeCatalog.Find(q.Good)?.ShelfLifeDays);
             }));
         });
 
@@ -1480,7 +1481,17 @@ public static class CallsignWebApp
             if (pilot is null) return Results.NotFound();
             var inv = await trade.GetInventoryAsync(pilot.CompanyId);
             return Results.Ok(inv.Select(v => new InventoryDto(v.Id, v.Good, v.Name, v.Quantity, v.UnitCostCents,
-                v.MarketSellCents, v.UnrealizedPnlCents, v.UnitWeightLbs, v.LocationIcao)));
+                v.MarketSellCents, v.UnrealizedPnlCents, v.UnitWeightLbs, v.LocationIcao,
+                v.ShelfLifeDays, v.FreshDaysLeft, v.Spoiled)));
+        });
+
+        // Throw away a held lot (a spoiled perishable) at the current field — frees the hold, no cash moves.
+        app.MapPost("/api/trade/discard", async (TradeRequest req, CallsignDbContext db, TradeService trade) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try { await trade.DiscardAsync(pilot.CompanyId, pilot.CurrentIcao, req.Good); return Results.Ok(new { discarded = req.Good }); }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
         app.MapPost("/api/trade/buy", async (TradeRequest req, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, TradeService trade) =>

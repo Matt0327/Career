@@ -529,4 +529,65 @@ public class TradeServiceTests
             Assert.Equal(expectedSell * 10, result.ProceedsCents); // settlement paid the weather-lifted price shown on the board
         }
     }
+
+    [Fact]
+    public async Task Perishable_SpoilsAfterShelfLife_IsWorthless_CannotBeSold_AndCanBeDiscarded()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var companyId = await SeedAsync(tdb, clock, 10_000_000);
+        var produce = TradeCatalog.Find("produce")!; // shelf life 5 days
+        Assert.NotNull(produce.ShelfLifeDays);
+
+        using (var db = tdb.NewContext())
+            await Trade(db, clock).BuyAsync(companyId, "EHAM", "produce", 10);
+
+        // Still fresh a day later.
+        clock.UtcNow = clock.UtcNow.AddDays(1);
+        using (var db = tdb.NewContext())
+        {
+            var inv = (await Trade(db, clock).GetInventoryAsync(companyId)).Single();
+            Assert.False(inv.Spoiled);
+            Assert.True(inv.MarketSellCents > 0);
+            Assert.True(inv.FreshDaysLeft is > 3 and <= 4);
+        }
+
+        // Past its shelf life: spoiled, worthless, and a sale is refused.
+        clock.UtcNow = clock.UtcNow.AddDays(6);
+        using (var db = tdb.NewContext())
+        {
+            var inv = (await Trade(db, clock).GetInventoryAsync(companyId)).Single();
+            Assert.True(inv.Spoiled);
+            Assert.Equal(0, inv.MarketSellCents);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => Trade(db, clock).SellAsync(companyId, "EHAM", "produce", 5));
+        }
+
+        // Discard clears the hold (no cash moves).
+        using (var db = tdb.NewContext())
+            await Trade(db, clock).DiscardAsync(companyId, "EHAM", "produce");
+        using (var db = tdb.NewContext())
+            Assert.Empty(await Trade(db, clock).GetInventoryAsync(companyId));
+    }
+
+    [Fact]
+    public async Task NonPerishable_NeverSpoils()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var companyId = await SeedAsync(tdb, clock, 10_000_000);
+        Assert.Null(TradeCatalog.Find("textiles")!.ShelfLifeDays);
+
+        using (var db = tdb.NewContext())
+            await Trade(db, clock).BuyAsync(companyId, "EHAM", "textiles", 5);
+
+        clock.UtcNow = clock.UtcNow.AddDays(365);
+        using (var db = tdb.NewContext())
+        {
+            var inv = (await Trade(db, clock).GetInventoryAsync(companyId)).Single();
+            Assert.False(inv.Spoiled);
+            Assert.Null(inv.FreshDaysLeft);
+            var r = await Trade(db, clock).SellAsync(companyId, "EHAM", "textiles", 5); // still sells fine a year on
+            Assert.Equal(5, r.Quantity);
+        }
+    }
 }

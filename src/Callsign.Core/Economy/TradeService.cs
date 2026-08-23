@@ -7,16 +7,22 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Callsign.Core.Economy;
 
-/// <summary>A held commodity lot valued at the current local market, with unrealised P&amp;L.</summary>
+/// <summary>A held commodity lot valued at the current local market, with unrealised P&amp;L. Perishables also
+/// carry their shelf life and how fresh they still are — a spoiled lot is worthless (<see cref="Spoiled"/>).</summary>
 public sealed record InventoryView(
     Guid Id, string Good, string Name, int Quantity, long UnitCostCents,
-    long MarketSellCents, long UnrealizedPnlCents, int UnitWeightLbs, string LocationIcao);
+    long MarketSellCents, long UnrealizedPnlCents, int UnitWeightLbs, string LocationIcao,
+    int? ShelfLifeDays = null, double? FreshDaysLeft = null, bool Spoiled = false);
 
 /// <summary>The best nearby field to sell one commodity — the "sell high there" half of the trading loop.</summary>
 public sealed record BestSell(string Good, string Icao, long SellCents, double DistanceNm);
 
 /// <summary>What a sale realised.</summary>
 public sealed record TradeResult(int Quantity, long ProceedsCents, long CostBasisCents, long PnlCents);
+
+/// <summary>Freshness of a perishable lot: days of shelf life left (negative once spoiled), and whether it has
+/// spoiled. Non-perishable goods return (null, false) — they keep forever.</summary>
+public readonly record struct Freshness(double? DaysLeft, bool Spoiled);
 
 /// <summary>
 /// Buying and selling commodities (Phase 2g). You buy at your current airport's market, the goods
@@ -127,6 +133,15 @@ public sealed class TradeService
         }
     }
 
+    /// <summary>How fresh a perishable lot is — days of shelf life remaining from when it was acquired. A merge
+    /// buy re-anchors <c>AcquiredAt</c>, so topping up a hold refreshes its clock (forgiving, L9).</summary>
+    public static Freshness FreshnessOf(TradeGood? good, DateTimeOffset acquiredAt, DateTimeOffset now)
+    {
+        if (good?.ShelfLifeDays is not int days) return new Freshness(null, false);
+        double left = days - (now - acquiredAt).TotalDays;
+        return new Freshness(left, left <= 0);
+    }
+
     /// <summary>Everything you're holding, valued at the market where it currently sits.</summary>
     public async Task<IReadOnlyList<InventoryView>> GetInventoryAsync(Guid companyId, CancellationToken ct = default)
     {
@@ -151,10 +166,15 @@ public sealed class TradeService
         foreach (var l in lots)
         {
             var g = TradeCatalog.Find(l.Good);
-            long sell = g is null ? 0 : _market.Quote(l.LocationIcao, g, Eff(l.LocationIcao, l.Good), weatherByIcao.GetValueOrDefault(l.LocationIcao, 1.0)).SellCents;
+            var fresh = FreshnessOf(g, l.AcquiredAt, now);
+            // A spoiled perishable lot is worthless — it fetches nothing at market, so its unrealised P&L is the
+            // whole cost basis lost. A fresh lot values normally.
+            long sell = fresh.Spoiled || g is null ? 0
+                : _market.Quote(l.LocationIcao, g, Eff(l.LocationIcao, l.Good), weatherByIcao.GetValueOrDefault(l.LocationIcao, 1.0)).SellCents;
             long unrealized = (sell - l.UnitCostCents) * l.Quantity;
             views.Add(new InventoryView(l.Id, l.Good, g?.Name ?? l.Good, l.Quantity, l.UnitCostCents,
-                sell, unrealized, g?.UnitWeightLbs ?? 0, l.LocationIcao));
+                sell, unrealized, g?.UnitWeightLbs ?? 0, l.LocationIcao,
+                g?.ShelfLifeDays, fresh.DaysLeft, fresh.Spoiled));
         }
         return views
             .OrderBy(v => v.LocationIcao)
@@ -215,6 +235,7 @@ public sealed class TradeService
             long blended = lot.UnitCostCents * lot.Quantity + quote.BuyCents * (long)qty;
             lot.Quantity += qty;
             lot.UnitCostCents = (long)Math.Round(blended / (double)lot.Quantity, MidpointRounding.AwayFromZero); // weighted average, rounded to the nearest cent (integer division truncated down, biasing realized P&L up)
+            lot.AcquiredAt = now;  // topping up a hold re-anchors its shelf-life clock (forgiving, for perishables)
             lot.UpdatedAt = now;
         }
 
@@ -269,6 +290,8 @@ public sealed class TradeService
                   ?? throw new InvalidOperationException($"You have no {good.Name} at {icao} to sell.");
         if (lot.Quantity < qty)
             throw new InvalidOperationException($"You only hold {lot.Quantity} × {good.Name} at {icao}.");
+        if (FreshnessOf(good, lot.AcquiredAt, _clock.UtcNow).Spoiled)
+            throw new InvalidOperationException($"Your {good.Name} at {icao} has spoiled — it's worthless. Discard it to free the hold.");
 
         var now = _clock.UtcNow;
         var (pRow, effPressure) = await LoadPressureAsync(companyId, icao, good.Key, now, ct);
@@ -302,6 +325,21 @@ public sealed class TradeService
             throw;
         }
         return new TradeResult(qty, proceeds, costBasis, pnl);
+    }
+
+    /// <summary>Throw away a held lot (a spoiled perishable, or any hold you want gone) at <paramref name="icao"/>.
+    /// No cash moves — the goods are simply lost, freeing the carry capacity. Idempotent on a missing lot.</summary>
+    public async Task DiscardAsync(Guid companyId, string icao, string goodKey, CancellationToken ct = default)
+    {
+        var good = TradeCatalog.Find(goodKey) ?? throw new InvalidOperationException($"Unknown commodity '{goodKey}'.");
+        var lot = await _db.InventoryLots.FirstOrDefaultAsync(
+            l => l.CompanyId == companyId && l.Good == good.Key && l.LocationIcao == icao && !l.IsDeleted, ct);
+        if (lot is null) return;
+        var now = _clock.UtcNow;
+        lot.Quantity = 0;
+        lot.IsDeleted = true;
+        lot.UpdatedAt = now;
+        await _db.SaveChangesAsync(ct);
     }
 
     // Recover the sold quantity from our own posting description ("Sold {n} × …") for a replayed result.

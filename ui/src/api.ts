@@ -727,6 +727,7 @@ export interface MarketQuote {
   bestSellCents: number
   bestSellMarginCents: number // bestSell − buy-here: the per-unit margin of buying here and selling there
   bestSellDistanceNm: number
+  shelfLifeDays: number | null // Phase 12 — perishable goods spoil after this many days (null = keeps forever)
 }
 
 export interface WorldState {
@@ -801,6 +802,9 @@ export interface Inventory {
   unrealizedPnlCents: number
   unitWeightLbs: number
   locationIcao: string
+  shelfLifeDays: number | null // Phase 12 — perishable shelf life (null = non-perishable)
+  freshDaysLeft: number | null // days until it spoils (negative once spoiled)
+  spoiled: boolean             // spoiled perishables are worthless — discard them
 }
 
 export interface TradeResult {
@@ -1102,6 +1106,7 @@ export const api = {
   inventory: () => fetch('/api/trade/inventory').then(ok<Inventory[]>),
   buyGood: (good: string, qty: number) => POST_IDEM('/api/trade/buy', { good, qty }).then(ok),
   sellGood: (good: string, qty: number) => POST_IDEM('/api/trade/sell', { good, qty }).then(ok<TradeResult>),
+  discardGood: (good: string) => POST('/api/trade/discard', { good, qty: 0 }).then(ok),
   achievements: () => fetch('/api/achievements').then(ok<Achievement[]>),
   campaigns: () => fetch('/api/campaigns').then(ok<Campaign[]>),
   challenges: () => fetch('/api/challenges').then(ok<Challenge[]>),
