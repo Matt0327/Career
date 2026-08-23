@@ -2184,6 +2184,15 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
   // readiness check below.
   const selAc = fleet.find(f => f.id === aircraftId) ?? null
   const home = selAc && (selAc.lat !== 0 || selAc.lon !== 0) ? { lat: selAc.lat, lon: selAc.lon, label: selAc.locationIcao } : null
+  // Can the chosen aircraft physically carry the job? Seats for the pax, useful load for the cargo (NeoFly's
+  // "missing lbs" check). Unknown specs (null) don't block.
+  const payloadFit = (ac: OwnedAircraft | null, pax: number, weightLbs: number): { ok: boolean; msg?: string } => {
+    if (!ac) return { ok: true }
+    if (pax > 0 && ac.seats != null && ac.seats < pax) return { ok: false, msg: `${ac.tail} seats ${ac.seats} — this job needs ${pax}` }
+    if (weightLbs > 0 && ac.usefulLoadLbs != null && ac.usefulLoadLbs < weightLbs)
+      return { ok: false, msg: `${ac.tail} carries ${ac.usefulLoadLbs.toLocaleString()} lb — needs ${weightLbs.toLocaleString()} (missing ${(weightLbs - ac.usefulLoadLbs).toLocaleString()} lb)` }
+    return { ok: true }
+  }
 
   return (
     <div className="grid">
@@ -2257,11 +2266,13 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
               {assignments.map(a => {
                 const atOrigin = state.currentIcao === a.origin           // you're at the departure field
                 const acHere = !!selAc && selAc.locationIcao === a.origin  // the chosen aircraft is too
-                const canFly = atOrigin && acHere && !!aircraftId
+                const pf = payloadFit(selAc, a.pax, a.weightLbs)          // it can carry the load
+                const canFly = atOrigin && acHere && !!aircraftId && pf.ok
                 const why = begun?.id === a.id ? null
                   : !aircraftId ? 'Pick an aircraft'
                   : !atOrigin ? `You're at ${state.currentIcao} — this leg departs ${a.origin}`
                   : !acHere ? `${selAc?.tail ?? 'That aircraft'} isn't at ${a.origin} — ferry it there first`
+                  : !pf.ok ? pf.msg
                   : null
                 return (
                   <li key={a.id} className="assign">
