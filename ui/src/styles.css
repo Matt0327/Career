@@ -205,6 +205,9 @@ input { font: inherit; }
 .obj { display: flex; gap: 10px; align-items: start; font-size: 14px; }
 .obj-tick { width: 18px; height: 18px; flex: none; margin-top: 1px; fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
 .obj-hint { font-size: 12.5px; margin-top: 1px; }
+/* Logbook statistics picker */
+.stat-picks { display: inline-flex; gap: 6px; }
+.stat-sel { font-size: 12px; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
 .assign-meta { display: flex; gap: 14px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .leg { font-size: 15px; }
 

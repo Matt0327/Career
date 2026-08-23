@@ -4302,7 +4302,20 @@ const LAND_BANDS: LandBand[] = [
   { label: 'Rough >600', test: f => f > 600, tone: 'neg' },
 ]
 
+// Selectable statistics for the logbook chart (NeoFly's Career → Statistics picker): a metric over a window
+// of recent flights, oldest-first.
+const STAT_METRICS: { key: string; label: string; tone: 'pos' | 'accent' | 'warn'; get: (f: FlightLog) => number | null; fmt: (v: number) => string }[] = [
+  { key: 'score', label: 'Flight score', tone: 'pos', get: f => f.overallScore, fmt: v => `${v}` },
+  { key: 'fpm', label: 'Landing fpm', tone: 'pos', get: f => Math.round(f.touchdownFpm), fmt: v => `${v} fpm` },
+  { key: 'dist', label: 'Distance', tone: 'accent', get: f => Math.round(f.distanceNm), fmt: v => `${v.toLocaleString()} nm` },
+  { key: 'payout', label: 'Payout', tone: 'pos', get: f => Math.round(f.payoutCents / 100), fmt: v => `$${v.toLocaleString()}` },
+  { key: 'fuel', label: 'Fuel burned', tone: 'warn', get: f => Math.round(f.fuelUsedLbs), fmt: v => `${v.toLocaleString()} lb` },
+]
+const STAT_RANGES = [{ n: 20, label: 'Last 20' }, { n: 50, label: 'Last 50' }, { n: 0, label: 'All' }]
+
 function Logbook({ state }: { state: State }) {
+  const [metric, setMetric] = useState('score')
+  const [range, setRange] = useState(50)
   const [flights, setFlights] = useState<FlightLog[]>([])
   const [ledger, setLedger] = useState<LedgerEntry[]>([])
   const [totals, setTotals] = useState<FlightTotals | null>(null)
@@ -4333,6 +4346,10 @@ function Logbook({ state }: { state: State }) {
   const fpms = [...flights].reverse().map(f => Math.round(f.touchdownFpm))
   // Phase 12 — the un-gameable flight score, oldest-first, over scored legs (the headline trend, not raw fpm).
   const scores = [...flights].reverse().map(f => f.overallScore).filter((s): s is number => s != null)
+  // Phase 12 — the selectable statistic (metric + window), oldest-first over recent flights.
+  const statDef = STAT_METRICS.find(m => m.key === metric) ?? STAT_METRICS[0]
+  const statAll = [...flights].reverse().map(statDef.get).filter((v): v is number => v != null)
+  const statSeries = range > 0 ? statAll.slice(-range) : statAll
 
   // Flights: mission filter + sort, with a live totals footer over the shown rows.
   const missions = Array.from(new Set(flights.map(f => f.mission).filter((m): m is string => !!m)))
@@ -4387,15 +4404,22 @@ function Logbook({ state }: { state: State }) {
               <div className="trend-head"><span className="metalabel">Cash balance</span><span className="num">{money(state.cashCents)}</span></div>
               <Trendline values={balances} tone="accent" />
             </div>
-            {scores.length > 1
-              ? <div className="trend-cell">
-                  <div className="trend-head"><span className="metalabel">Flight score</span><span className="num">{scores[scores.length - 1]}</span></div>
-                  <Trendline values={scores} tone="pos" />
-                </div>
-              : <div className="trend-cell">
-                  <div className="trend-head"><span className="metalabel">Landing quality</span><span className="num">{fpms.length ? `${fpms[fpms.length - 1]} fpm` : '—'}</span></div>
-                  <Trendline values={fpms} tone="pos" />
-                </div>}
+            <div className="trend-cell">
+              <div className="trend-head">
+                <span className="stat-picks">
+                  <select className="stat-sel" value={metric} onChange={e => setMetric(e.target.value)}>
+                    {STAT_METRICS.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+                  </select>
+                  <select className="stat-sel" value={range} onChange={e => setRange(Number(e.target.value))}>
+                    {STAT_RANGES.map(r => <option key={r.n} value={r.n}>{r.label}</option>)}
+                  </select>
+                </span>
+                <span className="num">{statSeries.length ? statDef.fmt(statSeries[statSeries.length - 1]) : '—'}</span>
+              </div>
+              {statSeries.length > 1
+                ? <Trendline values={statSeries} tone={statDef.tone} />
+                : <div className="empty" style={{ padding: 12 }}>Not enough flights yet for this stat.</div>}
+            </div>
           </div>
         </section>
       )}
