@@ -34,6 +34,7 @@ public sealed class FlightSessionService : IDisposable
     private Guid? _assignmentId;
     private Guid? _aircraftInstanceId; // the owned airframe flown this leg, if any
     private QualClass? _checkClass;    // a check-flight in progress for this class (Phase 3d), if any
+    private bool _freeFlight;          // a free flight (Phase 12): tracked + logged, but no job to settle
     private bool _settling; // guards the async settle so one landing is resolved at a time
     private int _sentEventCount; // how many of the tracker's events have already been streamed live (Phase 7a)
 
@@ -79,6 +80,7 @@ public sealed class FlightSessionService : IDisposable
             _assignmentId = assignmentId;
             _aircraftInstanceId = aircraftInstanceId;
             _checkClass = null; // a job flight and a check-flight are mutually exclusive
+            _freeFlight = false;
         }
     }
 
@@ -91,6 +93,21 @@ public sealed class FlightSessionService : IDisposable
             _assignmentId = null;
             _aircraftInstanceId = null;
             _checkClass = cls;
+            _freeFlight = false;
+        }
+    }
+
+    /// <summary>Begin a FREE flight (Phase 12): no job, no check — just fly. The next completed leg is tracked
+    /// and written to the logbook with no payout, so a bit of practice or sightseeing still counts and is scored.</summary>
+    public void BeginFreeFlight()
+    {
+        lock (_gate)
+        {
+            _tracker = new FlightTracker(); _sentEventCount = 0;
+            _assignmentId = null;
+            _aircraftInstanceId = null;
+            _checkClass = null;
+            _freeFlight = true;
         }
     }
 
@@ -101,6 +118,7 @@ public sealed class FlightSessionService : IDisposable
         Guid assignmentToSettle = default;
         Guid? aircraftToSettle = null;
         QualClass? checkToGrade = null;
+        bool freeToLog = false;
         List<FlightEvent> newEvents = [];
         bool active;
 
@@ -111,7 +129,7 @@ public sealed class FlightSessionService : IDisposable
             // ARMED. Idle, we don't feed it: no phantom flight, no out-of-nowhere coaching, no map wandering
             // off across the sea from the synthetic source that's always streaming (Phase 12). The HUD still
             // gets frames (below) so the link badge stays honest.
-            active = _assignmentId is not null || _checkClass is not null;
+            active = _assignmentId is not null || _checkClass is not null || _freeFlight;
             if (active)
             {
                 _tracker.Observe(t);
@@ -135,6 +153,12 @@ public sealed class FlightSessionService : IDisposable
                     {
                         completed = record;
                         checkToGrade = cls;
+                        _settling = true;
+                    }
+                    else if (_freeFlight)
+                    {
+                        completed = record;
+                        freeToLog = true;
                         _settling = true;
                     }
                 }
@@ -181,6 +205,8 @@ public sealed class FlightSessionService : IDisposable
         {
             if (checkToGrade is { } cls)
                 await ResolveCheckFlightAsync(cls, completed);
+            else if (freeToLog)
+                await ResolveFreeFlightAsync(completed);
             else
                 await ResolveLandingAsync(assignmentToSettle, aircraftToSettle, completed);
         }
@@ -223,6 +249,62 @@ public sealed class FlightSessionService : IDisposable
                 stars = result.Stars,
                 feeCents = result.FeeCents,
                 touchdownFpm = completed.TouchdownFpm,
+            });
+    }
+
+    /// <summary>A free flight finished: write it to the logbook with no payout (it still scores + counts), then
+    /// tell the UI. No job, no location change — pure practice/sightseeing that the game monitors and logs.</summary>
+    private async Task ResolveFreeFlightAsync(FlightRecord completed)
+    {
+        Guid? flightId = null;
+        try
+        {
+            using var scope = _scopes.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<CallsignDbContext>();
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is not null)
+            {
+                bool scored = completed.Scored;
+                var f = new Flight
+                {
+                    Id = Guid.NewGuid(), JobAssignmentId = null, FlownByPilotId = pilot.Id,
+                    AircraftTitle = completed.AircraftTitle, DepartedAt = completed.DepartedAt, ArrivedAt = completed.ArrivedAt,
+                    TouchdownFpm = completed.TouchdownFpm, DistanceNm = completed.DistanceNm, FuelUsedLbs = completed.FuelUsedLbs,
+                    PayoutCents = 0, Xp = 0, PayoutBreakdownJson = "[]", SettledAt = completed.ArrivedAt,
+                    TouchdownFpmWorst3 = scored ? completed.TouchdownFpmWorst3 : null,
+                    TouchdownG = scored ? completed.TouchdownG : null,
+                    LandingScore = scored ? completed.LandingScore : null,
+                    ApproachScore = scored ? completed.ApproachScore : null,
+                    OverallScore = scored ? completed.OverallScore : null,
+                    ComfortScore = scored ? completed.ComfortScore : null,
+                    StabilizedApproach = scored ? completed.StabilizedApproach : null,
+                    ViolationPoints = scored ? completed.ViolationPoints : null,
+                    ScoreValid = scored ? completed.ScoreValid : null,
+                };
+                db.Flights.Add(f);
+                await db.SaveChangesAsync();
+                flightId = f.Id;
+            }
+        }
+        catch
+        {
+            flightId = null; // never let a logging error kill the telemetry loop
+        }
+
+        lock (_gate)
+        {
+            _tracker = new FlightTracker(); _sentEventCount = 0;
+            if (flightId is not null) _freeFlight = false; // logged → done; on error keep for retry
+            _settling = false;
+        }
+
+        if (flightId is not null)
+            await BroadcastAsync(new
+            {
+                type = "freeflight",
+                flightId,
+                touchdownFpm = completed.TouchdownFpm,
+                overallScore = completed.Scored ? completed.OverallScore : (int?)null,
             });
     }
 

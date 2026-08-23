@@ -1817,7 +1817,7 @@ function Meta({ label, value }: { label: string; value: string }) {
 
 // ─── Flight (live HUD + settlement) ──────────────────────────────────────────
 
-function useTelemetry(onSettled: (s: Settled) => void, onDiverted: (d: Diverted) => void, onCheckFlight: (c: CheckFlightDone) => void, onEvent?: (e: LiveEvent) => void) {
+function useTelemetry(onSettled: (s: Settled) => void, onDiverted: (d: Diverted) => void, onCheckFlight: (c: CheckFlightDone) => void, onEvent?: (e: LiveEvent) => void, onFreeFlight?: (f: { flightId: string; touchdownFpm: number; overallScore: number | null }) => void) {
   const [tele, setTele] = useState<Telemetry | null>(null)
   const [wsOpen, setWsOpen] = useState(false)
   const [link, setLink] = useState('Disconnected') // SimConnectionState from the server
@@ -1829,6 +1829,8 @@ function useTelemetry(onSettled: (s: Settled) => void, onDiverted: (d: Diverted)
   ccb.current = onCheckFlight
   const ecb = useRef(onEvent)
   ecb.current = onEvent
+  const ffcb = useRef(onFreeFlight)
+  ffcb.current = onFreeFlight
 
   useEffect(() => {
     let ws: WebSocket | null = null
@@ -1850,6 +1852,7 @@ function useTelemetry(onSettled: (s: Settled) => void, onDiverted: (d: Diverted)
         else if (m.type === 'diverted') dcb.current(m)
         else if (m.type === 'checkflight') ccb.current(m)
         else if (m.type === 'event') ecb.current?.(m)
+        else if (m.type === 'freeflight') ffcb.current?.(m as { flightId: string; touchdownFpm: number; overallScore: number | null } & { type: string })
       }
       ws.onclose = () => { setWsOpen(false); if (!closed) retry = setTimeout(connect, 1500) }
       ws.onerror = () => ws?.close()
@@ -1995,7 +1998,7 @@ function CabinCard({ leg }: { leg: Assignment }) {
 // ignores telemetry entirely — so an always-streaming synthetic source, or a real sim sitting at some
 // unrelated spot, never paints a phantom "flight" before you've actually started one (the NeoFly rule:
 // your aircraft lives where it is; the moving map only comes alive once you fly the leg).
-function FlightMap({ tele, leg, home }: { tele: Telemetry | null; leg?: Assignment | null; home?: { lat: number; lon: number; label: string } | null }) {
+function FlightMap({ tele, leg, home, live }: { tele: Telemetry | null; leg?: Assignment | null; home?: { lat: number; lon: number; label: string } | null; live?: boolean }) {
   const host = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
   const marker = useRef<L.Marker | null>(null)
@@ -2005,7 +2008,7 @@ function FlightMap({ tele, leg, home }: { tele: Telemetry | null; leg?: Assignme
   const path = useRef<[number, number][]>([])
   const centred = useRef(false)
   const online = typeof navigator === 'undefined' ? true : navigator.onLine
-  const armed = !!leg
+  const armed = !!leg || !!live
 
   useEffect(() => {
     if (!host.current || !online) return
@@ -2132,6 +2135,7 @@ function FlightLog({ log }: { log: LogEntry[] }) {
 function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [begun, setBegun] = useState<Assignment | null>(null)
+  const [freeFlight, setFreeFlight] = useState(false) // Phase 12 — flying with no job, tracked + logged
   const [settled, setSettled] = useState<Settled | null>(null)
   const [diverted, setDiverted] = useState<Diverted | null>(null)
   const [fleet, setFleet] = useState<OwnedAircraft[]>([])
@@ -2180,6 +2184,11 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
       addLog(c.passed ? 'ok' : 'bad', `Check-flight ${c.className}: ${c.passed ? 'passed' : 'failed'} at ${signed(Math.round(c.touchdownFpm))} fpm.`)
     },
     e => addLog(evSev(e.severity), e.message), // the real scored moments the tracker emits (Phase 7a)
+    f => { // a free flight finished — logged, no payout (Phase 12)
+      setFreeFlight(false)
+      onSettled() // refresh flights/highlights
+      addLog('ok', `Free flight logged${f.overallScore != null ? ` — score ${f.overallScore}/100` : ''}.`)
+    },
   )
   const badge = linkBadge(wsOpen, link)
 
@@ -2213,6 +2222,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
     setSettled(null)
     setDiverted(null)
     setBeginErr(null)
+    setFreeFlight(false)
     try {
       await api.beginFlight(a.id, aircraftId || undefined)
       setBegun(a)
@@ -2220,6 +2230,11 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
     } catch (e) {
       setBeginErr(cleanErr(e)) // e.g. "You're not rated for the …"
     }
+  }
+  const startFreeFlight = async () => {
+    setSettled(null); setDiverted(null); setBeginErr(null); setBegun(null)
+    try { await api.beginFreeFlight(); setFreeFlight(true); addLog('info', 'Free flight armed — fly anywhere; it\'s tracked and logged, no job attached.') }
+    catch (e) { setBeginErr(cleanErr(e)) }
   }
 
   // The aircraft picked to fly, and where it's parked — drives the idle map (parked at its field) and the
@@ -2245,9 +2260,9 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
         </div>
         <div className="hud-live">
           <div className="flightmap-wrap">
-            <FlightMap tele={tele} leg={begun} home={home} />
+            <FlightMap tele={tele} leg={begun} home={home} live={freeFlight} />
             <div className="fm-overlay">
-              <span className="fm-phase num">{begun ? (tele?.phase ?? 'STANDING BY') : (home ? 'PARKED' : 'STANDING BY')}</span>
+              <span className="fm-phase num">{(begun || freeFlight) ? (tele?.phase ?? 'STANDING BY') : (home ? 'PARKED' : 'STANDING BY')}</span>
               <span className="fm-reads">
                 <span className="fm-read"><b className="num">{tele ? Math.round(tele.alt).toLocaleString() : '—'}</b> ft</span>
                 <span className="fm-read"><b className="num">{tele ? Math.round(tele.ias) : '—'}</b> kt</span>
@@ -2262,8 +2277,10 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
         {diverted && <div className="banner warn">You landed {Math.round(diverted.distanceNm)} nm from <b>{diverted.destIcao}</b>. The job's still open — take off and fly on to {diverted.destIcao}.</div>}
         {begun
           ? <div className="banner ok">Flying <b>{begun.origin} → {begun.dest}</b> · {begun.destName} — land at {begun.dest} and Callsign settles it automatically.</div>
-          : <div className="hint">Begin a leg below, then fly it. The next landing at the destination settles the job.</div>}
-        {!begun && (() => {
+          : freeFlight
+            ? <div className="banner ok">Free flight — fly anywhere. Land and it's logged (scored, no payout, no job).</div>
+            : <div className="hint">Begin a leg below, or fly free. The next landing at the destination settles the job.</div>}
+        {!begun && !freeFlight && (() => {
           const simOn = link === 'Connected'
           const acHere = !!selAc && selAc.locationIcao === state.currentIcao
           const acMatch = simOn && matchesSimTitle(tele?.title, selAc)
@@ -2300,6 +2317,9 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
                 </select>
               </label>
             : <span className="hint">No available aircraft — buy one in the Hangar.</span>}
+          <button className="ghost small" disabled={!!begun || freeFlight} title="Fly with no job — tracked and logged, no payout" onClick={startFreeFlight}>
+            {freeFlight ? 'Free flight in progress…' : 'Free flight'}
+          </button>
         </div>
         {beginErr && <div className="banner error" onClick={() => setBeginErr(null)}>{beginErr} — tap to dismiss</div>}
         {assignments.length === 0

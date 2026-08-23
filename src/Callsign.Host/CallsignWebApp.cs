@@ -1701,6 +1701,14 @@ public static class CallsignWebApp
             return Results.Ok(new { begun = req.AssignmentId, aircraft = req.AircraftInstanceId });
         });
 
+        // Free flight (Phase 12): no job, no check — just fly. The next completed leg is logged (no payout).
+        app.MapPost("/api/flight/free-flight", async (CallsignDbContext db, FlightSessionService session) =>
+        {
+            if (await db.Pilots.FirstOrDefaultAsync() is null) return Results.NotFound();
+            session.BeginFreeFlight();
+            return Results.Ok(new { freeFlight = true });
+        });
+
         // Licence classes (Phase 3c/3d): the full ladder, flagged with what the pilot holds + the
         // check-flight fee to earn each — self-documenting.
         app.MapGet("/api/quals", async (CallsignDbContext db, QualificationService quals, EconomyConfig cfg) =>

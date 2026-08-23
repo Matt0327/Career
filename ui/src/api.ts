@@ -456,7 +456,8 @@ export interface LiveEvent {
   phase: string
 }
 
-export type WsEvent = Telemetry | Settled | LinkState | Diverted | CheckFlightDone | LiveEvent
+export interface FreeFlightDone { type: 'freeflight'; flightId: string; touchdownFpm: number; overallScore: number | null }
+export type WsEvent = Telemetry | Settled | LinkState | Diverted | CheckFlightDone | LiveEvent | FreeFlightDone
 
 export interface StaffCandidate {
   seed: number
@@ -1084,6 +1085,7 @@ export const api = {
   staff: () => fetch('/api/staff').then(ok<Staff[]>),
   hire: (candidateSeed: number) => POST('/api/staff/hire', { candidateSeed }).then(ok),
   hireManager: (icao: string) => POST('/api/staff/hire-manager', { icao }).then(ok),
+  beginFreeFlight: () => POST('/api/flight/free-flight', {}).then(ok),
   relocateCrew: (id: string, destIcao: string) =>
     POST_IDEM(`/api/staff/${id}/relocate`, { destIcao }).then(ok<{ feeCents: number }>),
   dismissStaff: (id: string) => fetch(`/api/staff/${id}`, { method: 'DELETE' }).then(ok),

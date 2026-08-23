@@ -211,4 +211,30 @@ public class FlightSessionServiceTests
         Assert.Equal(195_000, (await db.Companies.FindAsync(companyId))!.CashCents);
         Assert.Contains(await db.LedgerEntries.ToListAsync(), e => e.Category == LedgerCategory.AirportFee);
     }
+
+    [Fact]
+    public async Task FreeFlight_LogsAFlight_WithNoPayout_AndSettlesNothing()
+    {
+        using var conn = new SqliteConnection("DataSource=:memory:");
+        conn.Open();
+        await using var sp = NewProvider(conn);
+        var (assignmentId, companyId) = await SeedAsync(sp, withDestAirport: true);
+
+        await using var source = new RealSourceStub(); // free flight ignores geography either way
+        using var session = new FlightSessionService(source, sp.GetRequiredService<IServiceScopeFactory>(),
+            NullLogger<FlightSessionService>.Instance, EconomyConfig.Default);
+        session.BeginFreeFlight();
+        await FlyAndLandAsync(session, EhrdLat, EhrdLon);
+
+        using var scope = sp.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CallsignDbContext>();
+        var flight = await db.Flights.SingleAsync();
+        Assert.Null(flight.JobAssignmentId);   // no job attached
+        Assert.Equal(0, flight.PayoutCents);   // logged, not paid
+        Assert.Equal(0, flight.Xp);
+        Assert.Equal(-120, flight.TouchdownFpm);
+        // The accepted job is untouched, and no money moved.
+        Assert.Equal(AssignmentStatus.Accepted, (await db.JobAssignments.FindAsync(assignmentId))!.Status);
+        Assert.Equal(0, (await db.Companies.FindAsync(companyId))!.CashCents);
+    }
 }
