@@ -4475,7 +4475,7 @@ function Logbook({ state }: { state: State }) {
                       return (
                         <tr key={f.id} className={`jrow ${selected === f.id ? 'on' : ''}`} onClick={() => setSelected(f.id)}>
                           <td><span className="jrow-type" style={{ background: m.color }} title={f.mission ? m.label : 'Flight'} /><span className="loc">{f.origin}</span> <span className="muted">→</span> <span className="loc">{f.dest}</span></td>
-                          <td className="muted">{f.tail ? <span className="loc">{f.tail}</span> : f.aircraftTitle}</td>
+                          <td className="muted"><span className="lb-ac"><AircraftImage typeId={f.aircraftTypeId ?? undefined} mini />{f.tail ? <span className="loc">{f.tail}</span> : <span className="lb-ac-title">{f.aircraftTitle}</span>}</span></td>
                           <td className={`r num ${f.overallScore == null ? 'muted' : f.scoreValid === false ? 'neg' : scoreTone(f.overallScore)}`} title={f.scoreValid === false ? 'Score voided' : undefined}>{f.overallScore ?? '—'}</td>
                           <td className="r num">{Math.round(f.distanceNm).toLocaleString()}</td>
                           <td className="r num">{hoursText(f.durationHours)}</td>
