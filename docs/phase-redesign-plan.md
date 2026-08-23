@@ -8,7 +8,7 @@ Constraint: I can't see rendered pixels in this sandbox, so every phase is **liv
 (boot the Host against a seeded career, drive the DOM) to verify structure + behavior, and the user
 eyeballs the look on their rebuild. Commit per phase.
 
-## R1 — Grouped navigation  ✅/⬜
+## R1 — Grouped navigation  ✅ DONE (df8eb63)
 Fifteen flat tabs → five labelled areas in the rail. No tab is removed; they're grouped under headers.
 - **Fly:** Home · Jobs · Flight
 - **Fleet:** Hangar · Bases
@@ -18,7 +18,7 @@ Fifteen flat tabs → five labelled areas in the rail. No tab is removed; they'r
 Work: restructure `NavRail` to render grouped sections with small headers; keep icons; keep the
 active-highlight + hover label. No routing/Tab-type change needed (same tab ids, just grouped).
 
-## R2 — Focused Home (command center)
+## R2 — Focused Home (command center)  ✅ DONE (054ade9 coach+KPI trim, 357345e fold)
 Rebuild `Dashboard` from a 10-card scroll into: (1) a **next-step coach** naming the single next
 action for the current state; (2) a tight **KPI row** (cash, net worth, fleet, rank); (3) a **needs-
 attention** card (reuse the existing ops-status nudges); (4) everything else — fleet, finances,
