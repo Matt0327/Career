@@ -1154,8 +1154,8 @@ function FleetStrip({ fleet, selectedTail, onSelect }: { fleet: OwnedAircraft[];
           <button key={a.id} type="button" className={`fleet-chip ${selectedTail === a.tail ? 'on' : ''}`} onClick={() => onSelect(a.tail)}>
             <AircraftImage typeId={a.typeId} category={a.category} mini />
             <div className="fc-body">
-              <div className="fc-tail loc">{a.tail}</div>
               <div className="fc-name">{a.name}</div>
+              <div className="fc-tail loc">{a.tail}</div>
               <div className="fc-foot">
                 <span className={`fc-dot ${AVAIL_KEY[a.availability] ?? ''}`} />
                 <span className="muted loc">{a.locationIcao}</span>
@@ -1179,8 +1179,8 @@ function FleetDetail({ a, go }: { a: OwnedAircraft; go: (t: Tab) => void }) {
       <AircraftImage typeId={a.typeId} category={a.category} />
       <div className="fd-head">
         <div>
-          <div className="fd-tail loc">{a.tail}</div>
-          <div className="fd-name">{a.name}<span className="muted"> · {spaced(a.category)}</span></div>
+          <div className="fd-name">{a.name}</div>
+          <div className="fd-tail loc">{a.tail}<span className="muted"> · {spaced(a.category)}</span></div>
         </div>
         <span className={`avail-pill ${avail ? 'ok' : ''}`}>{spaced(a.availability)}</span>
       </div>
@@ -2578,8 +2578,8 @@ function FleetCard({ a, selected, busy, onSelect, onMaintain }: {
       <AircraftImage typeId={a.typeId} category={a.category} />
       <div className="fleet-head">
         <div className="fleet-idy">
-          <div className="fleet-tail loc">{a.tail}</div>
-          <div className="fleet-name">{a.name}<span className="muted"> · {spaced(a.category)}</span></div>
+          <div className="fleet-name">{a.name}</div>
+          <div className="fleet-tail loc">{a.tail}<span className="muted"> · {spaced(a.category)}</span></div>
         </div>
         <div className="fleet-chips">
           <span className={`avail-pill ${avail ? 'ok' : ''}`}>{avail ? 'Available' : spaced(a.availability)}</span>
@@ -2664,8 +2664,8 @@ function AircraftDetail({ a, history, bases, busy, onService, onInspect, onInsur
       <div className="acd-hero">
         <div className="acd-shot"><AircraftImage typeId={a.typeId} category={a.category} /></div>
         <div className="acd-idy">
-          <div className="acd-tail loc">{a.tail}</div>
           <div className="acd-name">{a.name}</div>
+          <div className="acd-tail loc">{a.tail} · {spaced(a.category)}</div>
           <div className="acd-badges">
             <span className={`avail-pill ${avail ? 'ok' : ''}`}>{avail ? 'Available' : spaced(a.availability)}</span>
             {a.insured
