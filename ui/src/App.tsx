@@ -11,6 +11,45 @@ import { loadPrefs, savePrefs, type Prefs, type Theme } from './prefs'
 import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
+// ─── Toasts ──────────────────────────────────────────────────────────────────
+// A single, always-visible notification stack (top-right, fixed) so the result of ANY action is seen
+// without scrolling. `useToast()` returns a drop-in for the old per-tab `setMsg(text)` — pass a string to
+// raise a toast, null to do nothing. Tone is inferred from the text (errors go red) unless given explicitly.
+type ToastTone = 'info' | 'ok' | 'warn' | 'error'
+interface ToastItem { id: number; text: string; tone: ToastTone }
+let _toastId = 1
+let _toasts: ToastItem[] = []
+const _toastSubs = new Set<(t: ToastItem[]) => void>()
+function _emitToasts() { for (const fn of _toastSubs) fn(_toasts) }
+function dismissToast(id: number) { _toasts = _toasts.filter(t => t.id !== id); _emitToasts() }
+function inferTone(text: string): ToastTone {
+  return /(not enough|couldn'?t|can'?t|cannot|must |already|isn'?t|not rated|grounded|spoiled|over capacity|failed|invalid|unknown|unable|not found|exceeds|refus|no .+ (to|at|in your))/i.test(text) ? 'error' : 'info'
+}
+export function notify(text: string | null, tone?: ToastTone) {
+  if (text == null || text === '') return
+  const item: ToastItem = { id: _toastId++, text, tone: tone ?? inferTone(text) }
+  _toasts = [..._toasts, item].slice(-4) // keep the last few; a flood self-trims
+  _emitToasts()
+  const ms = Math.min(12000, 3500 + text.length * 35) // linger longer for longer messages (e.g. a reconcile digest)
+  setTimeout(() => dismissToast(item.id), ms)
+}
+function useToast() { return notify }
+
+function ToastHost() {
+  const [items, setItems] = useState<ToastItem[]>(_toasts)
+  useEffect(() => { _toastSubs.add(setItems); setItems(_toasts); return () => { _toastSubs.delete(setItems) } }, [])
+  if (items.length === 0) return null
+  return (
+    <div className="toast-host" role="region" aria-label="Notifications" aria-live="polite">
+      {items.map(t => (
+        <div key={t.id} className={`toast ${t.tone}`} role="status" onClick={() => dismissToast(t.id)} title="Dismiss">
+          <span className="toast-dot" /><span className="toast-text">{t.text}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 type Tab = 'dashboard' | 'airline' | 'jobs' | 'clients' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'finances' | 'campaigns' | 'awards' | 'community' | 'logbook' | 'settings'
 
 export function App() {
@@ -50,6 +89,7 @@ export function App() {
 
   return (
     <div className="shell">
+      <ToastHost />
       <TitleBar />
       <div className="app">
       <NavRail tab={tab} setTab={setTab} airline={airline} />
@@ -1462,7 +1502,7 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
   const [fleet, setFleet] = useState<OwnedAircraft[]>([])
   const [dispatches, setDispatches] = useState<DispatchLeg[]>([])
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
+  const setMsg = useToast()
   const [selected, setSelected] = useState<string | null>(null)
   const [types, setTypes] = useState<Set<string>>(new Set()) // empty = all types shown
   const [maxDist, setMaxDist] = useState<number>(Infinity)
@@ -1523,8 +1563,7 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
         <h2>Jobs from <span className="loc">{state.currentIcao}</span> <span className="muted">· {shown.length} of {all.length}</span></h2>
         <button className="primary" disabled={busy} onClick={refresh}>{busy ? '…' : 'Refresh board'}</button>
       </div>
-      {msg && <div className="banner">{msg}</div>}
-      {jobs === null ? <div className="empty">Loading…</div>
+            {jobs === null ? <div className="empty">Loading…</div>
         : all.length === 0 ? <div className="empty"><p>No jobs on the board.</p><button className="primary" onClick={refresh}>Generate jobs</button></div>
           : (
             <>
@@ -2798,7 +2837,7 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
   const [selId, setSelId] = useState<string | null>(null)
   const [history, setHistory] = useState<AircraftHistory | null>(null)
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
+  const setMsg = useToast()
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<FleetSort>('value')
 
@@ -2926,8 +2965,7 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
     <div className="hangar-screen">
       <section className="card">
         <div className="row-head"><h2>Your hangar <span className="muted">· {fleet.length} {fleet.length === 1 ? 'tail' : 'tails'}</span></h2></div>
-        {msg && <div className="banner">{msg}</div>}
-        {owned === null ? <div className="empty">Loading…</div>
+                {owned === null ? <div className="empty">Loading…</div>
           : fleet.length === 0 ? <div className="empty">No aircraft yet — buy one below.</div>
           : (
             <>
@@ -3160,7 +3198,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
   const [fleet, setFleet] = useState<OwnedAircraft[]>([])
   const [dests, setDests] = useState<{ icao: string; name: string }[]>([])
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
+  const setMsg = useToast()
   const [oStaff, setOStaff] = useState('')
   const [oAircraft, setOAircraft] = useState('')
   const [oDest, setODest] = useState('')
@@ -3316,8 +3354,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
             <button className="primary" disabled={busy} onClick={process}>Process now</button>
           </span>
         </div>
-        {msg && <div className="banner">{msg}</div>}
-        {orders.length === 0
+                {orders.length === 0
           ? <div className="empty">No standing orders. Set one below to earn while you're away.</div>
           : (
             <div className="tbl-wrap"><table className="tbl">
@@ -3592,7 +3629,7 @@ function Bases({ state, onChanged }: { state: State; onChanged: () => void }) {
   const [bases, setBases] = useState<BaseView[]>([])
   const [offers, setOffers] = useState<BaseOffer[]>([])
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
+  const setMsg = useToast()
 
   const load = useCallback(async () => {
     try { setBases(await api.bases()); setOffers(await api.baseCandidates()) } catch (e) { setMsg(cleanErr(e)) }
@@ -3676,8 +3713,7 @@ function Bases({ state, onChanged }: { state: State; onChanged: () => void }) {
 
       <section className="card">
         <div className="row-head"><h2>Open a base</h2><span className="hint">Land fee-free at your own bases</span></div>
-        {msg && <div className="banner">{msg}</div>}
-        {offers.length === 0 ? <div className="empty">No nearby airports to base at.</div> : (
+                {offers.length === 0 ? <div className="empty">No nearby airports to base at.</div> : (
           <div className="jobs">
             {offers.map(o => {
               const afford = state.cashCents >= o.openCents
@@ -3711,7 +3747,7 @@ function Trade({ state, onChanged }: { state: State; onChanged: () => void }) {
   const [inv, setInv] = useState<Inventory[]>([])
   const [qty, setQty] = useState<Record<string, string>>({}) // raw input strings, so a field can be cleared/retyped freely; clamped only at buy/sell
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
+  const setMsg = useToast()
 
   const load = useCallback(async () => {
     try { setMarket(await api.tradeMarket()); setInv(await api.inventory()) } catch (e) { setMsg(cleanErr(e)) }
@@ -3745,8 +3781,7 @@ function Trade({ state, onChanged }: { state: State; onChanged: () => void }) {
     <div className="grid">
       <section className="card">
         <div className="row-head"><h2>Market · <span className="loc">{state.currentIcao}</span></h2><span className="hint">Buy low here, fly it, sell high there — best sell shown</span></div>
-        {msg && <div className="banner">{msg}</div>}
-        <div className="tbl-wrap">
+                <div className="tbl-wrap">
           <table className="tbl">
             <thead><tr><th>Commodity</th><th className="r">Buy</th><th className="r">Sell</th><th>Best sell elsewhere</th><th className="r">Unit wt</th><th className="r">Qty</th><th></th></tr></thead>
             <tbody>{[...market].sort((a, b) => b.bestSellMarginCents - a.bestSellMarginCents).map(m => (
@@ -3969,7 +4004,7 @@ function Finances({ state, onChanged }: { state: State; onChanged: () => void })
   const [days, setDays] = useState(30)
   const [amount, setAmount] = useState(50000) // dollars
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
+  const setMsg = useToast()
 
   // Loans + insurance don't depend on the period; balance sheet + P&L + statement do.
   const loadStatic = useCallback(async () => {
@@ -4123,8 +4158,7 @@ function Finances({ state, onChanged }: { state: State; onChanged: () => void })
       {/* Loans — now with term / taken / due / repayment progress. */}
       <section className="card">
         <h2>Your loans</h2>
-        {msg && <div className="banner">{msg}</div>}
-        {!data ? <div className="empty">Loading…</div>
+                {!data ? <div className="empty">Loading…</div>
           : data.loans.length === 0 ? <div className="empty">No loans outstanding. Borrow below to grow faster.</div>
             : (
               <div className="loan-list">
@@ -4783,7 +4817,7 @@ function Airline({ onSaved }: { onSaved: () => void }) {
   const [color, setColor] = useState('#4f46e5')
   const [emblem, setEmblem] = useState('roundel')
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
+  const setMsg = useToast()
 
   const load = useCallback(async () => {
     const d = await api.airline()
@@ -4815,8 +4849,7 @@ function Airline({ onSaved }: { onSaved: () => void }) {
             <div className="muted"><span className="loc">{code || '—'}</span> · {data.identity.customised ? 'operator code' : 'suggested — make it yours'}</div>
           </div>
         </div>
-        {msg && <div className="banner">{msg}</div>}
-        <div className="airline-form">
+                <div className="airline-form">
           <label>Airline name<input value={name} maxLength={60} onChange={e => setName(e.target.value)} /></label>
           <label>Tail code<input className="tail-in" value={code} maxLength={3} onChange={e => setCode(e.target.value.toUpperCase())} /></label>
           <label className="color-lbl">Accent<input type="color" value={color} onChange={e => setColor(e.target.value)} /></label>
@@ -4889,7 +4922,7 @@ function Airline({ onSaved }: { onSaved: () => void }) {
 function Certificates() {
   const [certs, setCerts] = useState<CertificateStatus[] | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
-  const [msg, setMsg] = useState<string | null>(null)
+  const setMsg = useToast()
 
   const load = useCallback(async () => { setCerts(await api.certificates()) }, [])
   useEffect(() => { load().catch(e => setMsg(cleanErr(e))) }, [load])
@@ -4905,8 +4938,7 @@ function Certificates() {
     <section className="card cert-card">
       <h2>Operating certificates</h2>
       <p className="hint">Regulated licences that authorise premium work. Earn one with a fee and a standards bar — then renew it before it lapses.</p>
-      {msg && <div className="banner">{msg}</div>}
-      <div className="cert-list">
+            <div className="cert-list">
         {certs.map(c => <CertRow key={c.kind} c={c} busy={busy === c.kind} onApply={() => apply(c.kind)} />)}
       </div>
     </section>
@@ -5077,7 +5109,7 @@ function Community() {
   const [board, setBoard] = useState<string>('networth')
   const [rows, setRows] = useState<LeaderboardRow[]>([])
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
+  const setMsg = useToast()
 
   // On open: if signed in, push our latest standing so we appear, then read our positions back.
   const init = useCallback(async () => {
@@ -5125,8 +5157,7 @@ function Community() {
           <h2>Leaderboards</h2>
           <button disabled={busy} onClick={refresh}>Update my standing</button>
         </div>
-        {msg && <div className="banner">{msg}</div>}
-        <div className="seg" style={{ marginBottom: 14 }}>
+                <div className="seg" style={{ marginBottom: 14 }}>
           {BOARDS.map(b => (
             <button key={b.key} className={`seg-btn ${board === b.key ? 'on' : ''}`} onClick={() => setBoard(b.key)}>{b.label}</button>
           ))}
@@ -5161,7 +5192,7 @@ function CloudAccount() {
   const [name, setName] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
+  const setMsg = useToast()
   const [staged, setStaged] = useState(false)
 
   const refresh = useCallback(async () => {
@@ -5217,8 +5248,7 @@ function CloudAccount() {
         <h2>Callsign Cloud</h2>
         {signedIn && <button disabled={busy} onClick={signOut}>Sign out</button>}
       </div>
-      {msg && <div className="banner">{msg}</div>}
-      {staged && <div className="banner ok">Cloud save staged — <b>restart Callsign</b> to load it.</div>}
+            {staged && <div className="banner ok">Cloud save staged — <b>restart Callsign</b> to load it.</div>}
 
       {!signedIn ? (
         <>
@@ -5275,7 +5305,7 @@ function Settings() {
   const [ver, setVer] = useState<VersionInfo | null>(null)
   const [backups, setBackups] = useState<BackupFile[]>([])
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
+  const setMsg = useToast()
   const [staged, setStaged] = useState(false)
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs())
   const setPref = (patch: Partial<Prefs>) => { const next = { ...prefs, ...patch }; setPrefs(next); savePrefs(next) }
@@ -5318,8 +5348,7 @@ function Settings() {
 
       <section className="card">
         <div className="row-head"><h2>Your save</h2><button className="primary" disabled={busy} onClick={backup}>Back up now</button></div>
-        {msg && <div className="banner">{msg}</div>}
-        {staged && <div className="banner ok">Restore staged — <b>restart Callsign</b> to load it.</div>}
+                {staged && <div className="banner ok">Restore staged — <b>restart Callsign</b> to load it.</div>}
         <p className="hint">A backup is a full, self-contained copy of your career. Take one before a big change; download it to keep it safe off your PC, or restore it any time.</p>
         {backups.length === 0
           ? <div className="empty">No backups yet. Take one with “Back up now”.</div>
