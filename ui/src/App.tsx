@@ -965,27 +965,28 @@ function Dashboard({ state, airline, go }: { state: State; airline: AirlineData 
             )}
           </section>
 
-          {challenges.length > 0 && <DashChallengesCard challenges={challenges} onClaim={claimChallenge} />}
+          {challenges.some(c => c.done && !c.claimed) && <DashChallengesCard challenges={challenges} onClaim={claimChallenge} />}
 
-          {activeCampaign && <DashCampaignCard campaign={activeCampaign} go={go} />}
-
-          {fin && <FinanceSnapshot fin={fin} go={go} />}
-
-          {airline?.standing && <StandingBreakdown standing={airline.standing} color={livery} />}
-
-          {rep && rep.events.length > 0 && <ReputationCard rep={rep} />}
-
-          {highlights && highlights.totalFlights > 0 && <DashHighlightsCard h={highlights} />}
-
-          <section className="card">
-            <div className="row-head"><h2>Recent flights</h2><button className="ghost small" onClick={() => go('logbook')}>Logbook →</button></div>
-            <RecentFlights flights={flights} />
-          </section>
-
-          <section className="card">
-            <div className="row-head"><h2>Activity</h2><button className="ghost small" onClick={() => go('logbook')}>Ledger →</button></div>
-            <ActivityFeed entries={ledger} />
-          </section>
+          {/* Everything else about your operation — folded away by default so Home stays calm; one click to open. */}
+          <details className="dash-more">
+            <summary>More — campaign, challenges, finances, your record &amp; history</summary>
+            <div className="dash-more-body">
+              {challenges.length > 0 && !challenges.some(c => c.done && !c.claimed) && <DashChallengesCard challenges={challenges} onClaim={claimChallenge} />}
+              {activeCampaign && <DashCampaignCard campaign={activeCampaign} go={go} />}
+              {fin && <FinanceSnapshot fin={fin} go={go} />}
+              {airline?.standing && <StandingBreakdown standing={airline.standing} color={livery} />}
+              {rep && rep.events.length > 0 && <ReputationCard rep={rep} />}
+              {highlights && highlights.totalFlights > 0 && <DashHighlightsCard h={highlights} />}
+              <section className="card">
+                <div className="row-head"><h2>Recent flights</h2><button className="ghost small" onClick={() => go('logbook')}>Logbook →</button></div>
+                <RecentFlights flights={flights} />
+              </section>
+              <section className="card">
+                <div className="row-head"><h2>Activity</h2><button className="ghost small" onClick={() => go('logbook')}>Ledger →</button></div>
+                <ActivityFeed entries={ledger} />
+              </section>
+            </div>
+          </details>
         </div>
       </div>
 
