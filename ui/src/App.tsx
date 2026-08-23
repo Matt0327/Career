@@ -309,12 +309,22 @@ function TabGuide({ tab, onClose }: { tab: Tab; onClose: () => void }) {
   )
 }
 
+// The rail's five clear areas (redesign R1) — fifteen flat tabs, chunked so the eye reads a short list of
+// purposes, not a menu of everything. Each group's label sits above its icons; "You" pins to the bottom.
+const NAV_GROUPS: { label: string; tabs: Tab[] }[] = [
+  { label: 'Fly', tabs: ['dashboard', 'jobs', 'flight'] },
+  { label: 'Fleet', tabs: ['hangar', 'bases'] },
+  { label: 'Company', tabs: ['ops', 'airline', 'finances', 'trade', 'clients'] },
+  { label: 'Career', tabs: ['campaigns', 'awards', 'logbook', 'community'] },
+]
+
 function NavRail({ tab, setTab, airline }: { tab: Tab; setTab: (t: Tab) => void; airline: AirlineData | null }) {
   const item = (t: Tab, label: string) => (
     <button key={t} className={`ric ${tab === t ? 'on' : ''}`} onClick={() => setTab(t)} aria-label={label}>
       {navIcon(t)}<span className="tip">{label}</span>
     </button>
   )
+  const labelOf = (t: Tab) => TABS.find(x => x.id === t)?.label ?? t
   return (
     <aside className="rail">
       <button className="rail-emblem" title="Airline identity" onClick={() => setTab('airline')} aria-label="Airline">
@@ -322,8 +332,16 @@ function NavRail({ tab, setTab, airline }: { tab: Tab; setTab: (t: Tab) => void;
           ? <Emblem emblem={airline.identity.emblemKey} color={airline.identity.accentColorHex} size={34} />
           : <span className="mark" style={{ fontSize: 24 }}>◄</span>}
       </button>
-      {TABS.filter(t => t.id !== 'settings').map(t => item(t.id, t.label))}
-      <div style={{ marginTop: 'auto' }}>{item('settings', 'Settings')}</div>
+      {NAV_GROUPS.map(g => (
+        <div className="rail-group" key={g.label}>
+          <div className="rail-grouplabel">{g.label}</div>
+          {g.tabs.map(t => item(t, labelOf(t)))}
+        </div>
+      ))}
+      <div className="rail-group rail-group-end">
+        <div className="rail-grouplabel">You</div>
+        {item('settings', 'Settings')}
+      </div>
     </aside>
   )
 }

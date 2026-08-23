@@ -101,7 +101,12 @@ input { font: inherit; }
    labels can slide out to the right and never trigger a horizontal scrollbar (overflow-y:auto would force
    overflow-x:auto, which clipped the label and added the stray horizontal scroll). */
 @media (max-height: 680px) { .rail { overflow-y: auto; } }
-.rail-emblem { border: none; background: transparent; padding: 0; margin-bottom: 12px; cursor: pointer; line-height: 0; border-radius: 10px; }
+.rail-emblem { border: none; background: transparent; padding: 0; margin-bottom: 10px; cursor: pointer; line-height: 0; border-radius: 10px; }
+/* Grouped nav (redesign R1): chunk the icons into labelled areas with dividers */
+.rail-group { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 100%; padding-top: 7px; margin-top: 4px; border-top: 1px solid var(--line); }
+.rail-group:first-of-type { border-top: none; margin-top: 0; padding-top: 0; }
+.rail-group-end { margin-top: auto; }
+.rail-grouplabel { font-size: 8px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); margin-bottom: 2px; }
 .rail-emblem:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ric {
   width: 44px; height: 40px; border-radius: 10px; border: none; background: transparent;
