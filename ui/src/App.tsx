@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   api, money,
   type Achievement, type AircraftHistory, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type Challenge, type CareerHighlights, type CertificateStatus, type Client, type CheckFlightDone, type CloudSaveMeta, type CloudStatus, type Diverted,
@@ -1898,12 +1898,52 @@ function matchesSimTitle(simTitle: string | undefined, ac: OwnedAircraft | null)
   return hit / tokens.length >= 0.6
 }
 
+// A deterministic passenger manifest for a cabin — the same assignment always yields the same souls aboard
+// (NeoFly's cabin list). Pure client-side flavour: no money, no server, seeded off the assignment id so it's
+// stable across reloads. Names are a fixed, deliberately innocuous international pool.
+const PAX_FIRST = ['Amir', 'Sofia', 'Liam', 'Noah', 'Emma', 'Yuki', 'Chen', 'Priya', 'Omar', 'Lucas', 'Mia', 'Aisha', 'Diego', 'Elena', 'Kwame', 'Ingrid', 'Hana', 'Tariq', 'Nadia', 'Marco', 'Freya', 'Ravi', 'Zara', 'Kenji', 'Lucia', 'Sven', 'Amara', 'Tom', 'Ana', 'Leo']
+const PAX_LAST = ['Nguyen', 'Okafor', 'Kowalski', 'Rossi', 'Haddad', 'Andersson', 'Yamamoto', 'Silva', 'Patel', 'Kim', 'Muller', 'Costa', 'Ivanov', 'Dubois', 'Larsen', 'Tanaka', 'Reyes', 'Novak', 'Hassan', 'Bauer', 'Sato', 'Moreau', 'Petrov', 'Singh', 'Weber', 'Lindqvist', 'Mensah', 'Fischer', 'Adams', 'Romano']
+interface Passenger { seat: string; name: string; age: number }
+function cabinManifest(seed: string, pax: number): Passenger[] {
+  // xmur3 hash → mulberry32 PRNG: tiny, deterministic, no deps.
+  let h = 1779033703 ^ seed.length
+  for (let i = 0; i < seed.length; i++) { h = Math.imul(h ^ seed.charCodeAt(i), 3432918353); h = (h << 13) | (h >>> 19) }
+  let a = (h ^= h >>> 16) >>> 0
+  const rnd = () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296 }
+  const rows = 'ABCDEF'
+  const out: Passenger[] = []
+  for (let i = 0; i < pax; i++) {
+    const seat = `${Math.floor(i / 2) + 1}${rows[i % 2]}`
+    out.push({ seat, name: `${PAX_FIRST[Math.floor(rnd() * PAX_FIRST.length)]} ${PAX_LAST[Math.floor(rnd() * PAX_LAST.length)]}`, age: 18 + Math.floor(rnd() * 55) })
+  }
+  return out
+}
+
 function planeIcon(hdg: number): L.DivIcon {
   return L.divIcon({
     className: 'plane-marker',
     html: `<svg viewBox="0 0 24 24" style="transform:rotate(${hdg}deg)"><path d="M12 2c.7 0 1.2 1.1 1.2 2.6v5.1l8 4.6v1.9l-8-2.7v4.4l2.3 1.7v1.4L12 20l-3.5 1.3v-1.4l2.3-1.7v-4.4l-8 2.7v-1.9l8-4.6V4.6C10.8 3.1 11.3 2 12 2z"/></svg>`,
     iconSize: [34, 34], iconAnchor: [17, 17],
   })
+}
+
+// The cabin manifest for a passenger leg (NeoFly's Cabin list) — who's aboard, their seat and age. Purely
+// cosmetic flavour, generated deterministically from the assignment so it's stable for the whole flight.
+function CabinCard({ leg }: { leg: Assignment }) {
+  const pax = useMemo(() => cabinManifest(leg.id, leg.pax), [leg.id, leg.pax])
+  return (
+    <section className="card">
+      <div className="row-head"><h2>Cabin</h2><span className="hint">{leg.pax} aboard · {leg.origin} → {leg.dest}</span></div>
+      <div className="tbl-wrap">
+        <table className="tbl cabin-tbl">
+          <thead><tr><th>Seat</th><th>Passenger</th><th>Age</th></tr></thead>
+          <tbody>
+            {pax.map(p => <tr key={p.seat}><td className="num">{p.seat}</td><td>{p.name}</td><td className="num">{p.age}</td></tr>)}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
 }
 
 // The live moving-map on the Flight screen. Built ONCE; each telemetry frame just moves the aircraft
@@ -2192,6 +2232,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
       {settled && <SettlementCard settled={settled} />}
       {checkPending && <div className="banner ok">Check-flight for <b>{checkPending}</b> in progress — fly a clean landing (≤ 200 fpm) and it grades automatically.</div>}
       {checkResult && <CheckFlightCard result={checkResult} />}
+      {begun && begun.pax > 0 && <CabinCard leg={begun} />}
 
       <section className="card">
         <div className="row-head">
