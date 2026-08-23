@@ -859,6 +859,15 @@ export interface Campaign {
   steps: CampaignStep[]
 }
 
+export interface CheckCentre {
+  icao: string
+  name: string
+  distanceNm: number
+  testAircraft: string
+  feeCents: number
+  class: string
+}
+
 export interface CareerHighlights {
   totalFlights: number
   blockMinutes: number
@@ -1086,6 +1095,7 @@ export const api = {
   hire: (candidateSeed: number) => POST('/api/staff/hire', { candidateSeed }).then(ok),
   hireManager: (icao: string) => POST('/api/staff/hire-manager', { icao }).then(ok),
   beginFreeFlight: () => POST('/api/flight/free-flight', {}).then(ok),
+  checkCentres: (cls: string) => fetch(`/api/checkflights/centres?cls=${encodeURIComponent(cls)}`).then(ok<CheckCentre[]>),
   relocateCrew: (id: string, destIcao: string) =>
     POST_IDEM(`/api/staff/${id}/relocate`, { destIcao }).then(ok<{ feeCents: number }>),
   dismissStaff: (id: string) => fetch(`/api/staff/${id}`, { method: 'DELETE' }).then(ok),

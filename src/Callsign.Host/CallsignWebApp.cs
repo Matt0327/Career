@@ -1734,6 +1734,38 @@ public static class CallsignWebApp
             return Results.Ok(new { begun = cls.ToString() });
         });
 
+        // Test centres (Phase 12): the nearby fields where you can sit a check-ride for a class, each with the
+        // rating's test aircraft, the fee, and how far it is (NeoFly's "choose your test location"). Deterministic
+        // — the nearest suitable airports to where you are now.
+        app.MapGet("/api/checkflights/centres", async (string cls, CallsignDbContext db, EconomyConfig cfg) =>
+        {
+            if (!Enum.TryParse<QualClass>(cls, ignoreCase: true, out var qc))
+                return Results.BadRequest(new { error = $"Unknown class '{cls}'." });
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            long fee = cfg.CheckFlightFeeCents(qc);
+            string testAircraft = qc switch
+            {
+                QualClass.A => "Single-engine piston trainer",
+                QualClass.B => "Light twin-piston",
+                QualClass.C => "Turboprop",
+                QualClass.D => "Light business jet",
+                QualClass.E => "Jet",
+                QualClass.F => "Heavy jet (multi-crew)",
+                QualClass.H => "Turbine helicopter",
+                QualClass.M => "Glider",
+                _ => "Trainer",
+            };
+            var origin = await db.Airports.FirstOrDefaultAsync(a => a.Ident == pilot.CurrentIcao);
+            if (origin is null) return Results.Ok(Array.Empty<CheckCentreDto>());
+            var centres = (await new AirportRepository(db).WithinRadiusAsync(origin.Latitude, origin.Longitude, 300))
+                .Where(x => AirportSuitability.IsSuitable(x.Airport))
+                .OrderBy(x => x.DistanceNm).Take(6)
+                .Select(x => new CheckCentreDto(x.Airport.Ident, x.Airport.Name, Math.Round(x.DistanceNm), testAircraft, fee, cls.ToUpperInvariant()))
+                .ToList();
+            return Results.Ok(centres);
+        });
+
         // Grade a submitted check-flight result directly (used by tests / a manual submit path).
         app.MapPost("/api/checkflights/attempt", async (CheckFlightAttemptRequest req, CallsignDbContext db, CheckFlightService check) =>
         {

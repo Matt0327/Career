@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   api, money,
-  type Achievement, type AircraftHistory, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type Challenge, type CareerHighlights, type CertificateStatus, type Client, type CheckFlightDone, type CloudSaveMeta, type CloudStatus, type Diverted,
+  type Achievement, type AircraftHistory, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type Challenge, type CareerHighlights, type CheckCentre, type CertificateStatus, type Client, type CheckFlightDone, type CloudSaveMeta, type CloudStatus, type Diverted,
   type FinancesData, type FinanceDetail, type AttributionLine, type CashPoint, type StatementRow, type FlightLog, type FlightDetail, type FlightTotals, type Insurance, type Inventory, type Job, type LeaderboardRow, type LedgerEntry, type LiveEvent, type Loan, type LoanOffer, type Loans,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
   type DispatchLeg, type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type UsedListing, type VersionInfo, type Weather, type WorldState, type WsEvent,
@@ -2144,6 +2144,8 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
   const [quals, setQuals] = useState<QualClass[]>([])
   const [checkPending, setCheckPending] = useState<string | null>(null) // class name of a check-flight in progress
   const [checkResult, setCheckResult] = useState<CheckFlightDone | null>(null)
+  const [centresFor, setCentresFor] = useState<string | null>(null) // class whose test centres are expanded
+  const [centres, setCentres] = useState<CheckCentre[]>([])
   const [log, setLog] = useState<LogEntry[]>(() => [{ id: 0, at: clock(), sev: 'info', text: 'Flight console ready — standing by.' }])
   const logId = useRef(1)
   const addLog = useCallback((sev: LogSev, text: string) => setLog(l => [...l, { id: logId.current++, at: clock(), sev, text }].slice(-80)), [])
@@ -2214,8 +2216,13 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
 
   const beginCheck = async (cls: string, name: string) => {
     setBeginErr(null); setCheckResult(null)
-    try { await api.beginCheckFlight(cls); setCheckPending(name) }
+    try { await api.beginCheckFlight(cls); setCheckPending(name); setCentresFor(null) }
     catch (e) { setBeginErr(cleanErr(e)) }
+  }
+  const showCentres = async (cls: string) => {
+    if (centresFor === cls) { setCentresFor(null); return }
+    setCentresFor(cls)
+    try { setCentres(await api.checkCentres(cls)) } catch { setCentres([]) }
   }
 
   const begin = async (a: Assignment) => {
@@ -2371,11 +2378,33 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
                     <span className="muted">{q.description}</span>
                     <span className="num">{money(q.checkFlightFeeCents)}</span>
                   </div>
-                  <button className="primary" disabled={checkPending !== null || state.cashCents < q.checkFlightFeeCents}
-                          title={state.cashCents < q.checkFlightFeeCents ? 'Not enough cash' : ''}
-                          onClick={() => beginCheck(q.class, q.displayName)}>
-                    {q.held ? 'Re-test' : 'Begin check-flight'}
-                  </button>
+                  <div className="qual-actions">
+                    <button className="ghost small" onClick={() => showCentres(q.class)}>{centresFor === q.class ? 'Hide centres' : 'Test centres'}</button>
+                    <button className="primary" disabled={checkPending !== null || state.cashCents < q.checkFlightFeeCents}
+                            title={state.cashCents < q.checkFlightFeeCents ? 'Not enough cash' : ''}
+                            onClick={() => beginCheck(q.class, q.displayName)}>
+                      {q.held ? 'Re-test' : 'Begin check-flight'}
+                    </button>
+                  </div>
+                  {centresFor === q.class && (
+                    <div className="centres">
+                      {centres.length === 0 ? <div className="hint muted">No test centres in range.</div> : (
+                        <table className="tbl centres-tbl">
+                          <thead><tr><th>Field</th><th>City</th><th className="r">Distance</th><th>Test aircraft</th><th className="r">Cost</th><th></th></tr></thead>
+                          <tbody>{centres.map(c => (
+                            <tr key={c.icao}>
+                              <td className="loc">{c.icao}</td>
+                              <td className="muted">{c.name}</td>
+                              <td className="r num">{c.distanceNm === 0 ? 'here' : `${c.distanceNm} nm`}</td>
+                              <td className="muted">{c.testAircraft}</td>
+                              <td className="r num">{money(c.feeCents)}</td>
+                              <td className="r"><button className="primary small" disabled={checkPending !== null || state.cashCents < c.feeCents} onClick={() => beginCheck(q.class, `${q.displayName} at ${c.icao}`)}>Test here</button></td>
+                            </tr>
+                          ))}</tbody>
+                        </table>
+                      )}
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
