@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import {
   api, money,
-  type Achievement, type AircraftHistory, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type Challenge, type CertificateStatus, type Client, type CheckFlightDone, type CloudSaveMeta, type CloudStatus, type Diverted,
+  type Achievement, type AircraftHistory, type AircraftOffer, type AirlineData, type Assignment, type BackupFile, type BaseOffer, type BaseView, type Campaign, type Challenge, type CareerHighlights, type CertificateStatus, type Client, type CheckFlightDone, type CloudSaveMeta, type CloudStatus, type Diverted,
   type FinancesData, type FinanceDetail, type AttributionLine, type CashPoint, type StatementRow, type FlightLog, type FlightDetail, type FlightTotals, type Insurance, type Inventory, type Job, type LeaderboardRow, type LedgerEntry, type LiveEvent, type Loan, type LoanOffer, type Loans,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
   type DispatchLeg, type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type UsedListing, type VersionInfo, type Weather, type WorldState, type WsEvent,
@@ -722,6 +722,7 @@ function Dashboard({ state, airline, go }: { state: State; airline: AirlineData 
   const [ledger, setLedger] = useState<LedgerEntry[]>([])
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [challenges, setChallenges] = useState<Challenge[]>([])
+  const [highlights, setHighlights] = useState<CareerHighlights | null>(null)
   const [staff, setStaff] = useState<Staff[]>([])
   const [routes, setRoutes] = useState<RouteData | null>(null)
   const [ins, setIns] = useState<Insurance | null>(null)
@@ -749,6 +750,7 @@ function Dashboard({ state, airline, go }: { state: State; airline: AirlineData 
     api.ledger(40).then(setLedger).catch(() => {})
     api.campaigns().then(setCampaigns).catch(() => {})
     api.challenges().then(setChallenges).catch(() => {})
+    api.careerHighlights().then(setHighlights).catch(() => {})
     api.staff().then(setStaff).catch(() => {})
     api.routes().then(setRoutes).catch(() => {})
     api.insurance().then(setIns).catch(() => {})
@@ -914,6 +916,8 @@ function Dashboard({ state, airline, go }: { state: State; airline: AirlineData 
           {airline?.standing && <StandingBreakdown standing={airline.standing} color={livery} />}
 
           {rep && rep.events.length > 0 && <ReputationCard rep={rep} />}
+
+          {highlights && highlights.totalFlights > 0 && <DashHighlightsCard h={highlights} />}
 
           <section className="card">
             <div className="row-head"><h2>Recent flights</h2><button className="ghost small" onClick={() => go('logbook')}>Logbook →</button></div>
@@ -1256,6 +1260,32 @@ function DashChallengesCard({ challenges, onClaim }: { challenges: Challenge[]; 
       </div>
       {group('Today', daily[0] ? resetsIn(daily[0].resetsAt) : '', daily)}
       {group('This week', weekly[0] ? resetsIn(weekly[0].resetsAt) : '', weekly)}
+    </section>
+  )
+}
+
+// "Your record" — career highlights straight off the flight log (NeoFly's Career highlights). A quick,
+// satisfying read of what you've built: your workhorse aircraft, best paydays, total distance, best landing.
+function DashHighlightsCard({ h }: { h: CareerHighlights }) {
+  const hrs = Math.floor(h.blockMinutes / 60), mins = h.blockMinutes % 60
+  const stat = (label: string, value: string, sub?: string) => (
+    <div className="hl-stat">
+      <div className="hl-value num">{value}</div>
+      <div className="hl-label">{label}</div>
+      {sub && <div className="hl-sub muted">{sub}</div>}
+    </div>
+  )
+  return (
+    <section className="card">
+      <div className="row-head"><h2>Your record</h2><span className="hint">{h.totalFlights} flights · {hrs}h{String(mins).padStart(2, '0')}</span></div>
+      <div className="hl-grid">
+        {h.mostUsedAircraft && stat('Workhorse', h.mostUsedAircraft.title, `${h.mostUsedAircraft.count} legs`)}
+        {stat('Best payday', money(h.bestRewardCents))}
+        {stat('Best XP', `+${h.bestXp}`)}
+        {stat('Distance flown', `${h.totalDistanceNm.toLocaleString()} nm`)}
+        {h.smoothestFpm !== null && stat('Smoothest landing', `${signed(h.smoothestFpm)} fpm`)}
+        {h.bestScore !== null && stat('Best score', `${h.bestScore}/100`)}
+      </div>
     </section>
   )
 }

@@ -244,6 +244,12 @@ public record CampaignDto(
     string Key, string Name, string Description, long RewardCents, int StepIndex, int StepCount,
     bool Completed, DateTimeOffset? CompletedAt, IReadOnlyList<CampaignStepDto> Steps);
 
+// --- Phase 12: career highlights (the "your record" readout) ---
+public record AircraftUseDto(string Title, int Count);
+public record CareerHighlightsDto(
+    int TotalFlights, int BlockMinutes, AircraftUseDto? MostUsedAircraft,
+    int BestXp, long BestRewardCents, int TotalDistanceNm, int? SmoothestFpm, int? BestScore);
+
 // --- Phase 12: rotating daily/weekly challenges ---
 public record ChallengeDto(
     string Key, string Title, string Detail, string Cadence,

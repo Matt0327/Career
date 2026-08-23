@@ -1774,6 +1774,28 @@ public static class CallsignWebApp
             return Results.Ok(new { paidCents = result.PaidCents, challenge = result.Challenge is { } c ? ToChallengeDto(c) : null });
         });
 
+        // --- Career highlights (Phase 12): the "your record" readout — most-used aircraft, best XP/reward,
+        // smoothest landing — computed straight off the flight log (NeoFly's Career highlights). ---
+        app.MapGet("/api/career/highlights", async (CallsignDbContext db) =>
+        {
+            var flights = await db.Flights.ToListAsync();
+            if (flights.Count == 0)
+                return Results.Ok(new CareerHighlightsDto(0, 0, null, 0, 0, 0, null, null));
+            var mostUsed = flights.GroupBy(f => f.AircraftTitle)
+                .OrderByDescending(g => g.Count()).ThenBy(g => g.Key)
+                .Select(g => new AircraftUseDto(g.Key, g.Count())).First();
+            var blockMinutes = (int)Math.Round(flights.Sum(f => (f.ArrivedAt - f.DepartedAt).TotalMinutes));
+            // "smoothest" = the landing closest to 0 fpm among real (on-ground-arriving) legs.
+            var landed = flights.Where(f => f.TouchdownFpm < 0).ToList();
+            int? smoothestFpm = landed.Count > 0 ? (int)Math.Round(landed.Max(f => f.TouchdownFpm)) : null;
+            var scored = flights.Where(f => f.OverallScore is not null).ToList();
+            int? bestScore = scored.Count > 0 ? scored.Max(f => f.OverallScore!.Value) : null;
+            return Results.Ok(new CareerHighlightsDto(
+                flights.Count, blockMinutes, mostUsed,
+                flights.Max(f => f.Xp), flights.Max(f => f.PayoutCents),
+                (int)Math.Round(flights.Sum(f => f.DistanceNm)), smoothestFpm, bestScore));
+        });
+
         // --- Airline identity + standing (Phase 5c) ---
         app.MapGet("/api/airline", async (CallsignDbContext db, AirlineService airline) =>
         {

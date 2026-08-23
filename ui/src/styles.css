@@ -1010,6 +1010,12 @@ details.card.shop[open]>summary.shop-head::after{transform:rotate(90deg)}
 .chal-foot .num.pos{font-weight:700}
 .chal-foot .small{font-size:12px}
 .pill-alert{font-size:12px;font-weight:600;color:var(--accent);background:color-mix(in srgb, var(--accent) 14%, var(--panel));padding:3px 10px;border-radius:999px}
+/* Career highlights ("your record") */
+.hl-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-top:12px}
+.hl-stat{padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:color-mix(in srgb, var(--panel) 60%, transparent)}
+.hl-value{font-size:18px;font-weight:700;letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hl-label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-top:3px}
+.hl-sub{font-size:12px;margin-top:1px}
 .snap-sub{margin-top:16px}
 .snap-btn{margin-top:14px}
 .feed{display:grid;gap:2px}

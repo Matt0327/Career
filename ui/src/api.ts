@@ -852,6 +852,17 @@ export interface Campaign {
   steps: CampaignStep[]
 }
 
+export interface CareerHighlights {
+  totalFlights: number
+  blockMinutes: number
+  mostUsedAircraft: { title: string; count: number } | null
+  bestXp: number
+  bestRewardCents: number
+  totalDistanceNm: number
+  smoothestFpm: number | null
+  bestScore: number | null
+}
+
 export interface Challenge {
   key: string
   title: string
@@ -1094,6 +1105,7 @@ export const api = {
   achievements: () => fetch('/api/achievements').then(ok<Achievement[]>),
   campaigns: () => fetch('/api/campaigns').then(ok<Campaign[]>),
   challenges: () => fetch('/api/challenges').then(ok<Challenge[]>),
+  careerHighlights: () => fetch('/api/career/highlights').then(ok<CareerHighlights>),
   claimChallenge: (key: string) => POST_IDEM(`/api/challenges/${key}/claim`, {}).then(ok<{ paidCents: number; challenge: Challenge | null }>),
   airline: () => fetch('/api/airline').then(ok<AirlineData>),
   setAirline: (body: { name: string; tailCode: string; accentColorHex: string; emblemKey: string }) =>
