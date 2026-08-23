@@ -1850,6 +1850,24 @@ function distNm(a: [number, number], b: [number, number]): number {
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)))
 }
 
+// Does the live sim aircraft (its MSFS title) plausibly match the career tail the player picked? NeoFly's
+// "matching plane" check. Fuzzy on purpose: MSFS titles carry livery/variant suffixes ("… SF", "… G1000"),
+// so we match when the tail's model/type tokens are present in the sim title rather than demanding equality.
+function matchesSimTitle(simTitle: string | undefined, ac: OwnedAircraft | null): boolean {
+  if (!simTitle || !ac) return false
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  const sim = norm(simTitle)
+  if (!sim) return false
+  const model = norm(ac.icaoModel || '')
+  if (model && sim.includes(model)) return true
+  // Otherwise: most of the aircraft-name's significant tokens should appear in the sim title.
+  const stop = new Set(['the', 'and', 'of', 'aircraft', 'plane'])
+  const tokens = norm(ac.name).split(' ').filter(t => t.length > 2 && !stop.has(t))
+  if (tokens.length === 0) return false
+  const hit = tokens.filter(t => sim.includes(t)).length
+  return hit / tokens.length >= 0.6
+}
+
 function planeIcon(hdg: number): L.DivIcon {
   return L.divIcon({
     className: 'plane-marker',
@@ -2124,6 +2142,21 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
         {begun
           ? <div className="banner ok">Flying <b>{begun.origin} → {begun.dest}</b> · {begun.destName} — land at {begun.dest} and Callsign settles it automatically.</div>
           : <div className="hint">Begin a leg below, then fly it. The next landing at the destination settles the job.</div>}
+        {!begun && (() => {
+          const simOn = link === 'Connected'
+          const acHere = !!selAc && selAc.locationIcao === state.currentIcao
+          const acMatch = simOn && matchesSimTitle(tele?.title, selAc)
+          const Row = ({ ok, wait, label }: { ok: boolean; wait?: boolean; label: string }) =>
+            <span className={`r-item ${ok ? 'ok' : wait ? 'wait' : 'no'}`}><span className="r-dot" />{label}</span>
+          return (
+            <div className="readiness" title="NeoFly-style check: the leg comes alive when your aircraft and you are at the field and the sim is flying the right plane.">
+              <span className="r-title">Matching plane &amp; location</span>
+              <Row ok={simOn} wait={!simOn} label={simOn ? 'Simulator connected' : 'Waiting for simulator'} />
+              <Row ok={acHere} label={acHere ? `${selAc?.tail} with you at ${state.currentIcao}` : selAc ? `${selAc.tail} is at ${selAc.locationIcao}, not ${state.currentIcao}` : 'No aircraft selected'} />
+              <Row ok={acMatch} wait={!simOn} label={!simOn ? 'Sim aircraft — start MSFS' : acMatch ? 'Sim aircraft matches' : `Load ${selAc?.name ?? 'the aircraft'} in MSFS${tele?.title ? ` (sim has ${tele.title})` : ''}`} />
+            </div>
+          )
+        })()}
       </section>
 
       {settled && <SettlementCard settled={settled} />}
