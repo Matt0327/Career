@@ -876,14 +876,14 @@ function Dashboard({ state, airline, go }: { state: State; airline: AirlineData 
     <div className="grid" style={{ ['--livery']: livery } as CSSProperties}>
       <AirlineHero state={state} airline={airline} wsOpen={wsOpen} link={link} tele={tele} live={live} />
 
+      <DashCoach state={state} assignments={assignments} fleet={fleet} alerts={alerts} go={go} />
+
+      {/* The few numbers that matter, at a glance. The rest live on their own tabs. */}
       <section className="hero-stats">
         <HeroStat label="Net worth" value={nw ? money(nw.netWorthCents) : '—'} accent tone={nw && nw.netWorthCents < 0 ? 'neg' : undefined} hint="assets − loans" onClick={() => go('finances')} />
         <HeroStat label="Cash" value={money(state.cashCents)} onClick={() => go('finances')} />
         <HeroStat label={`${pnl?.days ?? 30}-day P&L`} value={pnl ? money(pnl.netCents) : '—'} tone={pnl ? (pnl.netCents >= 0 ? 'pos' : 'neg') : undefined} onClick={() => go('finances')} />
         <HeroStat label="Fleet" value={String(fleet.length)} hint={`${availCount} available`} onClick={() => go('hangar')} />
-        <HeroStat label="Bases" value={String(bases.length)} onClick={() => go('bases')} />
-        <HeroStat label="Routes" value={String(routeCount)} onClick={() => go('ops')} />
-        <HeroStat label="Crew" value={String(staff.length)} onClick={() => go('ops')} />
         <HeroStat label="Reputation" value={repVal.toFixed(1)} />
         <HeroStat label="Experience" value={state.xp.toLocaleString()} unit="XP" />
       </section>
@@ -1318,6 +1318,29 @@ function DashChallengesCard({ challenges, onClaim }: { challenges: Challenge[]; 
       </div>
       {group('Today', daily[0] ? resetsIn(daily[0].resetsAt) : '', daily)}
       {group('This week', weekly[0] ? resetsIn(weekly[0].resetsAt) : '', weekly)}
+    </section>
+  )
+}
+
+// The next-step coach (redesign R2/R4): names the single most useful action for the current state, so a
+// newcomer always knows what to do — accept a job, fly it, fix what's grounding you, or take another.
+function DashCoach({ state, assignments, fleet, alerts, go }: {
+  state: State; assignments: Assignment[]; fleet: OwnedAircraft[]
+  alerts: { level: string; text: string; tab: Tab; cta: string }[]; go: (t: Tab) => void
+}) {
+  const step: { text: string; cta: string; tab: Tab } = (() => {
+    if (fleet.length === 0) return { text: 'Get an aircraft — then you can start flying for hire.', cta: 'Visit the hangar', tab: 'hangar' }
+    if (assignments.length > 0) return { text: `You've accepted ${assignments.length === 1 ? 'a job' : `${assignments.length} jobs`} — open Flight and fly ${assignments.length === 1 ? 'it' : 'them'}.`, cta: 'Open Flight', tab: 'flight' }
+    if (state.flights === 0) return { text: 'Accept your first job to begin — the reward is locked in when you accept.', cta: 'Browse jobs', tab: 'jobs' }
+    const urgent = alerts.find(a => a.level === 'bad') ?? alerts.find(a => a.level === 'warn')
+    if (urgent) return { text: urgent.text, cta: urgent.cta, tab: urgent.tab }
+    return { text: "You're all set — take another job whenever you're ready.", cta: 'Browse jobs', tab: 'jobs' }
+  })()
+  return (
+    <section className="dash-coach">
+      <span className="dc-k">Next</span>
+      <span className="dc-t">{step.text}</span>
+      <button className="primary dc-cta" onClick={() => go(step.tab)}>{step.cta} →</button>
     </section>
   )
 }

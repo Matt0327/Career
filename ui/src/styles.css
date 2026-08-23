@@ -597,6 +597,11 @@ input { font: inherit; }
 .tier-badge{font-size:12px;font-weight:700;padding:4px 11px;border-radius:999px;letter-spacing:.02em;white-space:nowrap}
 .hero-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
 .tab-summary{margin-bottom:16px}
+/* Dashboard next-step coach (redesign R2/R4) */
+.dash-coach{display:flex;align-items:center;gap:12px;background:linear-gradient(90deg,color-mix(in srgb,var(--accent) 16%,transparent),transparent);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:12px;padding:14px 16px;flex-wrap:wrap}
+.dash-coach .dc-k{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--accent);font-weight:700}
+.dash-coach .dc-t{font-size:15px;font-weight:500;flex:1;min-width:200px}
+.dash-coach .dc-cta{margin-left:auto;white-space:nowrap}
 .hstat{position:relative;overflow:hidden;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:15px 16px;box-shadow:var(--shadow)}
 .hstat.accent::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--livery,var(--accent))}
 .hs-label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
