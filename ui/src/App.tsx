@@ -1467,6 +1467,7 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
   const [types, setTypes] = useState<Set<string>>(new Set()) // empty = all types shown
   const [maxDist, setMaxDist] = useState<number>(Infinity)
   const [maxWeight, setMaxWeight] = useState<number>(Infinity)
+  const [maxPax, setMaxPax] = useState<number>(Infinity)
   const [client, setClient] = useState<string>('') // '' = every client (Phase 12 — grind one client's loyalty)
   const [sort, setSort] = useState<JobSort>('dist')
   const [asc, setAsc] = useState(true)
@@ -1499,6 +1500,8 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
   const all = jobs ?? []
   const distMax = Math.max(100, ...all.map(j => Math.ceil(j.distanceNm)))
   const wtMax = Math.max(100, ...all.map(j => j.weightLbs))
+  const paxMax = Math.max(1, ...all.map(j => j.pax))
+  const hasPax = all.some(j => j.pax > 0)
   const kinds = Array.from(new Set(all.map(j => j.type)))
   const clients = Array.from(new Set(all.map(j => j.clientName).filter((n): n is string => !!n))).sort()
   const key = (j: Job) => sort === 'reward' ? j.rewardCents : sort === 'xp' ? j.xp : sort === 'weight' ? j.weightLbs : j.distanceNm
@@ -1506,6 +1509,7 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
     .filter(j => types.size === 0 || types.has(j.type))
     .filter(j => maxDist === Infinity || j.distanceNm <= maxDist)
     .filter(j => maxWeight === Infinity || j.weightLbs <= maxWeight)
+    .filter(j => maxPax === Infinity || j.pax <= maxPax)
     .filter(j => !client || j.clientName === client)
     .sort((a, b) => (key(a) - key(b)) * (asc ? 1 : -1))
   const sel = shown.find(j => j.id === selected) ?? null
@@ -1542,6 +1546,11 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
                   <label>Max payload <b className="num">{maxWeight === Infinity ? `any` : `${Math.round(maxWeight).toLocaleString()} lb`}</b>
                     <input type="range" min={0} max={wtMax} step={100} value={maxWeight === Infinity ? wtMax : maxWeight} onChange={e => { const v = Number(e.target.value); setMaxWeight(v >= wtMax ? Infinity : v) }} />
                   </label>
+                  {hasPax && (
+                    <label>Max pax <b className="num">{maxPax === Infinity ? `any` : maxPax}</b>
+                      <input type="range" min={0} max={paxMax} value={maxPax === Infinity ? paxMax : maxPax} onChange={e => { const v = Number(e.target.value); setMaxPax(v >= paxMax ? Infinity : v) }} />
+                    </label>
+                  )}
                   {clients.length > 1 && (
                     <label className="jf-client">Client
                       <select value={client} onChange={e => setClient(e.target.value)}>
@@ -1927,6 +1936,39 @@ function planeIcon(hdg: number): L.DivIcon {
   })
 }
 
+// What THIS leg is graded on (NeoFly's flight objectives) — the scoring rubric made visible so the player
+// knows the targets before they fly. Derived from the mission type; the actual grading happens at settlement.
+function missionObjectives(type: string, hasDeadline: boolean): { label: string; hint: string }[] {
+  const t = type.toLowerCase()
+  const extra: { label: string; hint: string }[] = []
+  if (['vip', 'tourist', 'passenger'].includes(t)) extra.push({ label: 'Comfortable ride', hint: 'Gentle g and bank — a smooth ride tips (and keeps the client)' })
+  if (['sensitive', 'hazardous'].includes(t)) extra.push({ label: 'Gentle touchdown', hint: 'Fragile load — a firm arrival damages it, a slam destroys it' })
+  if (hasDeadline) extra.push({ label: 'On time', hint: 'Land before the delivery deadline or the fee is docked' })
+  return [
+    ...extra,
+    { label: 'Smooth landing', hint: 'Touch down under ~200 fpm, wings level' },
+    { label: 'Stabilised approach', hint: 'On speed and on glidepath below the gate' },
+    { label: 'Clean flight', hint: 'No overspeed, over-bank, or stalls enroute' },
+  ]
+}
+
+function ObjectivesCard({ leg }: { leg: Assignment }) {
+  const objectives = missionObjectives(leg.type, !!leg.deadlineAt)
+  return (
+    <section className="card">
+      <div className="row-head"><h2>Objectives</h2><span className="hint">{spaced(leg.type)} · graded on landing</span></div>
+      <ul className="obj-list">
+        {objectives.map(o => (
+          <li key={o.label} className="obj">
+            <svg viewBox="0 0 24 24" className="obj-tick" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>
+            <div><b>{o.label}</b><div className="obj-hint muted">{o.hint}</div></div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 // The cabin manifest for a passenger leg (NeoFly's Cabin list) — who's aboard, their seat and age. Purely
 // cosmetic flavour, generated deterministically from the assignment so it's stable for the whole flight.
 function CabinCard({ leg }: { leg: Assignment }) {
@@ -2241,6 +2283,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
       {settled && <SettlementCard settled={settled} />}
       {checkPending && <div className="banner ok">Check-flight for <b>{checkPending}</b> in progress — fly a clean landing (≤ 200 fpm) and it grades automatically.</div>}
       {checkResult && <CheckFlightCard result={checkResult} />}
+      {begun && <ObjectivesCard leg={begun} />}
       {begun && begun.pax > 0 && <CabinCard leg={begun} />}
 
       <section className="card">
