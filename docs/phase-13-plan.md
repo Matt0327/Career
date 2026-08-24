@@ -54,14 +54,16 @@ The sim bridge today has **no notion of the sim's loaded state** — pax, cargo,
 aircraft is loaded are only soft-matched by title. The only hard gates are arrival geofence and
 land-then-secure. This workstream makes the bridge honest.
 
-1. **[P0·L] Real load gate (kills the "1000 Passengers" bug).** The "sim has …" readout at
-   `App.tsx:2395` interpolates `tele.title` (the aircraft TITLE string) — the sim's real pax/cargo is
-   NEVER read. Two parts:
+1. **[P0·L] Real load check (kills the "1000 Passengers" bug). DECISION LOCKED: warn, don't block —
+   pay ~15% less if underloaded.** The "sim has …" readout at `App.tsx:2395` interpolates `tele.title`
+   (the aircraft TITLE string) — the sim's real pax/cargo is NEVER read. Two parts:
    - **Display bug:** stop printing the title as if it were passengers; show the JOB's pax/cargo and
      the aircraft's actual **TOTAL WEIGHT** (already read, `SimConnectTelemetrySource.cs:255-258`).
-   - **Real gate (L10):** compare the sim's live `TOTAL WEIGHT` against empty-weight + expected job
-     payload (±tolerance). If the player hasn't loaded the pax/cargo in MSFS, warn and (optionally)
-     block the scored start. Default tolerance generous; zero reading = old behaviour.
+   - **Warn + reward cut (L9/L10):** compare the sim's live `TOTAL WEIGHT` against empty-weight +
+     expected job payload (±generous tolerance). If the player didn't load the pax/cargo in MSFS,
+     **never block** — show a warning and apply a settlement reward reduction (new
+     `UnderloadedPayFactor`, ~0.85 = 15% less; logical, could scale with how short the load is). Zero
+     reading = old behaviour (no penalty). This is the honest "you didn't really carry it" fee.
 2. **[P0·M] Auto-start on takeoff.** Today a scored session starts only on manual `/api/flight/begin`.
    Reframe: selecting job+aircraft **arms** the flight; the timed/scored session officially begins on
    detected takeoff roll/liftoff (`FlightTracker` already auto-detects liftoff within an armed
@@ -132,13 +134,11 @@ land-then-secure. This workstream makes the bridge honest.
    (`GetRentalOffersAsync` uses `IsCareerAircraft` only). Add a per-type `Rentable` decision: small/GA
    & workhorse types rentable; halo/heavy/bizjet/warbird types buy-only. Data-driven flag on the
    catalog. Concorde uses the same flag (not rentable/leasable).
-2. **[DECISION·M] Rent vs Lease.** The user finds rent-vs-lease confusing and leans toward removing
-   lease; separately asked lease total be ~40% above new price. Two options — **recommend A**:
-   - **A (recommended): remove lease** as a consumer feature. Market becomes Buy + Rent (intuitive:
-     rent = short, by-the-hour, fly-by-hand). Retire the lease UI/offers; keep existing lease
-     agreements honoured until returned.
-   - **B: keep lease, reprice** so total lease cost (upfront + rent over term + buyout) ≥ **140%** of
-     new — an explicit "premium financing" path. More depth, more confusion.
+2. **[P1·M] Remove lease completely. DECISION LOCKED.** The market becomes **Buy + Rent** only
+   (rent = short, by-the-hour, fly-by-hand — intuitive). Retire the lease offers/UI (lease buttons in
+   the unified market, the Leasable badge, `leaseByType`, lease sections, lease agreement management).
+   Honour any existing lease agreements until returned/bought out; just stop offering new ones. Remove
+   the now-dead lease config once no agreements remain, or leave it inert. Drop the `.cap.lease` badge.
 3. **[P1·S] Market location behaviour (answer + option).** Already: the aircraft SET is anchored to
    your **home** region (so stock doesn't teleport when you fly), and the DISTANCE shown updates from
    where you are now. Optional add: also surface a few offers near your **current** field as you roam.
@@ -245,13 +245,17 @@ gate thresholds and the incorporation cost before building.
 
 ---
 
-## OPEN DECISIONS TO CONFIRM (quick)
+## DECISIONS — RESOLVED (2026-08-24)
 
-1. **Lease:** remove it (recommended, simpler) or keep + reprice to ≥140% of new?
-2. **Load gate:** hard-block a scored start if the sim aircraft isn't loaded to the job weight, or
-   warn-only (L9-friendly)?
-3. **Curated images:** confirm the keep-list (which aircraft actually had bad/missing pictures).
-4. **Airline gate:** agree the reframe (early = "Operator", Airline = earned late) before building E.
+1. **Lease:** ✅ **REMOVE completely.** Market = Buy + Rent only. Honour existing agreements.
+2. **Load gate:** ✅ **Warn only, no block** — apply ~15% reward reduction if the sim aircraft is
+   underloaded (`UnderloadedPayFactor` ≈ 0.85, may scale with shortfall). L9-friendly.
+3. **Curated images:** ✅ Reconcile `CuratedAircraftImages.ByIcao` to EXACTLY the list the user sent
+   in the prior session — remove any override not on that list, add/replace the ones on it (DR400 etc.
+   had no/bad picture). When implementing, recover the exact URL list from the prior transcript.
+4. **Airline reframe:** ⏳ Explained to the user in plain language (early = "Operator", the "Airline"
+   identity — name/livery/scheduled network/HQ — unlocks only after real growth). Awaiting a simple
+   yes before building Workstream E. Thresholds still to brainstorm.
 
 ---
 
