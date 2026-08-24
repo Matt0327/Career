@@ -1672,13 +1672,17 @@ public static class CallsignWebApp
                 if (inst is not null && dealer.Airworthiness(inst) is { Airworthy: false } aw)
                     return Results.BadRequest(new { error = $"{inst.Tail} is grounded: {aw.Reason}." });
 
-                // Payload gate (Phase 12 — NeoFly's load check): the tail must physically fit the job. Seats for
-                // the passengers, useful load for the cargo. Unknown specs don't block.
+                // Payload gate (Phase 12 — NeoFly's load check): the tail must fit the job. A PASSENGER job is
+                // gated on SEATS, a CARGO job on USEFUL LOAD — the same split the settlement bonus uses. (Gating a
+                // pax job on useful load too was double-jeopardy — a 4-seat plane failed a 4-pax job by 2 lb.)
                 if (type is not null && assignment is not null)
                 {
-                    if (assignment.Pax > 0 && type.Seats is int seats2 && seats2 < assignment.Pax)
-                        return Results.BadRequest(new { error = $"{inst?.Tail ?? type.CanonicalName} seats {seats2} — this job needs {assignment.Pax}." });
-                    if (assignment.WeightLbs > 0 && type.UsefulLoadLbs is int ul && ul < assignment.WeightLbs)
+                    if (assignment.Type.CarriesPassengers())
+                    {
+                        if (type.Seats is int seats2 && seats2 < assignment.Pax)
+                            return Results.BadRequest(new { error = $"{inst?.Tail ?? type.CanonicalName} seats {seats2} — this job needs {assignment.Pax}." });
+                    }
+                    else if (assignment.WeightLbs > 0 && type.UsefulLoadLbs is int ul && ul < assignment.WeightLbs)
                         return Results.BadRequest(new { error = $"{inst?.Tail ?? type.CanonicalName} carries {ul:N0} lb — this job needs {assignment.WeightLbs:N0} lb." });
                 }
             }

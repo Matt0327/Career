@@ -2351,7 +2351,12 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
   // "missing lbs" check). Unknown specs (null) don't block.
   const payloadFit = (ac: OwnedAircraft | null, pax: number, weightLbs: number): { ok: boolean; msg?: string } => {
     if (!ac) return { ok: true }
-    if (pax > 0 && ac.seats != null && ac.seats < pax) return { ok: false, msg: `${ac.tail} seats ${ac.seats} — this job needs ${pax}` }
+    // A passenger job is gated on SEATS; a cargo job on USEFUL LOAD — the same split the settlement bonus uses.
+    // (Gating a pax job on useful load too was double-jeopardy: a 4-seat plane failed a 4-pax job on 2 lb.)
+    if (pax > 0) {
+      if (ac.seats != null && ac.seats < pax) return { ok: false, msg: `${ac.tail} seats ${ac.seats} — this job needs ${pax}` }
+      return { ok: true }
+    }
     if (weightLbs > 0 && ac.usefulLoadLbs != null && ac.usefulLoadLbs < weightLbs)
       return { ok: false, msg: `${ac.tail} carries ${ac.usefulLoadLbs.toLocaleString()} lb — needs ${weightLbs.toLocaleString()} (missing ${(weightLbs - ac.usefulLoadLbs).toLocaleString()} lb)` }
     return { ok: true }
