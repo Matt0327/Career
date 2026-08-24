@@ -73,6 +73,14 @@ public sealed record FlightRecord(
     /// <summary>Total exceedance points logged during the flight (overspeed, over-bank, over-g, stall…).</summary>
     public int ViolationPoints { get; init; }
 
+    /// <summary>Aircraft weights at liftoff (Phase 13 — the load check). With the type's useful-load, settlement
+    /// works out whether the job's cargo/passengers were actually loaded in the sim (empty ≈ MaxGross − UsefulLoad,
+    /// so payload ≈ Total − empty − fuel). All default 0 = the sim didn't report weights → the check is skipped
+    /// (L10: a zero reading leaves pay exactly as before).</summary>
+    public double LiftoffTotalWeightLbs { get; init; }
+    public double LiftoffMaxGrossLbs { get; init; }
+    public double LiftoffFuelLbs { get; init; }
+
     /// <summary>True only when the tracker actually assessed this flight from telemetry. Settlement uses
     /// the score-based lever (Phase 7c) only for a scored leg; a manual/legacy record keeps the raw-fpm
     /// lever. This is what lets 7c change how pay works without rewriting unscored settlement paths.</summary>

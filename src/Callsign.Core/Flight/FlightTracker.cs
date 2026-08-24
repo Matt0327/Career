@@ -82,6 +82,7 @@ public sealed class FlightTracker
     private DateTimeOffset _departedAt;
     private DateTimeOffset _arrivedAt;
     private double _depLat, _depLon, _depFuel;
+    private double _liftoffTotalLbs, _liftoffMaxGrossLbs; // Phase 13 — weights at liftoff, to judge if the job was really loaded
     private double _arrLat, _arrLon, _arrFuel;
     private double _maxAltFt;
     private double _lastAirborneVs;
@@ -495,6 +496,8 @@ public sealed class FlightTracker
     // OWN limits, so they're correct whatever percent scale the sim uses.
     private void CheckWeightAndBalance(TelemetrySnapshot t)
     {
+        _liftoffTotalLbs = t.TotalWeightLbs;       // captured for the load check at settlement (0 if unreported → check skipped)
+        _liftoffMaxGrossLbs = t.MaxGrossWeightLbs;
         if (t.MaxGrossWeightLbs > 0 && t.TotalWeightLbs > 0)
         {
             double overLbs = t.TotalWeightLbs - t.MaxGrossWeightLbs;
@@ -593,6 +596,9 @@ public sealed class FlightTracker
             ComfortScore = comfort,
             StabilizedApproach = approach >= StableApproachMinScore,
             ViolationPoints = _violationPoints,
+            LiftoffTotalWeightLbs = _liftoffTotalLbs,
+            LiftoffMaxGrossLbs = _liftoffMaxGrossLbs,
+            LiftoffFuelLbs = _depFuel,
             Scored = true,
             ScoreValid = _scoreValid,
             HandledEmergency = handledEmergency,        // Phase 12 — airmanship recognised at settlement/debrief

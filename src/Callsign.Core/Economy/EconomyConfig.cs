@@ -532,6 +532,14 @@ public sealed record EconomyConfig
     /// <summary>Loyalty lost when the player CANCELS an accepted job before flying it — a tiny nick (you gave the
     /// job back rather than botching it), far gentler than a failed delivery. Keeps cancelling low-stakes.</summary>
     public int ClientLoyaltyCancelMilli { get; init; } = -400;
+
+    // --- Load check (Phase 13): pay less if you didn't actually load the job's cargo/passengers in the sim ---
+    /// <summary>What the base reward is multiplied by when the leg was flown UNDERLOADED (0.85 = 15% less). A warn,
+    /// not a block (L9) — you still get paid, just not full freight for cargo you didn't carry.</summary>
+    public double UnderloadedPayFactor { get; init; } = 0.85;
+    /// <summary>Underloaded when the measured payload is below this fraction of what the job needed (0.5 = under half
+    /// aboard). Generous on purpose so weight-estimate slop never docks an honestly-loaded flight.</summary>
+    public double UnderloadFloorFactor { get; init; } = 0.5;
     /// <summary>Below this loyalty a client pays no premium; above it the repeat premium ramps up.</summary>
     public int ClientLoyaltyBonusThresholdMilli { get; init; } = 25_000;
     /// <summary>The repeat premium a fully-loyal client pays on top of the earned base reward (fraction).</summary>

@@ -55,6 +55,48 @@ public class SettlementServiceTests
     private static FlightRecord Flown(double touchdownFpm, string title = "Cessna 172 Skyhawk")
         => new(title, T0.AddMinutes(5), T0.AddMinutes(55), touchdownFpm, 9000, 52.3, 4.76, 51.95, 4.44, 120, 60, []);
 
+    private static async Task<(long Payout, Guid CompanyId)> SettleWithAsync(FlightRecord record)
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        Guid assignmentId, companyId;
+        using (var db = tdb.NewContext())
+        {
+            var s = await SeedAsync(db, rewardCents: 200_000, weight: 500); // cargo, 500 lb, C172 (useful 878)
+            companyId = s.CompanyId;
+            assignmentId = (await new JobAssignmentService(db, clock).AcceptAsync(s.JobId, s.CompanyId, s.PilotId)).Id;
+        }
+        using (var db = tdb.NewContext())
+        {
+            var svc = new SettlementService(db, new LedgerService(db, clock), clock, EconomyConfig.Default);
+            return ((await svc.SettleAsync(assignmentId, record)).PayoutCents, companyId);
+        }
+    }
+
+    [Fact]
+    public async Task LoadCheck_UnderloadedLeg_PaysFifteenPercentLess()
+    {
+        // C172 useful 878; MaxGross 2450 → empty ≈ 1572. Total 1772, fuel 200 → payload ≈ 0, far under the
+        // 500 lb the job needed → underloaded → base 200000 ×0.85 = 170000, +10% greaser = 187000.
+        var underloaded = Flown(-80) with { LiftoffMaxGrossLbs = 2450, LiftoffTotalWeightLbs = 1772, LiftoffFuelLbs = 200 };
+        Assert.Equal(187_000, (await SettleWithAsync(underloaded)).Payout);
+    }
+
+    [Fact]
+    public async Task LoadCheck_ProperlyLoaded_PaysFull()
+    {
+        // Same aircraft, but Total 2272 → payload ≈ 500 = exactly the job → NOT underloaded → full 220000.
+        var loaded = Flown(-80) with { LiftoffMaxGrossLbs = 2450, LiftoffTotalWeightLbs = 2272, LiftoffFuelLbs = 200 };
+        Assert.Equal(220_000, (await SettleWithAsync(loaded)).Payout);
+    }
+
+    [Fact]
+    public async Task LoadCheck_NoWeightData_PaysFull_Unchanged()
+    {
+        // The sim didn't report weights (all 0) → the check is skipped, pay is exactly as before (L10).
+        Assert.Equal(220_000, (await SettleWithAsync(Flown(-80))).Payout);
+    }
+
     [Fact]
     public async Task Accept_FreezesQuote_AndTakesJobOffBoard()
     {

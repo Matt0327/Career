@@ -45,6 +45,7 @@ public sealed class SettlementService
 
         var now = _clock.UtcNow;
         long grossBase = a.RewardQuoteCents; // frozen quote, never the live job
+        var type = await MatchAircraftAsync(flight.AircraftTitle, ct);
 
         // Mission completion (Phase 7d): judge the DELIVERY against this mission type's own rules — a firm
         // arrival damages fragile freight, a rough flight loses a VIP client. This scales (or, on a Failed
@@ -53,6 +54,24 @@ public sealed class SettlementService
         long baseCents = outcome.Grade == MissionGrade.Failed
             ? 0
             : (long)Math.Round((decimal)grossBase * outcome.QualityMilli / 100_000m, MidpointRounding.AwayFromZero);
+
+        // Load check (Phase 13, L9 warn-don't-block): if the sim reported weights and the job's cargo/passengers
+        // clearly weren't loaded, pay less — you didn't really carry it. Empty ≈ MaxGross − useful load, so the
+        // actual payload ≈ liftoff total − empty − fuel; we only dock when it's well below what the job needed.
+        // All weights default 0 (sim didn't report) → the check is skipped and pay is unchanged (L10).
+        bool underloaded = false;
+        if (baseCents > 0 && flight.LiftoffMaxGrossLbs > 0 && flight.LiftoffTotalWeightLbs > 0
+            && type?.UsefulLoadLbs is int ul && ul > 0)
+        {
+            double empty = flight.LiftoffMaxGrossLbs - ul;
+            double loadedPayload = flight.LiftoffTotalWeightLbs - empty - flight.LiftoffFuelLbs;
+            double expected = a.Type.CarriesPassengers() ? a.Pax * (double)_cfg.PaxWeightLbs : a.WeightLbs;
+            if (expected > 0 && loadedPayload < expected * _cfg.UnderloadFloorFactor)
+            {
+                underloaded = true;
+                baseCents = (long)Math.Round(baseCents * (decimal)_cfg.UnderloadedPayFactor, MidpointRounding.AwayFromZero);
+            }
+        }
 
         // Client relationship (Phase 8d): this job came from a named client whose loyalty we've been building.
         // Load their row (or start one), and read loyalty as it stands BEFORE this delivery — a loyal client
@@ -103,7 +122,6 @@ public sealed class SettlementService
         // Performance scales the EARNED base — a damaged (partial) delivery earns a smaller bonus too.
         long landingDelta = (long)Math.Round((decimal)baseCents * perfPct, MidpointRounding.AwayFromZero);
 
-        var type = await MatchAircraftAsync(flight.AircraftTitle, ct);
         // "Right aircraft" bonus: passenger charters need SEATS for everyone; cargo needs useful LOAD.
         bool payloadMatched = a.Type.CarriesPassengers()
             ? type?.Seats is int seats && seats >= a.Pax
@@ -119,7 +137,9 @@ public sealed class SettlementService
         {
             postings.Add(new(LedgerCategory.JobPayout, baseCents / 100m, $"{a.Type} payout to {a.DestIcao}",
                 LedgerRefType.Job, jobRef, DedupeKey: $"settle:{a.Id}:base"));
-            lines.Add(new(outcome.Grade == MissionGrade.Full ? "Base reward" : $"Base reward ({outcome.Reason})", baseCents));
+            string baseLabel = outcome.Grade == MissionGrade.Full ? "Base reward" : $"Base reward ({outcome.Reason})";
+            if (underloaded) baseLabel += " · underloaded −" + Math.Round((1 - _cfg.UnderloadedPayFactor) * 100) + "%";
+            lines.Add(new(baseLabel, baseCents));
         }
 
         if (landingDelta > 0)
