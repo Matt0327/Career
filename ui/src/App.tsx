@@ -1698,7 +1698,7 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
                 </div>
                 <div className="jobs-side">
                   {sel ? <JobDetail job={sel} busy={busy} onAccept={accept} staff={staff} fleet={fleet} dispatches={dispatches} onDispatch={dispatch} /> : <div className="card jobs-pick"><div className="empty">Select a job for the full briefing.</div></div>}
-                  <JobsMap jobs={shown} selectedId={selected} onSelect={setSelected} />
+                  <JobsMap jobs={shown} selectedId={selected} onSelect={setSelected} hereLabel={`You · ${state.currentIcao}`} />
                 </div>
               </div>
             </>
@@ -1839,19 +1839,26 @@ function JobDetail({ job, busy, onAccept, staff, fleet, dispatches, onDispatch }
 }
 
 // Every shown job plotted at its destination, coloured by mission type, clickable to select.
-function JobsMap({ jobs, selectedId, onSelect }: { jobs: Job[]; selectedId: string | null; onSelect: (id: string) => void }) {
+function JobsMap({ jobs, selectedId, onSelect, hereLabel }: { jobs: Job[]; selectedId: string | null; onSelect: (id: string) => void; hereLabel?: string }) {
   const host = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<L.Map | null>(null)
   const markers = useRef<Record<string, { mk: L.CircleMarker; color: string }>>({})
+  const routeLine = useRef<L.Polyline | null>(null)
   const online = typeof navigator === 'undefined' ? true : navigator.onLine
   const plotted = jobs.filter(j => j.destLat !== 0 || j.destLon !== 0)
+  // Every board job departs where you (or the selected crew) are now, so any job's origin is "here".
+  const hereJob = plotted.find(j => j.originLat !== 0 || j.originLon !== 0)
+  const here: [number, number] | null = hereJob ? [hereJob.originLat, hereJob.originLon] : null
   const sig = plotted.map(j => j.id).join('|')
   const onSelRef = useRef(onSelect); onSelRef.current = onSelect
 
   useEffect(() => {
     if (!host.current || !online || plotted.length === 0) return
     const map = L.map(host.current, { attributionControl: true, zoomControl: true, worldCopyJump: true })
+    mapRef.current = map
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics', maxZoom: 18 }).addTo(map)
     markers.current = {}
+    routeLine.current = L.polyline([], { color: '#6d84ff', weight: 2, opacity: .8, dashArray: '6 8' }).addTo(map)
     const mks = plotted.map(j => {
       const m = missionMeta(j.type)
       const mk = L.circleMarker([j.destLat, j.destLon], { radius: 5, weight: 1.5, color: m.color, fillColor: m.color, fillOpacity: .85 }).addTo(map)
@@ -1860,9 +1867,13 @@ function JobsMap({ jobs, selectedId, onSelect }: { jobs: Job[]; selectedId: stri
       markers.current[j.id] = { mk, color: m.color }
       return mk
     })
-    map.fitBounds(L.featureGroup(mks).getBounds().pad(0.3), { maxZoom: 8 })
+    // A distinct "you are here" pin at the departure field.
+    if (here) L.circleMarker(here, { radius: 6, weight: 2, color: '#ffffff', fillColor: '#2ea3ff', fillOpacity: 1 })
+      .addTo(map).bindTooltip(hereLabel ?? 'You are here', { direction: 'top', className: 'sat-tip' })
+    const group = L.featureGroup(here ? [...mks, L.circleMarker(here)] : mks)
+    map.fitBounds(group.getBounds().pad(0.3), { maxZoom: 8 })
     const t = setTimeout(() => map.invalidateSize(), 60)
-    return () => { clearTimeout(t); map.remove(); markers.current = {} }
+    return () => { clearTimeout(t); map.remove(); mapRef.current = null; markers.current = {}; routeLine.current = null }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sig, online])
 
@@ -1873,6 +1884,9 @@ function JobsMap({ jobs, selectedId, onSelect }: { jobs: Job[]; selectedId: stri
       mk.setStyle({ weight: on ? 3 : 1.5, color: on ? '#ffffff' : color })
       if (on) mk.bringToFront()
     }
+    // Draw a line from here to the selected job's destination (cleared when nothing's selected).
+    const sel = plotted.find(j => j.id === selectedId)
+    if (routeLine.current) routeLine.current.setLatLngs(sel && here ? [here, [sel.destLat, sel.destLon]] : [])
   }, [selectedId, sig])
 
   if (!online) return <div className="card"><div className="empty" style={{ padding: 16 }}>Map needs a connection.</div></div>
