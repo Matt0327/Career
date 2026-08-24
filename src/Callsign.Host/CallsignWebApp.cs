@@ -1130,6 +1130,21 @@ public static class CallsignWebApp
             catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
+        // Phase 13 — reposition YOU (the player) to a field for a fee: travel to where an aircraft or a job
+        // origin already is, instead of ferrying the aircraft to you. Same deadhead economics as a crew reposition.
+        app.MapPost("/api/pilot/relocate", async (RelocateCrewRequest req, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, OperationsService ops) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                long fee = await ops.RelocatePlayerAsync(pilot.CompanyId, req.DestIcao, idem);
+                return Results.Ok(new { feeCents = fee, destIcao = req.DestIcao });
+            }
+            catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "Cash changed at the same time — try again." }); }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
         // Phase 12 — let a hired pilot go (stops their wage). Refused while they're flying a line.
         app.MapDelete("/api/staff/{id:guid}", async (Guid id, CallsignDbContext db, OperationsService ops) =>
         {

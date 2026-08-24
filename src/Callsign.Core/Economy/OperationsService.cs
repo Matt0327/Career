@@ -416,6 +416,59 @@ public sealed class OperationsService
     }
 
     /// <summary>
+    /// Reposition the PLAYER (you) to another field for a fee (Phase 13) — the inverse of ferrying an aircraft to
+    /// you: sometimes it's cheaper to travel to where the aircraft (or a job's departure field) already is. Same
+    /// commercial-seat deadhead economics as a crew reposition. The target must be a real, landable airport.
+    /// Returns the fee paid (0 on a no-op replay). Idempotent per dedupe key.
+    /// </summary>
+    public async Task<long> RelocatePlayerAsync(Guid companyId, string destIcao, string? idempotencyKey = null, CancellationToken ct = default)
+    {
+        string? dedupe = idempotencyKey is null ? null : $"playerpos:{idempotencyKey}";
+        if (dedupe is not null && await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct) is { } prior)
+            return -prior.AmountCents;
+
+        var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId, ct)
+                      ?? throw new InvalidOperationException("Company not found.");
+        var pilot = await _db.Pilots.FirstOrDefaultAsync(p => p.CompanyId == companyId, ct)
+                    ?? throw new InvalidOperationException("Pilot not found.");
+
+        destIcao = (destIcao ?? "").Trim().ToUpperInvariant();
+        if (destIcao.Length == 0) throw new InvalidOperationException("Pick a destination.");
+        if (string.Equals(destIcao, pilot.CurrentIcao, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"You're already at {destIcao}.");
+
+        var to = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == destIcao, ct)
+                 ?? throw new InvalidOperationException($"Unknown airport {destIcao}.");
+        if (!AirportSuitability.IsSuitable(to))
+            throw new InvalidOperationException($"{destIcao} isn't a field you can travel to.");
+        var from = string.IsNullOrEmpty(pilot.CurrentIcao) ? null
+            : await _db.Airports.FirstOrDefaultAsync(a => a.Ident == pilot.CurrentIcao, ct);
+        double distanceNm = from is null ? 0 : GeoMath.DistanceNm(from.Latitude, from.Longitude, to.Latitude, to.Longitude);
+
+        long fee = _cfg.CrewPositionBaseCents + (long)Math.Round(distanceNm * _cfg.CrewPositionPerNmCents);
+        if (company.CashCents < fee)
+            throw new InvalidOperationException($"Not enough cash: the trip costs {fee / 100m:C0}, you have {company.Cash:C0}.");
+
+        var now = _clock.UtcNow;
+        await _ledger.StageBatchAsync(companyId, new[]
+        {
+            new LedgerPosting(LedgerCategory.CrewPositioning, -(fee / 100m),
+                $"Travel {pilot.CurrentIcao ?? "—"} → {destIcao} ({distanceNm:F0} nm)",
+                DedupeKey: dedupe ?? $"playerpos:{destIcao}:{pilot.UpdatedAt.UtcTicks}"),
+        }, ct);
+        pilot.CurrentIcao = destIcao;
+        pilot.UpdatedAt = now;
+        try { await _db.SaveChangesAsync(ct); }
+        catch (DbUpdateException) when (dedupe is not null)
+        {
+            _db.ChangeTracker.Clear();
+            if (await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct) is { } raced) return -raced.AmountCents;
+            throw;
+        }
+        return fee;
+    }
+
+    /// <summary>
     /// Let a hired pilot go (Phase 12): a soft dismiss (IsActive=false) that stops their wage accruing. They
     /// can't be dismissed mid-line — cancel the line first. Idempotent (a no-op if already gone).
     /// </summary>

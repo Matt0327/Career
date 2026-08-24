@@ -1110,6 +1110,8 @@ export const api = {
   checkCentres: (cls: string) => fetch(`/api/checkflights/centres?cls=${encodeURIComponent(cls)}`).then(ok<CheckCentre[]>),
   relocateCrew: (id: string, destIcao: string) =>
     POST_IDEM(`/api/staff/${id}/relocate`, { destIcao }).then(ok<{ feeCents: number }>),
+  relocateSelf: (destIcao: string) =>
+    POST_IDEM('/api/pilot/relocate', { destIcao }).then(ok<{ feeCents: number }>),
   dismissStaff: (id: string) => fetch(`/api/staff/${id}`, { method: 'DELETE' }).then(ok),
   orders: () => fetch('/api/ops/orders').then(ok<StandingOrder[]>),
   createOrder: (staffId: string, aircraftInstanceId: string, destIcao: string, priceMultiplierMilli = 1000) =>

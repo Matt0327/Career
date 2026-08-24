@@ -2368,6 +2368,11 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
       addLog('warn', `Cancelled ${a.origin} → ${a.dest}${r.clientName ? ` — ${r.clientName} noted it` : ''}.`)
     } catch (e) { setBeginErr(cleanErr(e)) }
   }
+  const travelTo = async (icao: string) => {
+    setBeginErr(null)
+    try { const r = await api.relocateSelf(icao); onSettled(); loadAssignments(); addLog('ok', `Travelled to ${icao} — ${money(r.feeCents)}. You can fly from here now.`) }
+    catch (e) { setBeginErr(cleanErr(e)) }
+  }
   const startFreeFlight = async () => {
     setSettled(null); setDiverted(null); setBeginErr(null); setBegun(null)
     try { await api.beginFreeFlight(); setFreeFlight(true); addLog('info', 'Free flight armed — fly anywhere; it\'s tracked and logged, no job attached.') }
@@ -2509,6 +2514,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
                       <button className="primary" disabled={begun?.id === a.id || !canFly} onClick={() => begin(a)} title={why ?? ''}>
                         {begun?.id === a.id ? 'In progress…' : 'Begin flight'}
                       </button>
+                      {!atOrigin && begun?.id !== a.id && <button className="ghost small" disabled={!!begun} onClick={() => travelTo(a.origin)} title={`Fly commercial to ${a.origin} so you can depart from there`}>Travel to {a.origin}</button>}
                       <button className="linky" disabled={begun?.id === a.id} onClick={() => cancelJob(a)} title="Hand the job back — a small hit to the client's loyalty">Cancel</button>
                     </div>
                     {why && begun?.id !== a.id && <div className="assign-why muted">{why}</div>}
