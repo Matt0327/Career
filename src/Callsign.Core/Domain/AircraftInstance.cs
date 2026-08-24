@@ -34,4 +34,8 @@ public sealed class AircraftInstance : ISyncable
     public DateTimeOffset UpdatedAt { get; set; }
     public bool IsDeleted { get; set; }
     public Guid? OriginClientId { get; set; }
+
+    /// <summary>Phase 13 — the pilot (you or a hired crew member) this airframe is assigned to. Null = unassigned
+    /// (any pilot may fly it). A hired pilot gets their own aircraft; the player picks their own. Additive.</summary>
+    public Guid? AssignedStaffId { get; set; }
 }

@@ -2821,10 +2821,11 @@ function MaintMeter({ a }: { a: OwnedAircraft }) {
 
 // The reusable drill-down: hero image, full spec sheet, condition + maintenance, per-airframe economics,
 // flight history, and every action for one tail. This is the detail-panel pattern the Hangar establishes.
-function AircraftDetail({ a, history, bases, busy, onService, onInspect, onInsure, onRelocate, onSell }: {
-  a: OwnedAircraft; history: AircraftHistory | null; bases: BaseView[]; busy: boolean
+function AircraftDetail({ a, history, bases, crew, busy, onService, onInspect, onInsure, onRelocate, onSell, onAssignPilot }: {
+  a: OwnedAircraft; history: AircraftHistory | null; bases: BaseView[]; crew: Staff[]; busy: boolean
   onService: (a: OwnedAircraft) => void; onInspect: (a: OwnedAircraft) => void; onInsure: (a: OwnedAircraft) => void
   onRelocate: (a: OwnedAircraft, dest: string) => void; onSell: (a: OwnedAircraft) => void
+  onAssignPilot: (a: OwnedAircraft, staffId: string | null) => void
 }) {
   const [dest, setDest] = useState('')
   const [confirmSell, setConfirmSell] = useState(false)
@@ -2923,6 +2924,17 @@ function AircraftDetail({ a, history, bases, busy, onService, onInspect, onInsur
       <SatelliteMap points={points} />
       <div className="acd-loc muted">At <span className="loc">{a.locationIcao}</span> · {a.locationName}</div>
 
+      {a.ownership !== 'Rented' && (
+        <div className="acd-pilot">
+          <span className="metalabel">Assigned pilot</span>
+          <select value={a.assignedStaffId ?? ''} disabled={busy} onChange={e => onAssignPilot(a, e.target.value || null)}>
+            <option value="">You / anyone</option>
+            {crew.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+          <span className="muted">{a.assignedStaffName ? `${a.assignedStaffName}'s aircraft` : 'open to any pilot'}</span>
+        </div>
+      )}
+
       <h3 className="sub-h">Flight history {history && <span className="muted">· {history.flights.length}</span>}</h3>
       {history && history.flights.length > 0 ? (
         <div className="tbl-wrap"><table className="tbl hist-table">
@@ -2987,6 +2999,7 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
   const [rentals, setRentals] = useState<ActiveRental[]>([])
   const [leases, setLeases] = useState<ActiveLease[]>([]) // existing lease agreements only — leasing is retired from the market
   const [bases, setBases] = useState<BaseView[]>([])
+  const [crew, setCrew] = useState<Staff[]>([]) // Phase 13 — for assigning a tail to a hired pilot
   const [selId, setSelId] = useState<string | null>(null)
   const [history, setHistory] = useState<AircraftHistory | null>(null)
   const [busy, setBusy] = useState(false)
@@ -3009,6 +3022,7 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
       setRentals(await api.rentals())
       setLeases(await api.leases())
       setBases(await api.bases())
+      setCrew(await api.staff().catch(() => []))
       setSelId(prev => (prev && h.some(a => a.id === prev)) ? prev : (h[0]?.id ?? null))
     } catch (e) { setMsg(cleanErr(e)) }
   }, [])
@@ -3083,6 +3097,11 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
   const sell = async (a: OwnedAircraft) => {
     setBusy(true); setMsg(null)
     try { const r = await api.sellAircraft(a.id); setSelId(null); await load(); onChanged(); setMsg(`Sold ${a.tail} for ${money(r.proceedsCents)}.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
+  const assignPilot = async (a: OwnedAircraft, staffId: string | null) => {
+    setBusy(true); setMsg(null)
+    try { await api.assignPilot(a.id, staffId); await load(); onChanged(); const who = crew.find(c => c.id === staffId)?.name; setMsg(who ? `${a.name} assigned to ${who}.` : `${a.name} is open to any pilot.`) }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
 
@@ -3161,8 +3180,8 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
 
       {sel && (
         <section className="card acd-wrap">
-          <AircraftDetail a={sel} history={history} bases={bases} busy={busy}
-            onService={maintain} onInspect={inspect} onInsure={insure} onRelocate={relocate} onSell={sell} />
+          <AircraftDetail a={sel} history={history} bases={bases} crew={crew} busy={busy}
+            onService={maintain} onInspect={inspect} onInsure={insure} onRelocate={relocate} onSell={sell} onAssignPilot={assignPilot} />
         </section>
       )}
 

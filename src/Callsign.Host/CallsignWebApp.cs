@@ -678,6 +678,8 @@ public static class CallsignWebApp
             var onDisk = (await db.InstalledPackages.Where(i => i.IsOnDisk).Select(i => i.AircraftTypeId).ToListAsync()).ToHashSet();
             var ids = hangar.Select(h => h.Instance.Id).ToList();
             var ports = await AirportsByIdentAsync(db, hangar.Select(h => h.Instance.LocationIcao));
+            var crewNames = await db.Staff.Where(s => s.CompanyId == pilot.CompanyId && !s.IsDeleted)
+                .ToDictionaryAsync(s => s.Id, s => s.Name);
 
             var flightAgg = (await db.Flights
                     .Where(f => f.AircraftInstanceId != null && ids.Contains(f.AircraftInstanceId!.Value)).ToListAsync())
@@ -720,8 +722,26 @@ public static class CallsignWebApp
                     pol != null, pol?.CoverageMilli, pol?.CoveredValueCents,
                     fa.Flights, fa.Dist, fa.Fuel, fa.Earn, upkeep,
                     aw.Airworthy, aw.Reason, aw.HoursTo100h, aw.DaysToAnnual, aw.InspectionQuoteCents,
-                    inst.Ownership.ToString());
+                    inst.Ownership.ToString(),
+                    inst.AssignedStaffId,
+                    inst.AssignedStaffId is { } sid && crewNames.TryGetValue(sid, out var sn) ? sn : null);
             }));
+        });
+
+        // Phase 13 — assign a tail to a crew member (or clear it). A hired pilot gets their own aircraft; a
+        // null staffId leaves it open for you / anyone. Additive; validates the staff belongs to the company.
+        app.MapPost("/api/aircraft/{id:guid}/assign-pilot", async (Guid id, AssignPilotRequest req, CallsignDbContext db) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var inst = await db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == id && a.CompanyId == pilot.CompanyId && !a.IsDeleted);
+            if (inst is null) return Results.NotFound(new { error = "Aircraft not found in your fleet." });
+            if (req.StaffId is { } sid && !await db.Staff.AnyAsync(s => s.Id == sid && s.CompanyId == pilot.CompanyId && s.IsActive && !s.IsDeleted))
+                return Results.BadRequest(new { error = "That crew member isn't on your roster." });
+            inst.AssignedStaffId = req.StaffId;
+            inst.UpdatedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync();
+            return Results.Ok(new { id, assignedStaffId = req.StaffId });
         });
 
         // The aircraft's own thumbnail from the player's MSFS install (Phase 6b) — read locally, served

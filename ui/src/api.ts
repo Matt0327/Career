@@ -337,6 +337,8 @@ export interface OwnedAircraft {
   daysToAnnual: number
   inspectionQuoteCents: number
   ownership: string // Phase 9f — "Owned" | "Rented"
+  assignedStaffId?: string | null   // Phase 13 — the crew member this tail is assigned to (null = you/anyone)
+  assignedStaffName?: string | null
 }
 
 export interface AircraftFlight {
@@ -1112,6 +1114,8 @@ export const api = {
     POST_IDEM(`/api/staff/${id}/relocate`, { destIcao }).then(ok<{ feeCents: number }>),
   relocateSelf: (destIcao: string) =>
     POST_IDEM('/api/pilot/relocate', { destIcao }).then(ok<{ feeCents: number }>),
+  assignPilot: (id: string, staffId: string | null) =>
+    POST(`/api/aircraft/${id}/assign-pilot`, { staffId }).then(ok<{ assignedStaffId: string | null }>),
   dismissStaff: (id: string) => fetch(`/api/staff/${id}`, { method: 'DELETE' }).then(ok),
   orders: () => fetch('/api/ops/orders').then(ok<StandingOrder[]>),
   createOrder: (staffId: string, aircraftInstanceId: string, destIcao: string, priceMultiplierMilli = 1000) =>

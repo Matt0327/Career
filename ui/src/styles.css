@@ -280,6 +280,8 @@ input { font: inherit; }
 .mkt-filters input, .mkt-filters select { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); font: inherit; }
 .mkt-toggle { font-size: 12px; font-weight: 640; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); color: var(--muted); cursor: pointer; white-space: nowrap; }
 .mkt-toggle.on { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+.acd-pilot { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px; font-size: 13px; }
+.acd-pilot select { padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); font: inherit; }
 .ac-loc { display: flex; align-items: baseline; gap: 4px; font-size: 13px; margin-top: 2px; }
 .ac-loc .loc { font-weight: 600; }
 .ac-loc .ac-dist { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; padding-left: 10px; }

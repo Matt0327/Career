@@ -66,7 +66,8 @@ public record OwnedAircraftDto(
     int LifetimeFlights, double LifetimeDistanceNm, double LifetimeFuelLbs,
     long LifetimeEarningsCents, long LifetimeUpkeepCents,
     bool Airworthy, string? UnairworthyReason, double HoursTo100h, int DaysToAnnual, long InspectionQuoteCents,
-    string Ownership); // Phase 9f — "Owned" | "Rented"; a rented tail can't be sold/insured
+    string Ownership, // Phase 9f — "Owned" | "Rented"; a rented tail can't be sold/insured
+    Guid? AssignedStaffId, string? AssignedStaffName); // Phase 13 — the crew member this tail is assigned to (null = you/anyone)
 
 // --- Hangar depth (Phase 6): per-airframe drill-down ---
 public record AircraftFlightDto(
@@ -96,6 +97,7 @@ public record CheckFlightAttemptRequest(string Class, FlightResultDto Flight);
 public record CheckFlightResultDto(bool Passed, string Class, string ClassName, int Stars, long FeeCents, double TouchdownFpm);
 
 public record BuyAircraftRequest(Guid TypeId);
+public record AssignPilotRequest(Guid? StaffId); // Phase 13 — assign a tail to a crew member (null = clear)
 public record UsedListingDto(int Seed, Guid TypeId, string TypeName, string Category, double AirframeHours, int ConditionMilli, long PriceCents, long NewPriceCents,
     // Where the pre-owned airframe sits today — buying takes delivery here, same as a new one.
     string LocationIcao, string LocationName, double DistanceNm);
