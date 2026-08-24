@@ -253,9 +253,9 @@ gate thresholds and the incorporation cost before building.
 3. **Curated images:** ✅ Reconcile `CuratedAircraftImages.ByIcao` to EXACTLY the list the user sent
    in the prior session — remove any override not on that list, add/replace the ones on it (DR400 etc.
    had no/bad picture). When implementing, recover the exact URL list from the prior transcript.
-4. **Airline reframe:** ⏳ Explained to the user in plain language (early = "Operator", the "Airline"
-   identity — name/livery/scheduled network/HQ — unlocks only after real growth). Awaiting a simple
-   yes before building Workstream E. Thresholds still to brainstorm.
+4. **Airline reframe:** ✅ **YES.** Early game = a small "Operator"; the "Airline" identity
+   (name/livery/scheduled network/HQ) unlocks only after real growth. Build Workstream E on this
+   footing. Exact gate thresholds + incorporation cost still to brainstorm when we reach that wave.
 
 ---
 
