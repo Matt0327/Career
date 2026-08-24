@@ -253,6 +253,19 @@ input { font: inherit; }
 .factors summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 .factors ul { list-style: none; margin: 6px 0 0; padding: 0; }
 .factors li { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--muted); padding: 2px 0; }
+/* Aircraft market as a stacked list of rows — thumbnail left, specs middle, price + action right */
+.ac-market { display: flex; flex-direction: column; gap: 12px; }
+.ac-market .ac-row { display: grid; grid-template-columns: 200px 1fr auto; gap: 18px; align-items: center; padding: 12px 16px; }
+.ac-market .ac-row > .ac-img { width: 200px; aspect-ratio: 16 / 10; flex: none; margin: 0; }
+.ac-info { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.ac-info .job-meta { flex-wrap: wrap; }
+.ac-buy { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; white-space: nowrap; }
+.ac-buy .price { font-size: 18px; }
+@media (max-width: 560px) {
+  .ac-market .ac-row { grid-template-columns: 1fr; }
+  .ac-market .ac-row > .ac-img { width: 100%; }
+  .ac-buy { align-items: stretch; }
+}
 
 /* ── Flight HUD ── */
 .hud-head { display: flex; align-items: center; justify-content: space-between; }

@@ -3062,28 +3062,30 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
         {offers === null ? <div className="empty">Loading…</div>
           : offers.length === 0 ? <div className="empty">No aircraft types known yet.</div>
           : (
-            <div className="jobs">
+            <div className="ac-market">
               {offers.map(o => {
                 const afford = state.cashCents >= o.priceCents
                 return (
-                  <div className="card job" key={o.typeId}>
+                  <div className="card job ac-row" key={o.typeId}>
                     <AircraftImage typeId={o.typeId} category={o.category} />
-                    <div className="job-top">
-                      <div className="leg"><b>{o.name}</b></div>
-                      {o.onDisk && <div className="tag">installed</div>}
+                    <div className="ac-info">
+                      <div className="job-top">
+                        <div className="leg"><b>{o.name}</b></div>
+                        {o.onDisk && <div className="tag">installed</div>}
+                      </div>
+                      <div className="commodity">{spaced(o.category)}</div>
+                      <div className="job-meta">
+                        {o.seats != null && <Meta label="Seats" value={String(o.seats)} />}
+                        {o.usefulLoadLbs != null && <Meta label="Payload" value={`${o.usefulLoadLbs.toLocaleString()} lb`} />}
+                        {o.cruiseKtas != null && <Meta label="Cruise" value={`${o.cruiseKtas} kt`} />}
+                      </div>
+                      <details className="factors">
+                        <summary>why this price</summary>
+                        <ul>{o.factors.map((f, i) => <li key={i}><span>{f.label}</span><span className="num">{money(f.amountCents)}</span></li>)}</ul>
+                      </details>
                     </div>
-                    <div className="commodity">{spaced(o.category)}</div>
-                    <div className="job-meta">
-                      {o.seats != null && <Meta label="Seats" value={String(o.seats)} />}
-                      {o.usefulLoadLbs != null && <Meta label="Payload" value={`${o.usefulLoadLbs.toLocaleString()} lb`} />}
-                      {o.cruiseKtas != null && <Meta label="Cruise" value={`${o.cruiseKtas} kt`} />}
-                    </div>
-                    <div className="price num">{money(o.priceCents)}</div>
-                    <details className="factors">
-                      <summary>why this price</summary>
-                      <ul>{o.factors.map((f, i) => <li key={i}><span>{f.label}</span><span className="num">{money(f.amountCents)}</span></li>)}</ul>
-                    </details>
-                    <div className="job-foot">
+                    <div className="ac-buy">
+                      <div className="price num">{money(o.priceCents)}</div>
                       <span className="hint">{afford ? '' : 'over budget'}</span>
                       <button className="primary" disabled={busy || !afford} onClick={() => buy(o)}>Buy</button>
                     </div>
@@ -3097,21 +3099,23 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
       {used.length > 0 && (
         <section className="card">
           <div className="row-head"><h2>Used market</h2><span className="hint">Pre-owned — cheaper, but flown</span></div>
-          <div className="jobs">
+          <div className="ac-market">
             {used.map(l => {
               const afford = state.cashCents >= l.priceCents
               const off = Math.round((1 - l.priceCents / l.newPriceCents) * 100)
               return (
-                <div className="card job" key={l.seed}>
+                <div className="card job ac-row" key={l.seed}>
                   <AircraftImage typeId={l.typeId} category={l.category} />
-                  <div className="job-top"><div className="leg"><b>{l.typeName}</b></div><div className="tag">−{off}% vs new</div></div>
-                  <div className="commodity">{spaced(l.category)}</div>
-                  <div className="job-meta">
-                    <Meta label="Hours" value={`${Math.round(l.airframeHours).toLocaleString()} h`} />
-                    <Meta label="Condition" value={`${Math.round(l.conditionMilli / 1000)}%`} />
+                  <div className="ac-info">
+                    <div className="job-top"><div className="leg"><b>{l.typeName}</b></div><div className="tag">−{off}% vs new</div></div>
+                    <div className="commodity">{spaced(l.category)}</div>
+                    <div className="job-meta">
+                      <Meta label="Hours" value={`${Math.round(l.airframeHours).toLocaleString()} h`} />
+                      <Meta label="Condition" value={`${Math.round(l.conditionMilli / 1000)}%`} />
+                    </div>
                   </div>
-                  <div className="price num">{money(l.priceCents)} <span className="fair-ref">new {money(l.newPriceCents)}</span></div>
-                  <div className="job-foot">
+                  <div className="ac-buy">
+                    <div className="price num">{money(l.priceCents)} <span className="fair-ref">new {money(l.newPriceCents)}</span></div>
                     <span className="hint">{afford ? '' : 'over budget'}</span>
                     <button className="primary" disabled={busy || !afford} onClick={() => buyUsedListing(l)}>Buy used</button>
                   </div>
@@ -3150,21 +3154,23 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
       {rentalOffers.length > 0 && (
         <details className="card shop">
           <summary className="row-head shop-head"><h2>Rent an aircraft</h2><span className="hint">Capital-free — {rentalOffers.length} types · click to browse</span></summary>
-          <div className="jobs">
+          <div className="ac-market">
             {rentalOffers.map(o => {
               const afford = state.cashCents >= o.depositCents
               return (
-                <div className="card job" key={o.typeId}>
+                <div className="card job ac-row" key={o.typeId}>
                   <AircraftImage typeId={o.typeId} category={o.category} />
-                  <div className="job-top"><div className="leg"><b>{o.typeName}</b></div><div className="tag">{o.termDays}d term</div></div>
-                  <div className="commodity">{spaced(o.category)}</div>
-                  <div className="job-meta">
-                    <Meta label="Deposit" value={money(o.depositCents)} />
-                    <Meta label="Holding" value={`${money(o.dailyHoldingCents)}/day`} />
-                    <Meta label="Usage" value={`${money(o.flightHourCents)}/h`} />
+                  <div className="ac-info">
+                    <div className="job-top"><div className="leg"><b>{o.typeName}</b></div><div className="tag">{o.termDays}d term</div></div>
+                    <div className="commodity">{spaced(o.category)}</div>
+                    <div className="job-meta">
+                      <Meta label="Deposit" value={money(o.depositCents)} />
+                      <Meta label="Holding" value={`${money(o.dailyHoldingCents)}/day`} />
+                      <Meta label="Usage" value={`${money(o.flightHourCents)}/h`} />
+                    </div>
                   </div>
-                  <div className="price num">{money(o.depositCents)} <span className="fair-ref">deposit</span></div>
-                  <div className="job-foot">
+                  <div className="ac-buy">
+                    <div className="price num">{money(o.depositCents)} <span className="fair-ref">deposit</span></div>
                     <span className="hint">{afford ? '' : 'deposit over budget'}</span>
                     <button className="primary" disabled={busy || !afford} onClick={() => rentAircraft(o)}>Rent</button>
                   </div>
@@ -3212,21 +3218,23 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
               <button key={t} type="button" className={`hsort ${leaseTerm === t ? 'on' : ''}`} onClick={() => setLeaseTerm(t)}>{t / 7}wk</button>
             ))}
           </div>
-          <div className="jobs">
+          <div className="ac-market">
             {leaseOffers.map(o => {
               const afford = state.cashCents >= o.upfrontCents
               return (
-                <div className="card job" key={o.typeId}>
+                <div className="card job ac-row" key={o.typeId}>
                   <AircraftImage typeId={o.typeId} category={o.category} />
-                  <div className="job-top"><div className="leg"><b>{o.typeName}</b></div><div className="tag">rent-to-own</div></div>
-                  <div className="commodity">{spaced(o.category)}</div>
-                  <div className="job-meta">
-                    <Meta label="Weekly" value={money(o.weeklyRateCents)} />
-                    <Meta label="Hull cover" value={`${money(o.insuranceWeeklyCents)}/wk`} />
-                    <Meta label="Buyout" value={money(o.buyoutCents)} />
+                  <div className="ac-info">
+                    <div className="job-top"><div className="leg"><b>{o.typeName}</b></div><div className="tag">rent-to-own</div></div>
+                    <div className="commodity">{spaced(o.category)}</div>
+                    <div className="job-meta">
+                      <Meta label="Weekly" value={money(o.weeklyRateCents)} />
+                      <Meta label="Hull cover" value={`${money(o.insuranceWeeklyCents)}/wk`} />
+                      <Meta label="Buyout" value={money(o.buyoutCents)} />
+                    </div>
                   </div>
-                  <div className="price num">{money(o.upfrontCents)} <span className="fair-ref">to sign ({o.termDays / 7}wk)</span></div>
-                  <div className="job-foot">
+                  <div className="ac-buy">
+                    <div className="price num">{money(o.upfrontCents)} <span className="fair-ref">to sign ({o.termDays / 7}wk)</span></div>
                     <span className="hint">{afford ? '' : 'sign-on over budget'}</span>
                     <button className="primary" disabled={busy || !afford} onClick={() => leaseAircraft(o)}>Lease</button>
                   </div>
