@@ -1115,6 +1115,9 @@ function NetworkMap({ bases, fleet, assignments, tele, link, selectedTail, onSel
 
   const plottedBases = bases.filter(b => b.latitude !== 0 || b.longitude !== 0)
   const plottedFleet = fleet.filter(f => f.lat !== 0 || f.lon !== 0)
+  // The map div only renders once there's something to plot; the init effect must re-run when that flips,
+  // or the map is created against a null ref and never initialises (the dashboard-map black-box bug).
+  const empty = plottedBases.length === 0 && plottedFleet.length === 0
   const legs = assignments.filter(a => (a.destLat !== 0 || a.destLon !== 0) && (a.originLat !== 0 || a.originLon !== 0))
   const sig = [
     ...plottedBases.map(b => `b:${b.icao}:${b.isHome ? 'h' : ''}`),
@@ -1132,7 +1135,7 @@ function NetworkMap({ bases, fleet, assignments, tele, link, selectedTail, onSel
     mapRef.current = map
     const t = setTimeout(() => map.invalidateSize(), 60) // WebView2 flex layout can settle a beat late
     return () => { clearTimeout(t); map.remove(); mapRef.current = null; dataLayer.current = null; planeRef.current = null; acMarkers.current = {} }
-  }, [online])
+  }, [online, empty])
 
   // (Re)draw bases, fleet, and active legs whenever the plotted data changes.
   useEffect(() => {
@@ -1165,7 +1168,13 @@ function NetworkMap({ bases, fleet, assignments, tele, link, selectedTail, onSel
     const layers: L.Layer[] = []
     layer.eachLayer(l => layers.push(l))
     if (layers.length) {
-      try { map.fitBounds(L.featureGroup(layers).getBounds().pad(0.3), { maxZoom: 8 }) } catch { /* single point — leave the default view */ }
+      const bounds = L.featureGroup(layers).getBounds()
+      if (bounds.isValid()) {
+        // When everything sits at one field (e.g. a single base + its parked aircraft), the bounds are a
+        // zero-area point — fitBounds then computes a broken zoom and the map renders black. Just centre it.
+        if (bounds.getNorthEast().equals(bounds.getSouthWest())) map.setView(bounds.getCenter(), 9)
+        else try { map.fitBounds(bounds.pad(0.3), { maxZoom: 8 }) } catch { map.setView(bounds.getCenter(), 8) }
+      }
     }
     const t = setTimeout(() => map.invalidateSize(), 60)
     return () => clearTimeout(t)
@@ -1197,7 +1206,7 @@ function NetworkMap({ bases, fleet, assignments, tele, link, selectedTail, onSel
   }, [selectedTail, sig])
 
   if (!online) return <div className="empty" style={{ padding: 16 }}>The network map needs a connection for satellite imagery.</div>
-  if (plottedBases.length === 0 && plottedFleet.length === 0) return <div className="empty" style={{ padding: 16 }}>No mapped bases or aircraft yet.</div>
+  if (empty) return <div className="empty" style={{ padding: 16 }}>No mapped bases or aircraft yet.</div>
   return <div className="satmap dashmap" ref={host} role="img" aria-label="Network map" />
 }
 
