@@ -2111,6 +2111,7 @@ function FlightMap({ tele, leg, home, live }: { tele: Telemetry | null; leg?: As
   const trail = useRef<L.Polyline | null>(null)
   const legLayer = useRef<L.LayerGroup | null>(null)
   const path = useRef<[number, number][]>([])
+  const heading = useRef(0) // last committed heading — only re-aimed on real travel, so jitter can't spin the icon
   const centred = useRef(false)
   const online = typeof navigator === 'undefined' ? true : navigator.onLine
   const armed = !!leg || !!live
@@ -2162,7 +2163,7 @@ function FlightMap({ tele, leg, home, live }: { tele: Telemetry | null; leg?: As
     }
     // Disarmed → drop any live plot + trail so nothing lingers from a prior flight.
     if (marker.current) { marker.current.remove(); marker.current = null }
-    path.current = []; trail.current?.setLatLngs([]); centred.current = false
+    path.current = []; heading.current = 0; trail.current?.setLatLngs([]); centred.current = false
     const pos: [number, number] = [home.lat, home.lon]
     if (!parked.current) parked.current = L.marker(pos, { icon: planeIcon(0), interactive: false }).addTo(map).bindTooltip(`${home.label} · parked at ${home.label}`, { direction: 'top', className: 'sat-tip' })
     else parked.current.setLatLng(pos)
@@ -2175,14 +2176,19 @@ function FlightMap({ tele, leg, home, live }: { tele: Telemetry | null; leg?: As
     if (!map || !armed || !tele || (tele.lat === 0 && tele.lon === 0)) return
     const pos: [number, number] = [tele.lat, tele.lon]
     const prev = path.current[path.current.length - 1]
-    if (!prev || prev[0] !== pos[0] || prev[1] !== pos[1]) {
+    // Only extend the trail and re-aim the icon when the aircraft has actually TRAVELLED. Below ~15 m the
+    // reading is GPS jitter (or a not-yet-settled sim), and computing a bearing off it spins the icon wildly
+    // and litters the trail. Sub-threshold frames still move the marker's position, just not its heading.
+    const MIN_MOVE_DEG = 0.00015
+    const moved = !prev || Math.hypot(pos[0] - prev[0], pos[1] - prev[1]) > MIN_MOVE_DEG
+    if (moved) {
+      if (prev) heading.current = bearing(prev, pos)
       path.current.push(pos)
       if (path.current.length > 500) path.current.shift()
       trail.current?.setLatLngs(path.current)
     }
-    const hdg = prev ? bearing(prev, pos) : 0
-    if (!marker.current) marker.current = L.marker(pos, { icon: planeIcon(hdg), interactive: false }).addTo(map)
-    else { marker.current.setLatLng(pos); marker.current.setIcon(planeIcon(hdg)) }
+    if (!marker.current) marker.current = L.marker(pos, { icon: planeIcon(heading.current), interactive: false }).addTo(map)
+    else { marker.current.setLatLng(pos); marker.current.setIcon(planeIcon(heading.current)) }
     if (!centred.current) { map.setView(pos, 8); centred.current = true }
     else map.panTo(pos, { animate: true, duration: .5 })
   }, [tele, armed])
