@@ -2931,6 +2931,11 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
   const setMsg = useToast()
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<FleetSort>('value')
+  // Aircraft-market filters
+  const [mktQ, setMktQ] = useState('')
+  const [mktCat, setMktCat] = useState('')            // '' = every category
+  const [mktRentOnly, setMktRentOnly] = useState(false)
+  const [mktSort, setMktSort] = useState<'price' | 'seats' | 'payload' | 'distance'>('distance')
 
   const load = useCallback(async () => {
     try {
@@ -3048,6 +3053,15 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
   const sorts: [FleetSort, string][] = [['value', 'Value'], ['earned', 'Earned'], ['hours', 'Hours'], ['condition', 'Needs service'], ['name', 'Name']]
   // One unified market: for each buyable type, whether it can also be rented (badge + action).
   const rentByType = new Map((rentalOffers ?? []).map(o => [o.typeId, o]))
+  const mktCats = Array.from(new Set((offers ?? []).map(o => o.category)))
+  const shownOffers = (offers ?? [])
+    .filter(o => { const s = mktQ.trim().toLowerCase(); return !s || o.name.toLowerCase().includes(s) || spaced(o.category).toLowerCase().includes(s) || o.locationIcao.toLowerCase().includes(s) })
+    .filter(o => !mktCat || o.category === mktCat)
+    .filter(o => !mktRentOnly || rentByType.has(o.typeId))
+    .sort((a, b) => mktSort === 'price' ? a.priceCents - b.priceCents
+      : mktSort === 'seats' ? (b.seats ?? 0) - (a.seats ?? 0)
+      : mktSort === 'payload' ? (b.usefulLoadLbs ?? 0) - (a.usefulLoadLbs ?? 0)
+      : a.distanceNm - b.distanceNm)
 
   return (
     <div className="hangar-screen">
@@ -3092,11 +3106,28 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
 
       <section className="card">
         <div className="row-head"><h2>Aircraft market</h2><span className="hint">buy outright or rent by the hour</span></div>
+        {offers !== null && offers.length > 0 && (
+          <div className="mkt-filters">
+            <input className="mkt-search" placeholder="Search name, class or field…" value={mktQ} onChange={e => setMktQ(e.target.value)} />
+            <select value={mktCat} onChange={e => setMktCat(e.target.value)}>
+              <option value="">All classes</option>
+              {mktCats.map(c => <option key={c} value={c}>{spaced(c)}</option>)}
+            </select>
+            <select value={mktSort} onChange={e => setMktSort(e.target.value as typeof mktSort)}>
+              <option value="distance">Nearest first</option>
+              <option value="price">Cheapest first</option>
+              <option value="seats">Most seats</option>
+              <option value="payload">Most payload</option>
+            </select>
+            <button type="button" className={`mkt-toggle ${mktRentOnly ? 'on' : ''}`} onClick={() => setMktRentOnly(v => !v)}>Rentable only</button>
+          </div>
+        )}
         {offers === null ? <div className="empty">Loading…</div>
           : offers.length === 0 ? <div className="empty">No aircraft types known yet.</div>
+          : shownOffers.length === 0 ? <div className="empty">No aircraft match those filters.</div>
           : (
             <div className="ac-market">
-              {offers.map(o => {
+              {shownOffers.map(o => {
                 const afford = state.cashCents >= o.priceCents
                 const rent = rentByType.get(o.typeId)
                 return (
