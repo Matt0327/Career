@@ -686,25 +686,28 @@ public class FlightTrackerTests
     // ── Phase 12: the flight lifecycle — start from the ground, complete only when secured ─────────────
 
     [Fact]
-    public void Lifecycle_LandsButNotSecured_HoldsInShutdown_AndNudges_ThenCompletesOnBrake()
+    public void Lifecycle_LandsButNotSecured_HoldsInShutdown_AndNudges_ThenCompletesOnBrakeAndShutdown()
     {
         var t = new FlightTracker();
         t.Observe(Snap(0, 0, 0, 0, onGround: true, engineRunning: true));        // parked, engine running
         t.Observe(Snap(10, 50, 70, 500, onGround: false, engineRunning: true));  // takeoff
         t.Observe(Snap(60, 30, 60, -120, onGround: false, engineRunning: true)); // final
         t.Observe(Snap(61, 0, 55, 0, onGround: true, engineRunning: true));      // touchdown, rolling out
-        t.Observe(Snap(70, 0, 0, 0, onGround: true, engineRunning: true));       // stopped — but engine still running, no brake
+        t.Observe(Snap(70, 0, 0, 0, onGround: true, engineRunning: true));       // stopped — engine still running, no brake
 
         Assert.Null(t.Result);                                                   // NOT logged: the aircraft isn't secured
         Assert.Equal(FlightPhase.Shutdown, t.Phase);
         Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Coaching && e.Message.Contains("parking brake"));
 
-        t.Observe(Snap(80, 0, 0, 0, onGround: true, engineRunning: true, parkingBrake: true)); // brakes set → secured
+        // Phase 13: brake set but engine STILL running is not enough — a proper shutdown needs both.
+        t.Observe(Snap(80, 0, 0, 0, onGround: true, engineRunning: true, parkingBrake: true));
+        Assert.Null(t.Result);
+        t.Observe(Snap(90, 0, 0, 0, onGround: true, engineRunning: false, parkingBrake: true)); // brake set AND engine off → secured
         Assert.NotNull(t.Result);                                                // now the flight is logged
     }
 
     [Fact]
-    public void Lifecycle_EngineShutdown_AlsoSecures_AndCompletes()
+    public void Lifecycle_EngineOffButNoBrake_HoldsUntilBrakeSet()
     {
         var t = new FlightTracker();
         t.Observe(Snap(0, 0, 0, 0, onGround: true, engineRunning: true));
@@ -713,7 +716,9 @@ public class FlightTrackerTests
         t.Observe(Snap(61, 0, 55, 0, onGround: true, engineRunning: true));
         t.Observe(Snap(70, 0, 0, 0, onGround: true, engineRunning: true));   // stopped, engine running → holds
         Assert.Null(t.Result);
-        t.Observe(Snap(80, 0, 0, 0, onGround: true, engineRunning: false));  // engine shut down → secured
+        t.Observe(Snap(80, 0, 0, 0, onGround: true, engineRunning: false));  // engine off, brake NOT set → STILL holds (Phase 13)
+        Assert.Null(t.Result);
+        t.Observe(Snap(90, 0, 0, 0, onGround: true, engineRunning: false, parkingBrake: true)); // brake set too → secured
         Assert.NotNull(t.Result);
     }
 
@@ -736,7 +741,7 @@ public class FlightTrackerTests
         t.Observe(Snap(30, 3000, 120, 0, onGround: false, agl: 3000, engineRunning: false)); // ENGINE QUITS aloft
         t.Observe(Snap(60, 400, 75, -600, onGround: false, agl: 400, engineRunning: false)); // dead-stick glide
         t.Observe(Snap(61, 0, 55, 0, onGround: true, engineRunning: false));        // dead-stick touchdown
-        t.Observe(Snap(120, 0, 0, 0, onGround: true, engineRunning: false));        // stopped, engine off → secured → complete
+        t.Observe(Snap(120, 0, 0, 0, onGround: true, engineRunning: false, parkingBrake: true)); // stopped, engine off, brake set → secured
 
         var r = t.Result;
         Assert.NotNull(r);
@@ -756,7 +761,7 @@ public class FlightTrackerTests
         t.Observe(Snap(40, 3000, 120, 0, onGround: false, agl: 3000, slew: true, engineRunning: false)); // slew → score void
         t.Observe(Snap(60, 30, 60, -120, onGround: false, engineRunning: false));
         t.Observe(Snap(61, 0, 55, 0, onGround: true, engineRunning: false));
-        t.Observe(Snap(120, 0, 0, 0, onGround: true, engineRunning: false));
+        t.Observe(Snap(120, 0, 0, 0, onGround: true, engineRunning: false, parkingBrake: true));
         var r = t.Result!;
         Assert.False(r.ScoreValid);
         Assert.False(r.HandledEmergency); // an emergency reached by cheating isn't airmanship

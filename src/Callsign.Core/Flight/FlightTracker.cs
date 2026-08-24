@@ -74,7 +74,7 @@ public sealed class FlightTracker
     // running, so the synthetic source, a glider, and pre-Phase-12 tests still complete on the stop (L10).
     private bool _sawGround;
     private bool _sawEngineRunning;
-    private bool _secureCoached;
+    private string? _secureNeed; // the last "what's left to secure" nudge, so we re-coach only when the step changes
 
     private bool _inFlight;
     private bool _landed;
@@ -276,11 +276,18 @@ public sealed class FlightTracker
         // else: inside the hysteresis band — keep the phase we were already in.
     }
 
-    // The aircraft is secured — the flight is over — when the parking brake is set or the engine is shut down
-    // (Phase 12). A leg whose telemetry never reported a running engine (the synthetic source, a glider,
-    // pre-Phase-12 tests) can't be judged on this, so it secures on the stop: unchanged legacy behaviour (L10).
+    // The aircraft is secured — the flight is over — when it's parked properly: the parking brake is set AND
+    // the engine is shut down (Phase 13 — a real shutdown checklist, not just one or the other). A leg whose
+    // telemetry never reported a running engine (the synthetic source, a glider, pre-Phase-12 tests) can't be
+    // judged on this, so it secures on the stop: unchanged legacy behaviour (L10).
     private bool IsSecured(TelemetrySnapshot t)
-        => !_sawEngineRunning || t.ParkingBrakeSet || !t.EngineRunning;
+        => !_sawEngineRunning || (t.ParkingBrakeSet && !t.EngineRunning);
+
+    // What's still keeping the flight from logging, so the nudge names exactly the remaining step.
+    private static string SecureRemaining(TelemetrySnapshot t)
+        => !t.ParkingBrakeSet && t.EngineRunning ? "set the parking brake and shut the engine down"
+        : !t.ParkingBrakeSet ? "set the parking brake"
+        : "shut the engine down";
 
     private void ObserveOnGround(TelemetrySnapshot t)
     {
@@ -358,11 +365,17 @@ public sealed class FlightTracker
             Phase = FlightPhase.Shutdown;
             if (IsSecured(t))
                 Complete();
-            else if (!_secureCoached)
+            else
             {
-                _secureCoached = true;
-                _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Coaching,
-                    "Down and stopped — set the parking brake and shut the engine down to log the flight."));
+                // Nudge with EXACTLY what's left — and re-nudge only when that changes (e.g. brake now set,
+                // engine still running), so it guides the shutdown without spamming a line every frame.
+                string need = SecureRemaining(t);
+                if (need != _secureNeed)
+                {
+                    _secureNeed = need;
+                    _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Coaching,
+                        $"Down and stopped — {need} to log the flight."));
+                }
             }
         }
         else
