@@ -14,8 +14,22 @@ public sealed record AircraftPriceQuote(long TotalCents, IReadOnlyList<AircraftP
 /// </summary>
 public static class AircraftPricing
 {
+    /// <summary>Hand-set sticker prices for halo/flagship aircraft, keyed by <see cref="AircraftType.Key"/>.
+    /// These override the spec-derived quote entirely — a flagship is priced by desirability, not by payload.
+    /// Cents.</summary>
+    public static readonly IReadOnlyDictionary<string, long> HaloPrices = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["CONC"] = 50_000_000_000, // Concorde — $500,000,000
+    };
+
+    /// <summary>True if this type has a hand-set halo price (buy-only flagship — never rented).</summary>
+    public static bool IsHalo(string? key) => key is not null && HaloPrices.ContainsKey(key);
+
     public static AircraftPriceQuote Quote(EconomyConfig cfg, AircraftType t)
     {
+        if (t.Key is { } k && HaloPrices.TryGetValue(k, out var halo))
+            return new AircraftPriceQuote(halo, [new AircraftPriceFactor($"Flagship · {t.CanonicalName}", halo)]);
+
         var factors = new List<AircraftPriceFactor>
         {
             new($"Base · {t.Category}", cfg.AircraftBaseCents(t.Category)),

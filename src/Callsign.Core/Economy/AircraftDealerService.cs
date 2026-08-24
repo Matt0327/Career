@@ -84,6 +84,21 @@ public sealed class AircraftDealerService
         return !NonCareerKeywords.Any(k => hay.Contains(k));
     }
 
+    /// <summary>
+    /// Which career aircraft an FBO will RENT. Logical rule: you can rent a working prop you'd realistically
+    /// hire — GA singles/twins, light turboprops, and helicopters up to a regional size. Jets, airliners
+    /// (Heavy), and hand-priced halo flagships are BUY-ONLY. So the Concorde, a 747 or a bizjet never rent;
+    /// a C172, Caravan, King Air or JetRanger do.
+    /// </summary>
+    public static bool IsRentable(AircraftType t)
+    {
+        if (!IsCareerAircraft(t)) return false;
+        if (AircraftPricing.IsHalo(t.Key)) return false;                 // flagships are buy-only
+        if (t.Seats is int seats && seats > 19) return false;            // airliners/regionals — too big to rent
+        return t.Category is AircraftCategory.LightSingle or AircraftCategory.LightTwin
+            or AircraftCategory.Turboprop or AircraftCategory.Helicopter; // props + helis only; no jets
+    }
+
     public async Task<IReadOnlyList<AircraftOffer>> GetOffersAsync(CancellationToken ct = default)
     {
         var types = (await _db.AircraftTypes.ToListAsync(ct)).Where(IsCareerAircraft);
@@ -571,7 +586,7 @@ public sealed class AircraftDealerService
     /// <summary>Every rentable type at a field, priced (holding/day + usage/flight-hour + deposit), cheapest first.</summary>
     public async Task<IReadOnlyList<RentalOffer>> GetRentalOffersAsync(CancellationToken ct = default)
     {
-        var types = (await _db.AircraftTypes.ToListAsync(ct)).Where(IsCareerAircraft);
+        var types = (await _db.AircraftTypes.ToListAsync(ct)).Where(IsRentable);
         return types
             .Select(t =>
             {

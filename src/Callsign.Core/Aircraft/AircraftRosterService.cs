@@ -113,4 +113,47 @@ public sealed class AircraftRosterService
         await _db.SaveChangesAsync(ct);
         return keys.Count;
     }
+
+    /// <summary>
+    /// Additively ensure every curated catalog type EXISTS as an <see cref="AircraftType"/>, without a full
+    /// rebuild. A full <see cref="RebuildAsync"/> only runs at game creation, so a curated aircraft added to
+    /// the catalog after a career started (e.g. a new halo type) would otherwise never appear. This adds only
+    /// the MISSING ones — it never touches existing types, scan state, or aliases — so it is safe to run on
+    /// every startup and is idempotent. Returns how many new types were added.
+    /// </summary>
+    public async Task<int> EnsureCuratedTypesAsync(IReadOnlyList<CuratedAircraft> curated, CancellationToken ct = default)
+    {
+        var have = (await _db.AircraftTypes.Select(t => t.Key).ToListAsync(ct))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var now = _clock.UtcNow;
+        int added = 0;
+        foreach (var c in curated)
+        {
+            var key = c.IcaoTypeDesignator.ToUpperInvariant();
+            if (have.Contains(key)) continue;
+            var type = new AircraftType
+            {
+                Id = Guid.NewGuid(), Key = key,
+                CanonicalName = c.CanonicalName, Manufacturer = c.Manufacturer,
+                IcaoTypeDesignator = c.IcaoTypeDesignator, Category = c.Category,
+                Seats = c.Seats, UsefulLoadLbs = c.UsefulLoadLbs, FuelCapacityLbs = c.FuelCapacityLbs,
+                CruiseKtas = c.CruiseKtas, MinRunwayFt = c.MinRunwayFt,
+            };
+            _db.AircraftTypes.Add(type);
+            foreach (var t in c.Aliases.Distinct(StringComparer.OrdinalIgnoreCase))
+                _db.AircraftTitleAliases.Add(new AircraftTitleAlias
+                {
+                    AircraftTypeId = type.Id, Title = t, TitleNormalized = AircraftTitle.Normalize(t),
+                });
+            _db.InstalledPackages.Add(new InstalledPackage
+            {
+                Id = Guid.NewGuid(), AircraftTypeId = type.Id, Source = "Default2024",
+                PackageFolder = "(streamed default fleet)", AircraftFolder = "", IsOnDisk = false, ScannedAt = now,
+            });
+            have.Add(key);
+            added++;
+        }
+        if (added > 0) await _db.SaveChangesAsync(ct);
+        return added;
+    }
 }

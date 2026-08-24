@@ -87,6 +87,10 @@ public static class DefaultFleetCatalog
 
         new("BE60", "Beechcraft Duke B60", "Beechcraft", AircraftCategory.LightTwin, 6, 1800, 918, 220, 2200, ["Duke", "B60 Duke"]),
         new("BN2A", "Britten-Norman BN-2 Islander", "Britten-Norman", AircraftCategory.LightTwin, 9, 2000, 1200, 150, 1200, ["BN-2 Islander", "Islander"]),
+
+        // Halo aircraft — a special, buy-only flagship priced by hand (see AircraftPricing.HaloPrices),
+        // never rentable. The DC Designs Concorde is a popular MSFS add-on; specs are approximate.
+        new("CONC", "Concorde", "Aérospatiale/BAC", AircraftCategory.Heavy, 100, 29000, 210000, 1150, 11800, ["DC Designs Concorde", "Concorde", "Aerospatiale/BAC Concorde", "BAC Concorde"]),
     ];
 
     /// <summary>The ICAO designators of every allowed aircraft — the app's contained whitelist. A type counts as

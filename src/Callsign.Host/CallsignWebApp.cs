@@ -181,7 +181,18 @@ public static class CallsignWebApp
         // change across app updates instead of having its save wiped. (Tests still use EnsureCreated
         // on throwaway DBs.)
         using (var scope = app.Services.CreateScope())
+        {
             PrepareDatabase(scope.ServiceProvider.GetRequiredService<CallsignDbContext>());
+            // Additively ensure the curated catalog exists as types, so a career started before a new
+            // curated aircraft was added (e.g. the Concorde) still picks it up. Idempotent; never a rebuild.
+            try
+            {
+                scope.ServiceProvider.GetRequiredService<AircraftRosterService>()
+                    .EnsureCuratedTypesAsync(Callsign.Core.Aircraft.DefaultFleetCatalog.Aircraft2024)
+                    .GetAwaiter().GetResult();
+            }
+            catch (Exception ex) { app.Logger.LogError(ex, "Ensuring curated aircraft types failed; continuing."); }
+        }
 
         // Start streaming telemetry into the flight session (live SimConnect on the Windows build,
         // synthetic source on the portable build or when SimConnect isn't available).
