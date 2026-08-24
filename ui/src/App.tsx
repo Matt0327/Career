@@ -3015,6 +3015,9 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
   const avgCond = fleet.length ? Math.round(fleet.reduce((s, a) => s + condOf(a), 0) / fleet.length / 1000) : 0
 
   const sorts: [FleetSort, string][] = [['value', 'Value'], ['earned', 'Earned'], ['hours', 'Hours'], ['condition', 'Needs service'], ['name', 'Name']]
+  // One unified market: for each buyable type, whether it can also be rented / leased (badges + actions).
+  const rentByType = new Map((rentalOffers ?? []).map(o => [o.typeId, o]))
+  const leaseByType = new Map((leaseOffers ?? []).map(o => [o.typeId, o]))
 
   return (
     <div className="hangar-screen">
@@ -3058,13 +3061,23 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
       )}
 
       <section className="card">
-        <div className="row-head"><h2>Buy an aircraft</h2><span className="hint">Delivered to <span className="loc">{state.currentIcao}</span></span></div>
+        <div className="row-head"><h2>Aircraft market</h2><span className="hint">Delivered to <span className="loc">{state.currentIcao}</span> · buy, rent, or lease</span></div>
+        {leaseOffers.length > 0 && (
+          <div className="hangar-sort shop-term">
+            <span className="metalabel">Lease term</span>
+            {[28, 84, 168, 336].map(t => (
+              <button key={t} type="button" className={`hsort ${leaseTerm === t ? 'on' : ''}`} onClick={() => setLeaseTerm(t)}>{t / 7}wk</button>
+            ))}
+          </div>
+        )}
         {offers === null ? <div className="empty">Loading…</div>
           : offers.length === 0 ? <div className="empty">No aircraft types known yet.</div>
           : (
             <div className="ac-market">
               {offers.map(o => {
                 const afford = state.cashCents >= o.priceCents
+                const rent = rentByType.get(o.typeId)
+                const lease = leaseByType.get(o.typeId)
                 return (
                   <div className="card job ac-row" key={o.typeId}>
                     <AircraftImage typeId={o.typeId} category={o.category} />
@@ -3074,20 +3087,22 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
                         {o.onDisk && <div className="tag">installed</div>}
                       </div>
                       <div className="commodity">{spaced(o.category)}</div>
+                      <div className="ac-caps">
+                        <span className="cap buy">Buy</span>
+                        {rent && <span className="cap rent">Rentable</span>}
+                        {lease && <span className="cap lease">Leasable</span>}
+                      </div>
                       <div className="job-meta">
                         {o.seats != null && <Meta label="Seats" value={String(o.seats)} />}
                         {o.usefulLoadLbs != null && <Meta label="Payload" value={`${o.usefulLoadLbs.toLocaleString()} lb`} />}
                         {o.cruiseKtas != null && <Meta label="Cruise" value={`${o.cruiseKtas} kt`} />}
                       </div>
-                      <details className="factors">
-                        <summary>why this price</summary>
-                        <ul>{o.factors.map((f, i) => <li key={i}><span>{f.label}</span><span className="num">{money(f.amountCents)}</span></li>)}</ul>
-                      </details>
                     </div>
                     <div className="ac-buy">
                       <div className="price num">{money(o.priceCents)}</div>
-                      <span className="hint">{afford ? '' : 'over budget'}</span>
-                      <button className="primary" disabled={busy || !afford} onClick={() => buy(o)}>Buy</button>
+                      <button className="primary" disabled={busy || !afford} title={afford ? 'Buy outright' : 'over budget'} onClick={() => buy(o)}>Buy</button>
+                      {rent && <button className="ghost small" disabled={busy || state.cashCents < rent.depositCents} title={`Deposit ${money(rent.depositCents)} · ${money(rent.flightHourCents)}/h`} onClick={() => rentAircraft(rent)}>Rent · {money(rent.depositCents)}</button>}
+                      {lease && <button className="ghost small" disabled={busy || state.cashCents < lease.upfrontCents} title={`${money(lease.weeklyRateCents)}/wk · buyout ${money(lease.buyoutCents)}`} onClick={() => leaseAircraft(lease)}>Lease · {money(lease.upfrontCents)}</button>}
                     </div>
                   </div>
                 )
@@ -3151,35 +3166,6 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
         </section>
       )}
 
-      {rentalOffers.length > 0 && (
-        <details className="card shop">
-          <summary className="row-head shop-head"><h2>Rent an aircraft</h2><span className="hint">Capital-free — {rentalOffers.length} types · click to browse</span></summary>
-          <div className="ac-market">
-            {rentalOffers.map(o => {
-              const afford = state.cashCents >= o.depositCents
-              return (
-                <div className="card job ac-row" key={o.typeId}>
-                  <AircraftImage typeId={o.typeId} category={o.category} />
-                  <div className="ac-info">
-                    <div className="job-top"><div className="leg"><b>{o.typeName}</b></div><div className="tag">{o.termDays}d term</div></div>
-                    <div className="commodity">{spaced(o.category)}</div>
-                    <div className="job-meta">
-                      <Meta label="Deposit" value={money(o.depositCents)} />
-                      <Meta label="Holding" value={`${money(o.dailyHoldingCents)}/day`} />
-                      <Meta label="Usage" value={`${money(o.flightHourCents)}/h`} />
-                    </div>
-                  </div>
-                  <div className="ac-buy">
-                    <div className="price num">{money(o.depositCents)} <span className="fair-ref">deposit</span></div>
-                    <span className="hint">{afford ? '' : 'deposit over budget'}</span>
-                    <button className="primary" disabled={busy || !afford} onClick={() => rentAircraft(o)}>Rent</button>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </details>
-      )}
 
       {leases.length > 0 && (
         <section className="card">
@@ -3210,40 +3196,6 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
         </section>
       )}
 
-      {leaseOffers.length > 0 && (
-        <details className="card shop">
-          <summary className="row-head shop-head"><h2>Lease an aircraft</h2><span className="hint">Rent-to-own — {leaseOffers.length} types · click to browse</span></summary>
-          <div className="hangar-sort shop-term">
-            {[28, 84, 168, 336].map(t => (
-              <button key={t} type="button" className={`hsort ${leaseTerm === t ? 'on' : ''}`} onClick={() => setLeaseTerm(t)}>{t / 7}wk</button>
-            ))}
-          </div>
-          <div className="ac-market">
-            {leaseOffers.map(o => {
-              const afford = state.cashCents >= o.upfrontCents
-              return (
-                <div className="card job ac-row" key={o.typeId}>
-                  <AircraftImage typeId={o.typeId} category={o.category} />
-                  <div className="ac-info">
-                    <div className="job-top"><div className="leg"><b>{o.typeName}</b></div><div className="tag">rent-to-own</div></div>
-                    <div className="commodity">{spaced(o.category)}</div>
-                    <div className="job-meta">
-                      <Meta label="Weekly" value={money(o.weeklyRateCents)} />
-                      <Meta label="Hull cover" value={`${money(o.insuranceWeeklyCents)}/wk`} />
-                      <Meta label="Buyout" value={money(o.buyoutCents)} />
-                    </div>
-                  </div>
-                  <div className="ac-buy">
-                    <div className="price num">{money(o.upfrontCents)} <span className="fair-ref">to sign ({o.termDays / 7}wk)</span></div>
-                    <span className="hint">{afford ? '' : 'sign-on over budget'}</span>
-                    <button className="primary" disabled={busy || !afford} onClick={() => leaseAircraft(o)}>Lease</button>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </details>
-      )}
     </div>
   )
 }
