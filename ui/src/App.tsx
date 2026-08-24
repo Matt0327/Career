@@ -2110,7 +2110,8 @@ function FlightMap({ tele, leg, home, live }: { tele: Telemetry | null; leg?: As
   const parked = useRef<L.Marker | null>(null)
   const trail = useRef<L.Polyline | null>(null)
   const legLayer = useRef<L.LayerGroup | null>(null)
-  const path = useRef<[number, number][]>([])
+  const path = useRef<[number, number][][]>([[]]) // trail as SEGMENTS — a pause/gap starts a new one (no false chord)
+  const lastPos = useRef<[number, number] | null>(null)
   const heading = useRef(0) // last committed heading — only re-aimed on real travel, so jitter can't spin the icon
   const centred = useRef(false)
   const online = typeof navigator === 'undefined' ? true : navigator.onLine
@@ -2127,7 +2128,7 @@ function FlightMap({ tele, leg, home, live }: { tele: Telemetry | null; leg?: As
     trail.current = L.polyline([], { color: '#6d84ff', weight: 3, opacity: .85 }).addTo(map)
     mapRef.current = map
     const t = setTimeout(() => map.invalidateSize(), 60) // WebView2 flex layout can settle a beat late
-    return () => { clearTimeout(t); map.remove(); mapRef.current = null; marker.current = null; parked.current = null; trail.current = null; legLayer.current = null; path.current = []; centred.current = false }
+    return () => { clearTimeout(t); map.remove(); mapRef.current = null; marker.current = null; parked.current = null; trail.current = null; legLayer.current = null; path.current = [[]]; lastPos.current = null; centred.current = false }
   }, [online])
 
   // The planned leg — departure + destination pins, a dashed planned track, and the 5 nm arrival ring.
@@ -2163,7 +2164,7 @@ function FlightMap({ tele, leg, home, live }: { tele: Telemetry | null; leg?: As
     }
     // Disarmed → drop any live plot + trail so nothing lingers from a prior flight.
     if (marker.current) { marker.current.remove(); marker.current = null }
-    path.current = []; heading.current = 0; trail.current?.setLatLngs([]); centred.current = false
+    path.current = [[]]; lastPos.current = null; heading.current = 0; trail.current?.setLatLngs([]); centred.current = false
     const pos: [number, number] = [home.lat, home.lon]
     if (!parked.current) parked.current = L.marker(pos, { icon: planeIcon(0), interactive: false }).addTo(map).bindTooltip(`${home.label} · parked at ${home.label}`, { direction: 'top', className: 'sat-tip' })
     else parked.current.setLatLng(pos)
@@ -2175,16 +2176,20 @@ function FlightMap({ tele, leg, home, live }: { tele: Telemetry | null; leg?: As
     const map = mapRef.current
     if (!map || !armed || !tele || (tele.lat === 0 && tele.lon === 0)) return
     const pos: [number, number] = [tele.lat, tele.lon]
-    const prev = path.current[path.current.length - 1]
+    const prev = lastPos.current
+    const step = prev ? Math.hypot(pos[0] - prev[0], pos[1] - prev[1]) : Infinity
     // Only extend the trail and re-aim the icon when the aircraft has actually TRAVELLED. Below ~15 m the
-    // reading is GPS jitter (or a not-yet-settled sim), and computing a bearing off it spins the icon wildly
-    // and litters the trail. Sub-threshold frames still move the marker's position, just not its heading.
-    const MIN_MOVE_DEG = 0.00015
-    const moved = !prev || Math.hypot(pos[0] - prev[0], pos[1] - prev[1]) > MIN_MOVE_DEG
-    if (moved) {
-      if (prev) heading.current = bearing(prev, pos)
-      path.current.push(pos)
-      if (path.current.length > 500) path.current.shift()
+    // reading is GPS jitter (or a not-yet-settled sim): computing a bearing off it spins the icon and litters
+    // the trail, so we glide the marker but hold heading. A big jump (~9 nm+) is a pause/teleport/telemetry
+    // gap, not flight — start a NEW trail segment so we don't draw a false straight line across the hole.
+    const MIN_MOVE_DEG = 0.00015, JUMP_DEG = 0.15
+    if (step > MIN_MOVE_DEG) {
+      if (prev && step <= JUMP_DEG) heading.current = bearing(prev, pos)
+      if (prev && step > JUMP_DEG) path.current.push([]) // gap → break the line
+      path.current[path.current.length - 1].push(pos)
+      let total = path.current.reduce((n, s) => n + s.length, 0)
+      while (total > 500 && path.current.length > 0) { path.current[0].shift(); if (path.current[0].length === 0 && path.current.length > 1) path.current.shift(); total-- }
+      lastPos.current = pos
       trail.current?.setLatLngs(path.current)
     }
     if (!marker.current) marker.current = L.marker(pos, { icon: planeIcon(heading.current), interactive: false }).addTo(map)
