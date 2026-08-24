@@ -489,6 +489,7 @@ export interface DispatchLeg {
   aircraftInstanceId: string
   crewName: string
   tail: string
+  aircraftName: string
   origin: string
   dest: string
   distanceNm: number
@@ -502,6 +503,7 @@ export interface StandingOrder {
   id: string
   staffName: string
   tail: string
+  aircraftName: string
   origin: string
   dest: string
   distanceNm: number

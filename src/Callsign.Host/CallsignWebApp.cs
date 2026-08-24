@@ -1126,6 +1126,9 @@ public static class CallsignWebApp
             var orders = await db.StandingOrders.Where(o => o.CompanyId == pilot.CompanyId && o.IsActive && !o.IsDeleted).ToListAsync();
             var staffNames = await db.Staff.Where(s => s.CompanyId == pilot.CompanyId).ToDictionaryAsync(s => s.Id, s => s.Name);
             var tails = await db.AircraftInstances.Where(a => a.CompanyId == pilot.CompanyId).ToDictionaryAsync(a => a.Id, a => a.Tail);
+            var acNames = await db.AircraftInstances.Where(a => a.CompanyId == pilot.CompanyId)
+                .Join(db.AircraftTypes, a => a.TypeId, t => t.Id, (a, t) => new { a.Id, t.CanonicalName })
+                .ToDictionaryAsync(x => x.Id, x => x.CanonicalName);
             var now = clock.UtcNow;
             return Results.Ok(orders.Select(o =>
             {
@@ -1134,6 +1137,7 @@ public static class CallsignWebApp
                 int pending = cfg.AutonomousTripsFlown((now - o.LastReconciledAt).TotalHours, o.RoundTripHours); // trips ready to bank
                 return new StandingOrderDto(o.Id,
                     staffNames.GetValueOrDefault(o.StaffId, "?"), tails.GetValueOrDefault(o.AircraftInstanceId, "?"),
+                    acNames.GetValueOrDefault(o.AircraftInstanceId, ""),
                     o.OriginIcao, o.DestIcao, o.DistanceNm, o.RoundTripHours, effReward,
                     o.PriceMultiplierMilli, fillPct, o.RewardPerTripCents, pending, pending * effReward);
             }));
@@ -1179,10 +1183,14 @@ public static class CallsignWebApp
             var legs = await db.DispatchLegs.Where(d => d.CompanyId == pilot.CompanyId && d.Status == DispatchStatus.Flying && !d.IsDeleted).ToListAsync();
             var crew = (await db.Staff.Where(s => s.CompanyId == pilot.CompanyId).ToListAsync()).ToDictionary(s => s.Id, s => s.Name);
             var tails = (await db.AircraftInstances.Where(a => a.CompanyId == pilot.CompanyId).ToListAsync()).ToDictionary(a => a.Id, a => a.Tail);
+            var acNames = (await db.AircraftInstances.Where(a => a.CompanyId == pilot.CompanyId)
+                .Join(db.AircraftTypes, a => a.TypeId, t => t.Id, (a, t) => new { a.Id, t.CanonicalName }).ToListAsync())
+                .ToDictionary(x => x.Id, x => x.CanonicalName);
             var now = clock.UtcNow;
             return Results.Ok(legs
                 .OrderBy(d => d.ReadyAt)
                 .Select(d => new DispatchLegDto(d.Id, d.StaffId, d.AircraftInstanceId, crew.GetValueOrDefault(d.StaffId, "—"), tails.GetValueOrDefault(d.AircraftInstanceId, "—"),
+                    acNames.GetValueOrDefault(d.AircraftInstanceId, ""),
                     d.OriginIcao, d.DestIcao, d.DistanceNm, d.RewardCents, d.DispatchedAt.ToString("o"), d.ReadyAt.ToString("o"), d.ReadyAt <= now)));
         });
 

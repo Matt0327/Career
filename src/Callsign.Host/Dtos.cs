@@ -120,10 +120,10 @@ public record HireManagerRequest(string Icao);
 public record CheckCentreDto(string Icao, string Name, double DistanceNm, string TestAircraft, long FeeCents, string Class);
 public record RelocateCrewRequest(string DestIcao);
 public record DispatchJobRequest(Guid StaffId, Guid AircraftInstanceId);
-public record DispatchLegDto(Guid Id, Guid StaffId, Guid AircraftInstanceId, string CrewName, string Tail, string Origin, string Dest, double DistanceNm,
+public record DispatchLegDto(Guid Id, Guid StaffId, Guid AircraftInstanceId, string CrewName, string Tail, string AircraftName, string Origin, string Dest, double DistanceNm,
     long RewardCents, string DispatchedAt, string ReadyAt, bool Ready);
 public record StandingOrderDto(
-    Guid Id, string StaffName, string Tail, string Origin, string Dest,
+    Guid Id, string StaffName, string Tail, string AircraftName, string Origin, string Dest,
     double DistanceNm, double RoundTripHours, long RewardPerTripCents,
     int PriceMultiplierMilli, int FillPct, long FairRewardPerTripCents,
     int PendingTrips = 0, long PendingIncomeCents = 0); // trips accrued since the last reconcile, ready to bank (+ est. income)

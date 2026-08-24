@@ -1807,7 +1807,7 @@ function JobDetail({ job, busy, onAccept, staff, fleet, dispatches, onDispatch }
           {canDispatch && (
             <div className="dispatch-form">
               <select value={dStaff} onChange={e => setDStaff(e.target.value)}><option value="">Crew…</option>{eligibleCrew.map(s => <option key={s.id} value={s.id}>{s.name} · {Math.round(s.skillMilli / 1000)}%</option>)}</select>
-              <select value={dAircraft} onChange={e => setDAircraft(e.target.value)}><option value="">Aircraft…</option>{eligibleAircraft.map(f => <option key={f.id} value={f.id}>{f.tail}{f.ownership === 'Rented' ? ' (rental)' : ''}</option>)}</select>
+              <select value={dAircraft} onChange={e => setDAircraft(e.target.value)}><option value="">Aircraft…</option>{eligibleAircraft.map(f => <option key={f.id} value={f.id}>{f.name} · {f.tail}{f.ownership === 'Rented' ? ' (rental)' : ''}</option>)}</select>
               <button className="ghost" disabled={busy || !dStaff || !dAircraft} onClick={() => onDispatch(job.id, dStaff, dAircraft)}>Dispatch</button>
             </div>
           )}
@@ -3399,7 +3399,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
                 {orders.map(o => (
                   <tr key={o.id}>
                     <td>{o.staffName}</td>
-                    <td className="num">{o.tail}</td>
+                    <td>{o.aircraftName || o.tail}{o.aircraftName && <span className="muted loc"> · {o.tail}</span>}</td>
                     <td><b>{o.origin}</b> ↔ <b>{o.dest}</b> <span className="muted">· {Math.round(o.distanceNm)} nm</span></td>
                     <td className="r num pos">{money(o.rewardPerTripCents)}{o.priceMultiplierMilli > 1000 && <span className="fair-ref"> vs {money(o.fairRewardPerTripCents)}</span>}</td>
                     <td className="r">
@@ -3420,7 +3420,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
           <>
           <div className="order-form">
             <select value={oStaff} onChange={e => setOStaff(e.target.value)}><option value="">Pilot…</option>{pilots.map(s => <option key={s.id} value={s.id} disabled={s.flying}>{s.name}{s.currentIcao ? ` · ${s.currentIcao}` : ''}{s.flying ? ' · busy' : ''}</option>)}</select>
-            <select value={oAircraft} onChange={e => setOAircraft(e.target.value)}><option value="">Aircraft…</option>{fleet.map(f => <option key={f.id} value={f.id}>{f.tail} — {f.locationIcao}</option>)}</select>
+            <select value={oAircraft} onChange={e => setOAircraft(e.target.value)}><option value="">Aircraft…</option>{fleet.map(f => <option key={f.id} value={f.id}>{f.name} · {f.tail} — {f.locationIcao}</option>)}</select>
             <select value={oDest} onChange={e => setODest(e.target.value)}><option value="">Destination…</option>{dests.map(d => <option key={d.icao} value={d.icao}>{d.icao} · {d.name}</option>)}</select>
             <select value={oMarkup} onChange={e => setOMarkup(Number(e.target.value))} title="Demand a premium over the fair rate — more per filled trip, but the client ships fewer">{MARKUP_OPTS.map(m => <option key={m} value={m}>{markupLabel(m)} · {fillFor(m)}% fill</option>)}</select>
             <button className="primary" disabled={busy} onClick={createOrder}>Set order</button>
@@ -3434,11 +3434,11 @@ function Ops({ onChanged }: { onChanged: () => void }) {
         <section className="card">
           <div className="row-head"><h2>Crew dispatches</h2><span className="hint">One-off jobs your crews are flying — banked by Process now</span></div>
           <div className="tbl-wrap"><table className="tbl">
-            <thead><tr><th>Crew</th><th>Tail</th><th>Leg</th><th>Status</th><th className="r">Reward</th><th className="r"></th></tr></thead>
+            <thead><tr><th>Crew</th><th>Aircraft</th><th>Leg</th><th>Status</th><th className="r">Reward</th><th className="r"></th></tr></thead>
             <tbody>{dispatches.map(d => (
               <tr key={d.id}>
                 <td>{d.crewName}</td>
-                <td className="loc">{d.tail}</td>
+                <td>{d.aircraftName || d.tail}{d.aircraftName && <span className="muted loc"> · {d.tail}</span>}</td>
                 <td className="loc">{d.origin} → {d.dest} <span className="muted num">· {Math.round(d.distanceNm)} nm</span></td>
                 <td>{d.ready ? <span className="pos">landed · ready to bank</span> : <span className="muted">{dueText(d.readyAt)}</span>}</td>
                 <td className="r num pos">{money(d.rewardCents)}</td>
@@ -3553,7 +3553,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
               <select value={rOrigin} onChange={e => setROrigin(e.target.value)}><option value="">From base…</option>{routes.bases.map(b => <option key={b.icao} value={b.icao}>{b.icao} · {b.name}</option>)}</select>
               <select value={rDest} onChange={e => setRDest(e.target.value)}><option value="">To base…</option>{routes.bases.map(b => <option key={b.icao} value={b.icao}>{b.icao} · {b.name}</option>)}</select>
               <select value={rStaff} onChange={e => setRStaff(e.target.value)}><option value="">Pilot…</option>{pilots.map(s => <option key={s.id} value={s.id} disabled={s.flying}>{s.name}{s.currentIcao ? ` · ${s.currentIcao}` : ''}{s.flying ? ' · busy' : ''}</option>)}</select>
-              <select value={rAircraft} onChange={e => setRAircraft(e.target.value)}><option value="">Aircraft…</option>{fleet.map(f => <option key={f.id} value={f.id}>{f.tail} — {f.locationIcao}</option>)}</select>
+              <select value={rAircraft} onChange={e => setRAircraft(e.target.value)}><option value="">Aircraft…</option>{fleet.map(f => <option key={f.id} value={f.id}>{f.name} · {f.tail} — {f.locationIcao}</option>)}</select>
               {rScheduled
                 ? <span className="hint" style={{ alignSelf: 'center' }}>Scheduled: seats × load × yield, frozen at creation — your name fills the seats.</span>
                 : <>
