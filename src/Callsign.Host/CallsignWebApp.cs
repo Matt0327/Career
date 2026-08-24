@@ -663,6 +663,18 @@ public static class CallsignWebApp
         // the Callsign Cloud image index by the type's stable Key (cached on disk), else 404 -> UI silhouette.
         app.MapGet("/api/aircraft/type/{typeId:guid}/image", async (Guid typeId, CallsignDbContext db, Callsign.Host.Cloud.CloudGateway cloud, Callsign.Host.Cloud.AircraftImageCache cache) =>
         {
+            var type = await db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == typeId);
+
+            // Curated override (hand-picked photos) wins for its ICAO keys — fetch once, then cache.
+            if (type is not null && Callsign.Host.Cloud.CuratedAircraftImages.TryGet(type.Key, out var cur))
+            {
+                var hit = cache.TryGet(type.Key);
+                if (hit is not null) return Results.File(hit, Callsign.Host.Cloud.ImageSniff.ContentType(hit));
+                var bytes = await Callsign.Host.Cloud.CuratedAircraftImages.FetchAsync(cur.Url);
+                if (bytes is not null) { cache.Put(type.Key, bytes); return Results.File(bytes, Callsign.Host.Cloud.ImageSniff.ContentType(bytes)); }
+                // fetch failed — fall through to the player's thumbnail / cloud index below
+            }
+
             var pkg = await db.InstalledPackages.FirstOrDefaultAsync(p => p.AircraftTypeId == typeId && p.IsOnDisk);
             if (pkg is not null && MsfsInstallLocator.TryGetInstalledPackagesPath(out var ipp))
             {
@@ -670,7 +682,6 @@ public static class CallsignWebApp
                 if (path is not null) return Results.File(path, "image/jpeg");
             }
 
-            var type = await db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == typeId);
             if (type is null) return Results.NotFound();
 
             var cached = cache.TryGet(type.Key);
@@ -686,12 +697,15 @@ public static class CallsignWebApp
         // (their asset), else the cloud index image's attribution + license — for the on-image caption.
         app.MapGet("/api/aircraft/type/{typeId:guid}/image/meta", async (Guid typeId, CallsignDbContext db, Callsign.Host.Cloud.CloudGateway cloud) =>
         {
+            var type = await db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == typeId);
+            if (type is not null && Callsign.Host.Cloud.CuratedAircraftImages.TryGet(type.Key, out var cur))
+                return Results.Ok(new { attribution = cur.Attribution, license = cur.License, sourceUrl = cur.SourceUrl });
+
             var pkg = await db.InstalledPackages.FirstOrDefaultAsync(p => p.AircraftTypeId == typeId && p.IsOnDisk);
             if (pkg is not null && MsfsInstallLocator.TryGetInstalledPackagesPath(out var ipp)
                 && AircraftThumbnails.TryResolve(ipp, pkg.Source, pkg.PackageFolder, pkg.AircraftFolder) is not null)
                 return Results.Ok(new { attribution = (string?)null, license = (string?)null, sourceUrl = (string?)null });
 
-            var type = await db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == typeId);
             var meta = type is null ? null : await cloud.GetTypeImageMetaAsync(type.Key);
             return Results.Ok(new { attribution = meta?.Attribution, license = meta?.License, sourceUrl = meta?.SourceUrl });
         });
