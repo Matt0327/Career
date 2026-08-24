@@ -1550,6 +1550,7 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
   const [maxWeight, setMaxWeight] = useState<number>(Infinity)
   const [maxPax, setMaxPax] = useState<number>(Infinity)
   const [client, setClient] = useState<string>('') // '' = every client (Phase 12 — grind one client's loyalty)
+  const [fitOnly, setFitOnly] = useState(true) // hide jobs no owned aircraft can carry (seats / useful load)
   const [sort, setSort] = useState<JobSort>('dist')
   const [asc, setAsc] = useState(true)
 
@@ -1585,6 +1586,11 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
   const hasPax = all.some(j => j.pax > 0)
   const kinds = Array.from(new Set(all.map(j => j.type)))
   const clients = Array.from(new Set(all.map(j => j.clientName).filter((n): n is string => !!n))).sort()
+  // What the fleet can actually carry — a passenger charter needs seats, cargo needs useful load
+  // (mirrors the begin-flight gate). Used to hide/flag jobs no owned aircraft could fly.
+  const fleetMaxSeats = Math.max(0, ...fleet.map(f => f.seats ?? 0))
+  const fleetMaxLoad = Math.max(0, ...fleet.map(f => f.usefulLoadLbs ?? 0))
+  const doable = (j: Job) => fleet.length === 0 || (j.pax > 0 ? fleetMaxSeats >= j.pax : fleetMaxLoad >= j.weightLbs)
   const key = (j: Job) => sort === 'reward' ? j.rewardCents : sort === 'xp' ? j.xp : sort === 'weight' ? j.weightLbs : j.distanceNm
   const shown = all
     .filter(j => types.size === 0 || types.has(j.type))
@@ -1592,7 +1598,9 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
     .filter(j => maxWeight === Infinity || j.weightLbs <= maxWeight)
     .filter(j => maxPax === Infinity || j.pax <= maxPax)
     .filter(j => !client || j.clientName === client)
+    .filter(j => !fitOnly || doable(j))
     .sort((a, b) => (key(a) - key(b)) * (asc ? 1 : -1))
+  const hiddenUnfit = fitOnly ? all.filter(j => !doable(j)).length : 0
   const sel = shown.find(j => j.id === selected) ?? null
 
   const toggleType = (t: string) => setTypes(s => { const n = new Set(s); n.has(t) ? n.delete(t) : n.add(t); return n })
@@ -1648,6 +1656,12 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
                       </select>
                     </label>
                   )}
+                  {fleet.length > 0 && (
+                    <button type="button" className={`jf-fit ${fitOnly ? 'on' : ''}`} onClick={() => setFitOnly(v => !v)}
+                      title="Only show jobs an aircraft you own can actually carry">
+                      {fitOnly ? `✓ My fleet can fly it${hiddenUnfit > 0 ? ` · ${hiddenUnfit} hidden` : ''}` : 'Show all jobs'}
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1664,10 +1678,12 @@ function Jobs({ state, onChanged }: { state: State; onChanged: () => void }) {
                     <tbody>
                       {shown.map(j => {
                         const m = missionMeta(j.type)
+                        const unfit = !doable(j)
                         return (
-                          <tr key={j.id} className={`jrow ${selected === j.id ? 'on' : ''} ${j.locked ? 'locked' : ''}`} onClick={() => setSelected(j.id)}>
+                          <tr key={j.id} className={`jrow ${selected === j.id ? 'on' : ''} ${j.locked ? 'locked' : ''} ${unfit ? 'unfit' : ''}`} onClick={() => setSelected(j.id)}>
                             <td>
                               <span className="jrow-type" style={{ background: m.color }} title={m.label} /><span className="loc">{j.dest}</span> <span className="muted">{j.destName}</span>
+                              {unfit && <span className="unfit-badge" title={j.pax > 0 ? `Needs ${j.pax} seats — your biggest aircraft has ${fleetMaxSeats}` : `Needs ${j.weightLbs.toLocaleString()} lb — your biggest aircraft carries ${fleetMaxLoad.toLocaleString()}`}>too big for your fleet</span>}
                               {j.clientName && <div className="jrow-client">{j.clientName}{j.clientLoyaltyMilli >= 25000 && <span className="loyal-star" title={`Loyal client · ${Math.round(j.clientLoyaltyMilli / 1000)}%`}> ★</span>}</div>}
                             </td>
                             <td className="r num">{Math.round(j.distanceNm)}</td>
