@@ -5,7 +5,7 @@ import {
   type FinancesData, type FinanceDetail, type AttributionLine, type CashPoint, type StatementRow, type FlightLog, type FlightDetail, type FlightTotals, type Insurance, type Inventory, type Job, type LeaderboardRow, type LedgerEntry, type LiveEvent, type Loan, type LoanOffer, type Loans,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
   type DispatchLeg, type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type UsedListing, type VersionInfo, type Weather, type WorldState, type WsEvent,
-  type RentalOffer, type ActiveRental, type LeaseOffer, type ActiveLease,
+  type RentalOffer, type ActiveRental, type ActiveLease,
 } from './api'
 import { loadPrefs, savePrefs, type Prefs, type Theme } from './prefs'
 import * as L from 'leaflet'
@@ -2894,9 +2894,7 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
   const [used, setUsed] = useState<UsedListing[]>([])
   const [rentalOffers, setRentalOffers] = useState<RentalOffer[]>([])
   const [rentals, setRentals] = useState<ActiveRental[]>([])
-  const [leaseOffers, setLeaseOffers] = useState<LeaseOffer[]>([])
-  const [leases, setLeases] = useState<ActiveLease[]>([])
-  const [leaseTerm, setLeaseTerm] = useState(28)
+  const [leases, setLeases] = useState<ActiveLease[]>([]) // existing lease agreements only — leasing is retired from the market
   const [bases, setBases] = useState<BaseView[]>([])
   const [selId, setSelId] = useState<string | null>(null)
   const [history, setHistory] = useState<AircraftHistory | null>(null)
@@ -2919,8 +2917,6 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
     } catch (e) { setMsg(cleanErr(e)) }
   }, [])
   useEffect(() => { void load() }, [load])
-  // Lease offers reprice with the chosen term (longer terms are cheaper) — reload them when it changes.
-  useEffect(() => { api.leaseOffers(leaseTerm).then(setLeaseOffers).catch(() => { /* keep prior */ }) }, [leaseTerm])
 
   // Pull the drill-down whenever the selection changes.
   useEffect(() => {
@@ -2951,11 +2947,6 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
   const returnRentalAgreement = async (r: ActiveRental) => {
     setBusy(true); setMsg(null)
     try { const res = await api.returnRental(r.agreementId); await load(); onChanged(); setMsg(`Returned ${r.tail} — ${money(res.refundCents)} deposit back.`) }
-    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
-  }
-  const leaseAircraft = async (o: LeaseOffer) => {
-    setBusy(true); setMsg(null)
-    try { await api.lease(o.typeId, o.termDays); await load(); onChanged(); setMsg(`Leased a ${o.typeName} for ${o.termDays} days — it's in your hangar.`) }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
   const returnLeaseAgreement = async (l: ActiveLease) => {
@@ -3026,9 +3017,8 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
   const avgCond = fleet.length ? Math.round(fleet.reduce((s, a) => s + condOf(a), 0) / fleet.length / 1000) : 0
 
   const sorts: [FleetSort, string][] = [['value', 'Value'], ['earned', 'Earned'], ['hours', 'Hours'], ['condition', 'Needs service'], ['name', 'Name']]
-  // One unified market: for each buyable type, whether it can also be rented / leased (badges + actions).
+  // One unified market: for each buyable type, whether it can also be rented (badge + action).
   const rentByType = new Map((rentalOffers ?? []).map(o => [o.typeId, o]))
-  const leaseByType = new Map((leaseOffers ?? []).map(o => [o.typeId, o]))
 
   return (
     <div className="hangar-screen">
@@ -3072,15 +3062,7 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
       )}
 
       <section className="card">
-        <div className="row-head"><h2>Aircraft market</h2><span className="hint">Delivered to <span className="loc">{state.currentIcao}</span> · buy, rent, or lease</span></div>
-        {leaseOffers.length > 0 && (
-          <div className="hangar-sort shop-term">
-            <span className="metalabel">Lease term</span>
-            {[28, 84, 168, 336].map(t => (
-              <button key={t} type="button" className={`hsort ${leaseTerm === t ? 'on' : ''}`} onClick={() => setLeaseTerm(t)}>{t / 7}wk</button>
-            ))}
-          </div>
-        )}
+        <div className="row-head"><h2>Aircraft market</h2><span className="hint">buy outright or rent by the hour</span></div>
         {offers === null ? <div className="empty">Loading…</div>
           : offers.length === 0 ? <div className="empty">No aircraft types known yet.</div>
           : (
@@ -3088,7 +3070,6 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
               {offers.map(o => {
                 const afford = state.cashCents >= o.priceCents
                 const rent = rentByType.get(o.typeId)
-                const lease = leaseByType.get(o.typeId)
                 return (
                   <div className="card job ac-row" key={o.typeId}>
                     <AircraftImage typeId={o.typeId} category={o.category} />
@@ -3101,7 +3082,6 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
                       <div className="ac-caps">
                         <span className="cap buy">Buy</span>
                         {rent && <span className="cap rent">Rentable</span>}
-                        {lease && <span className="cap lease">Leasable</span>}
                       </div>
                       <div className="job-meta">
                         {o.seats != null && <Meta label="Seats" value={String(o.seats)} />}
@@ -3118,7 +3098,6 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
                       <div className="price num">{money(o.priceCents)}</div>
                       <button className="primary" disabled={busy || !afford} title={afford ? `Buy — delivered at ${o.locationIcao}` : 'over budget'} onClick={() => buy(o)}>Buy</button>
                       {rent && <button className="ghost small" disabled={busy || state.cashCents < rent.depositCents} title={`Deposit ${money(rent.depositCents)} · ${money(rent.flightHourCents)}/h`} onClick={() => rentAircraft(rent)}>Rent · {money(rent.depositCents)}</button>}
-                      {lease && <button className="ghost small" disabled={busy || state.cashCents < lease.upfrontCents} title={`${money(lease.weeklyRateCents)}/wk · buyout ${money(lease.buyoutCents)}`} onClick={() => leaseAircraft(lease)}>Lease · {money(lease.upfrontCents)}</button>}
                     </div>
                   </div>
                 )
