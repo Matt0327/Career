@@ -3016,14 +3016,6 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
     <div className="hangar-screen">
       <section className="card">
         <div className="row-head"><h2>Your hangar <span className="muted">· {fleet.length} {fleet.length === 1 ? 'tail' : 'tails'}</span></h2></div>
-        {fleet.length > 0 && (
-          <div className="hero-stats tab-summary">
-            <HeroStat label="Aircraft" value={String(fleet.length)} accent />
-            <HeroStat label="Available" value={String(fleet.filter(f => f.availability === 'Available').length)} tone="pos" />
-            <HeroStat label="Needs service" value={String(fleet.filter(f => f.maintenanceDue).length)} tone={fleet.some(f => f.maintenanceDue) ? 'neg' : undefined} />
-            <HeroStat label="Uninsured" value={String(fleet.filter(f => !f.insured).length)} tone={fleet.some(f => !f.insured) ? 'neg' : undefined} />
-          </div>
-        )}
                 {owned === null ? <div className="empty">Loading…</div>
           : fleet.length === 0 ? <div className="empty">No aircraft yet — buy one below.</div>
           : (
