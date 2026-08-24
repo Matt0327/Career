@@ -2373,6 +2373,20 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
     try { const r = await api.relocateSelf(icao); onSettled(); loadAssignments(); addLog('ok', `Travelled to ${icao} — ${money(r.feeCents)}. You can fly from here now.`) }
     catch (e) { setBeginErr(cleanErr(e)) }
   }
+  // Auto-arm on takeoff (Phase 13): if you start rolling with exactly one flyable job and the right aircraft
+  // loaded, arm it for you — so the flight "just starts when you go" instead of needing a button press. Tightly
+  // guarded (connected, on ground at the origin, the matching aircraft, a real takeoff-roll speed) and fires once.
+  const autoArmed = useRef(false)
+  useEffect(() => { if (!begun) autoArmed.current = false }, [begun])
+  useEffect(() => {
+    if (begun || freeFlight || autoArmed.current) return
+    if (link !== 'Connected' || !tele || tele.onGround !== true || tele.gs < 35) return
+    const flyable = assignments.filter(a =>
+      state.currentIcao === a.origin && selAc?.locationIcao === a.origin && !!aircraftId
+      && payloadFit(selAc, a.pax, a.weightLbs).ok && matchesSimTitle(tele.title, selAc))
+    if (flyable.length === 1) { autoArmed.current = true; void begin(flyable[0]) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tele, link, begun, freeFlight, assignments, aircraftId, selAc, state.currentIcao])
   const startFreeFlight = async () => {
     setSettled(null); setDiverted(null); setBeginErr(null); setBegun(null)
     try { await api.beginFreeFlight(); setFreeFlight(true); addLog('info', 'Free flight armed — fly anywhere; it\'s tracked and logged, no job attached.') }
@@ -2424,7 +2438,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
         {diverted && <div className="banner warn">You landed {Math.round(diverted.distanceNm)} nm from <b>{diverted.destIcao}</b>. The job's still open — take off and fly on to {diverted.destIcao}.</div>}
         {begun
           ? <>
-            <div className="banner ok">Flying <b>{begun.origin} → {begun.dest}</b> · {begun.destName} — land at {begun.dest}, then park to settle.</div>
+            <div className="banner ok">Armed <b>{begun.origin} → {begun.dest}</b> · {begun.destName} — take off to start; land at {begun.dest}, then park to settle.</div>
             {tele?.onGround && (tele.phase === 'Landing' || tele.phase === 'Shutdown') && (() => {
               const landed = true // on the ground after flying
               const braked = !!tele.parkingBrake
@@ -2511,8 +2525,8 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
                       {a.deadlineAt && <span className={`due ${Date.parse(a.deadlineAt) < Date.now() ? 'neg' : 'warn'}`}>{dueText(a.deadlineAt)}</span>}
                     </div>
                     <div className="assign-actions">
-                      <button className="primary" disabled={begun?.id === a.id || !canFly} onClick={() => begin(a)} title={why ?? ''}>
-                        {begun?.id === a.id ? 'In progress…' : 'Begin flight'}
+                      <button className="primary" disabled={begun?.id === a.id || !canFly} onClick={() => begin(a)} title={why ?? 'Arms the leg — it starts scoring the moment you take off'}>
+                        {begun?.id === a.id ? 'In progress…' : 'Fly this job'}
                       </button>
                       {!atOrigin && begun?.id !== a.id && <button className="ghost small" disabled={!!begun} onClick={() => travelTo(a.origin)} title={`Fly commercial to ${a.origin} so you can depart from there`}>Travel to {a.origin}</button>}
                       <button className="linky" disabled={begun?.id === a.id} onClick={() => cancelJob(a)} title="Hand the job back — a small hit to the client's loyalty">Cancel</button>
