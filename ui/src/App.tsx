@@ -2285,22 +2285,31 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
 
   // Narrate connection + phase transitions into the flight log (only on an actual change).
   const prevOpen = useRef(wsOpen), prevLink = useRef(link), prevPhase = useRef<string | null>(null)
+  const loggedPhases = useRef<Set<string>>(new Set())
   useEffect(() => {
     if (prevOpen.current !== wsOpen) { addLog(wsOpen ? 'ok' : 'warn', wsOpen ? 'Connected to Callsign.' : 'Connection lost — reconnecting…'); prevOpen.current = wsOpen }
   }, [wsOpen, addLog])
   useEffect(() => {
     if (prevLink.current === link) return
-    const m: Record<string, [LogSev, string]> = {
-      Connecting: ['info', 'Connecting to the simulator…'],
-      Connected: ['ok', 'Simulator connected — telemetry is live.'],
-      Disconnected: ['warn', 'Waiting for the simulator…'],
-      SimExited: ['bad', 'Simulator closed.'],
-    }
-    const e = m[link]; if (e) addLog(e[0], e[1]); prevLink.current = link
+    // The sim reconnect loop flips Connecting↔Disconnected every few seconds while MSFS is closed.
+    // Retry silently — only narrate real edges: a live connection, losing a live link, or the sim exiting.
+    const wasConnected = prevLink.current === 'Connected'
+    if (link === 'Connected') addLog('ok', 'Simulator connected — telemetry is live.')
+    else if (link === 'SimExited') addLog('bad', 'Simulator closed.')
+    else if (wasConnected) addLog('warn', 'Lost the simulator — waiting to reconnect…')
+    // else: Connecting/Disconnected churn before ever connecting → say nothing.
+    prevLink.current = link
   }, [link, addLog])
   useEffect(() => {
+    // Only narrate rare, meaningful beats — takeoff and touchdown already arrive as scored events from
+    // the server, so we drop the climb/cruise/descent chatter and log each cue at most once per flight.
+    const PHASE_LOG: Record<string, string> = { Approach: 'On approach.', Shutdown: 'Aircraft secured.' }
     const p = tele?.phase ?? null
-    if (p && p !== prevPhase.current) { addLog('info', `Phase — ${p}.`); prevPhase.current = p }
+    if (!p) return
+    if (p === 'Parked' || p === 'Taxi') loggedPhases.current.clear() // new flight cycle on the ground
+    const label = PHASE_LOG[p]
+    if (label && !loggedPhases.current.has(p)) { addLog('info', label); loggedPhases.current.add(p) }
+    prevPhase.current = p
   }, [tele?.phase, addLog])
 
   const beginCheck = async (cls: string, name: string) => {
