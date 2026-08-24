@@ -51,6 +51,6 @@ public class PassengerJobSourceTests
     [Fact]
     public void Reward_MatchesFormula()
         => Assert.Equal(
-            15_000 + 4 * (12_000 + (long)Math.Round(150 * 150.0)),
+            Cfg.PaxBaseFeeCents + 4 * (Cfg.PaxPerPaxCents + (long)Math.Round(150 * (double)Cfg.PaxPerPaxNmCents)),
             Cfg.PaxRewardCents(150, 4));
 }

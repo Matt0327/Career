@@ -44,7 +44,7 @@ public class CargoJobSourceTests
     [InlineData(100, 1000)]
     [InlineData(250, 500)]
     public void Reward_MatchesFormula(double dist, int weight)
-        => Assert.Equal(15_000 + (long)(dist * 900) + weight * 60L, Cfg.CargoRewardCents(dist, weight));
+        => Assert.Equal(Cfg.CargoBaseFeeCents + (long)Math.Round(dist * Cfg.CargoPerNmCents) + weight * Cfg.CargoPerLbCents, Cfg.CargoRewardCents(dist, weight));
 
     [Fact]
     public void Reward_ScalesUp_WithDistanceAndWeight()

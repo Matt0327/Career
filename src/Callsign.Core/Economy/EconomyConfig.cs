@@ -11,10 +11,10 @@ public sealed record EconomyConfig
 {
     public int Version { get; init; } = 1;
 
-    // --- Cargo reward = base + distance-rate + weight-rate ---
-    public long CargoBaseFeeCents { get; init; } = 15_000;   // $150 to show up
-    public long CargoPerNmCents { get; init; } = 900;        // $9 per nautical mile
-    public long CargoPerLbCents { get; init; } = 60;         // $0.60 per lb of freight
+    // --- Cargo reward = base + distance-rate + weight-rate (rates bumped ~1.7x so the grind pays off) ---
+    public long CargoBaseFeeCents { get; init; } = 25_000;   // $250 to show up
+    public long CargoPerNmCents { get; init; } = 1_600;      // $16 per nautical mile
+    public long CargoPerLbCents { get; init; } = 100;        // $1.00 per lb of freight
 
     // --- XP ---
     public int XpBase { get; init; } = 5;
@@ -37,10 +37,10 @@ public sealed record EconomyConfig
     public int JobXp(double distanceNm)
         => XpBase + (int)Math.Round(distanceNm * XpPerNm);
 
-    // --- Passenger reward = base + pax * (per-seat-sold fee + per-passenger-mile fare) ---
-    public long PaxBaseFeeCents { get; init; } = 15_000;  // $150 dispatch
-    public long PaxPerPaxCents { get; init; } = 12_000;   // $120 per seat sold
-    public long PaxPerPaxNmCents { get; init; } = 150;    // $1.50 per passenger per nautical mile
+    // --- Passenger reward = base + pax * (per-seat-sold fee + per-passenger-mile fare) (bumped ~1.7x) ---
+    public long PaxBaseFeeCents { get; init; } = 25_000;  // $250 dispatch
+    public long PaxPerPaxCents { get; init; } = 20_000;   // $200 per seat sold
+    public long PaxPerPaxNmCents { get; init; } = 260;    // $2.60 per passenger per nautical mile
     public int MinPax { get; init; } = 1;
     public int MaxPax { get; init; } = 6;                 // freelance charters stay GA-flyable
     public int PaxWeightLbs { get; init; } = 210;         // body + bag, so useful-load still bites

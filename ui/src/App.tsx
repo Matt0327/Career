@@ -50,7 +50,7 @@ function ToastHost() {
   )
 }
 
-type Tab = 'dashboard' | 'airline' | 'jobs' | 'clients' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'finances' | 'campaigns' | 'awards' | 'community' | 'logbook' | 'settings'
+type Tab = 'dashboard' | 'airline' | 'jobs' | 'clients' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'finances' | 'campaigns' | 'awards' | 'logbook' | 'settings'
 
 export function App() {
   const [state, setState] = useState<State | null | undefined>(undefined) // undefined = still loading
@@ -109,7 +109,6 @@ export function App() {
         {tab === 'finances' && <Finances state={state} onChanged={reload} />}
         {tab === 'campaigns' && <Campaigns onChanged={reload} />}
         {tab === 'awards' && <Awards />}
-        {tab === 'community' && <Community />}
         {tab === 'logbook' && <Logbook state={state} />}
         {tab === 'settings' && <Settings />}
         </main>
@@ -160,7 +159,6 @@ const TABS: { id: Tab; label: string; sub: string }[] = [
   { id: 'finances', label: 'Finances', sub: 'Balance sheet, P&L & loans' },
   { id: 'campaigns', label: 'Campaigns', sub: 'Fly a story' },
   { id: 'awards', label: 'Awards', sub: 'Achievements earned' },
-  { id: 'community', label: 'Community', sub: 'Leaderboards' },
   { id: 'logbook', label: 'Logbook', sub: 'Flights & the ledger' },
   { id: 'settings', label: 'Settings', sub: 'Preferences & your save' },
 ]
@@ -265,13 +263,6 @@ const TAB_GUIDES: Partial<Record<Tab, { title: string; lead: string; points: str
     title: 'Achievements earned', lead: 'The milestones you unlock as you fly.',
     points: ['A record of what you’ve accomplished, from first flights to long-haul feats.'],
   },
-  community: {
-    title: 'Leaderboards', lead: 'How you stack up against pilots around the world.',
-    points: [
-      'Rankings for net worth, flights flown and reputation.',
-      'Sign in with a free cloud account to appear on the boards.',
-    ],
-  },
   logbook: {
     title: 'Flights & the ledger', lead: 'The complete history of your career.',
     points: [
@@ -315,7 +306,7 @@ const NAV_GROUPS: { label: string; tabs: Tab[] }[] = [
   { label: 'Fly', tabs: ['dashboard', 'jobs', 'flight'] },
   { label: 'Fleet', tabs: ['hangar', 'bases'] },
   { label: 'Company', tabs: ['ops', 'airline', 'finances', 'trade', 'clients'] },
-  { label: 'Career', tabs: ['campaigns', 'awards', 'logbook', 'community'] },
+  { label: 'Career', tabs: ['campaigns', 'awards', 'logbook'] },
 ]
 
 function NavRail({ tab, setTab, airline }: { tab: Tab; setTab: (t: Tab) => void; airline: AirlineData | null }) {
@@ -402,7 +393,6 @@ function navIcon(id: Tab) {
     case 'finances': return <svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3" /><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6" /><path d="M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6" /></svg>
     case 'campaigns': return <svg viewBox="0 0 24 24"><path d="M5 21V4c3-2 6 2 9 0v9c-3 2-6-2-9 0" /></svg>
     case 'awards': return <svg viewBox="0 0 24 24"><circle cx="12" cy="9" r="5" /><path d="M9 13l-2 8 5-3 5 3-2-8" /></svg>
-    case 'community': return <svg viewBox="0 0 24 24"><path d="M2 21h20" /><path d="M5 21v-8M12 21V5M19 21v-11" /></svg>
     case 'logbook': return <svg viewBox="0 0 24 24"><path d="M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2V4z" /><path d="M9 8h6M9 12h6" /></svg>
     case 'settings': return <svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10" /><circle cx="16" cy="7" r="2.3" /><circle cx="8" cy="17" r="2.3" /></svg>
     default: return null
