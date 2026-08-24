@@ -1,3 +1,4 @@
+using Callsign.Core.Aircraft;
 using Callsign.Core.Airports;
 using Callsign.Core.Data;
 using Callsign.Core.Domain;
@@ -71,6 +72,11 @@ public sealed class AircraftDealerService
     };
     public static bool IsCareerAircraft(AircraftType t)
     {
+        // Contained whitelist: only the curated allowed aircraft ever appear on the market. A scanned community
+        // add-on that maps to no curated type (wrong/garbled name, fallback price) is kept off entirely.
+        bool allowed = DefaultFleetCatalog.IcaoKeys.Contains(t.Key)
+            || (t.IcaoTypeDesignator is { } icao && DefaultFleetCatalog.IcaoKeys.Contains(icao));
+        if (!allowed) return false;
         // An uncategorised add-on (Unknown) has no real class and only a fallback price — keep it off the market.
         if (t.Category == AircraftCategory.Unknown) return false;
         if (t.Category == AircraftCategory.Jet && t.Seats is int s && s <= 2) return false; // a 1-2 seat jet is a fighter

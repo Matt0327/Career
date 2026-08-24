@@ -88,4 +88,10 @@ public static class DefaultFleetCatalog
         new("BE60", "Beechcraft Duke B60", "Beechcraft", AircraftCategory.LightTwin, 6, 1800, 918, 220, 2200, ["Duke", "B60 Duke"]),
         new("BN2A", "Britten-Norman BN-2 Islander", "Britten-Norman", AircraftCategory.LightTwin, 9, 2000, 1200, 150, 1200, ["BN-2 Islander", "Islander"]),
     ];
+
+    /// <summary>The ICAO designators of every allowed aircraft — the app's contained whitelist. A type counts as
+    /// allowed if its Key or IcaoTypeDesignator is in here; anything else (a scanned community add-on that maps to
+    /// no curated type) stays off the market entirely.</summary>
+    public static readonly IReadOnlySet<string> IcaoKeys =
+        Aircraft2024.Select(a => a.IcaoTypeDesignator).ToHashSet(StringComparer.OrdinalIgnoreCase);
 }
