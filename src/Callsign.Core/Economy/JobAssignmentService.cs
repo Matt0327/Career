@@ -72,4 +72,36 @@ public sealed class JobAssignmentService
         await _db.SaveChangesAsync(ct);
         return assignment;
     }
+
+    /// <summary>
+    /// Cancel an accepted job the player hasn't flown yet. The assignment is marked Abandoned (freeing the
+    /// pilot to take other work) and the client takes a TINY loyalty nick — you handed the job back rather
+    /// than botching it, so it's far gentler than a failed delivery. Returns the client's name (if any) and
+    /// the loyalty lost, for the confirmation message. Idempotent-ish: cancelling an already-settled or
+    /// already-abandoned assignment throws.
+    /// </summary>
+    public async Task<(string? ClientName, int LoyaltyLostMilli)> CancelAsync(Guid assignmentId, Guid accountId, CancellationToken ct = default)
+    {
+        var a = await _db.JobAssignments.FirstOrDefaultAsync(x => x.Id == assignmentId && x.AccountId == accountId, ct)
+                ?? throw new InvalidOperationException("Job not found.");
+        if (a.Status != AssignmentStatus.Accepted)
+            throw new InvalidOperationException("That job can no longer be cancelled.");
+
+        a.Status = AssignmentStatus.Abandoned;
+
+        int lost = 0;
+        if (a.ClientKey is { } clientKey)
+        {
+            var client = await _db.Clients.FirstOrDefaultAsync(c => c.CompanyId == accountId && c.ClientKey == clientKey, ct);
+            if (client is not null)
+            {
+                int before = client.LoyaltyMilli;
+                client.LoyaltyMilli = Math.Clamp(before + _cfg.ClientLoyaltyCancelMilli, 0, EconomyConfig.LoyaltyMax);
+                client.UpdatedAt = _clock.UtcNow;
+                lost = before - client.LoyaltyMilli;
+            }
+        }
+        await _db.SaveChangesAsync(ct);
+        return (a.ClientName, lost);
+    }
 }

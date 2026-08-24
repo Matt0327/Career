@@ -529,6 +529,9 @@ public sealed record EconomyConfig
     public int ClientLoyaltyPartialMilli { get; init; } = -1_200;
     /// <summary>Loyalty lost when a delivery fails outright — a burned client cools fast.</summary>
     public int ClientLoyaltyFailedMilli { get; init; } = -6_000;
+    /// <summary>Loyalty lost when the player CANCELS an accepted job before flying it — a tiny nick (you gave the
+    /// job back rather than botching it), far gentler than a failed delivery. Keeps cancelling low-stakes.</summary>
+    public int ClientLoyaltyCancelMilli { get; init; } = -400;
     /// <summary>Below this loyalty a client pays no premium; above it the repeat premium ramps up.</summary>
     public int ClientLoyaltyBonusThresholdMilli { get; init; } = 25_000;
     /// <summary>The repeat premium a fully-loyal client pays on top of the earned base reward (fraction).</summary>

@@ -612,6 +612,19 @@ public static class CallsignWebApp
             }));
         });
 
+        // Cancel an accepted job before flying it — frees the pilot, nicks the client's loyalty a touch.
+        app.MapPost("/api/assignments/{id:guid}/cancel", async (Guid id, CallsignDbContext db, JobAssignmentService svc) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                var (clientName, lost) = await svc.CancelAsync(id, pilot.CompanyId);
+                return Results.Ok(new { cancelled = id, clientName, loyaltyLostMilli = lost });
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
         app.MapPost("/api/assignments/{id:guid}/settle", async (Guid id, FlightResultDto dto, SettlementService svc) =>
         {
             var record = new Callsign.Core.Flight.FlightRecord(

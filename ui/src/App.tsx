@@ -2352,6 +2352,16 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
       setBeginErr(cleanErr(e)) // e.g. "You're not rated for the …"
     }
   }
+  const cancelJob = async (a: Assignment) => {
+    if (!confirm(`Cancel the job to ${a.dest}? You'll hand it back — the client's opinion of you dips a little.`)) return
+    setBeginErr(null)
+    try {
+      const r = await api.cancelAssignment(a.id)
+      if (begun?.id === a.id) setBegun(null)
+      loadAssignments(); onSettled()
+      addLog('warn', `Cancelled ${a.origin} → ${a.dest}${r.clientName ? ` — ${r.clientName} noted it` : ''}.`)
+    } catch (e) { setBeginErr(cleanErr(e)) }
+  }
   const startFreeFlight = async () => {
     setSettled(null); setDiverted(null); setBeginErr(null); setBegun(null)
     try { await api.beginFreeFlight(); setFreeFlight(true); addLog('info', 'Free flight armed — fly anywhere; it\'s tracked and logged, no job attached.') }
@@ -2472,9 +2482,12 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
                       <span className="pos">{money(a.rewardQuoteCents)}</span>
                       {a.deadlineAt && <span className={`due ${Date.parse(a.deadlineAt) < Date.now() ? 'neg' : 'warn'}`}>{dueText(a.deadlineAt)}</span>}
                     </div>
-                    <button className="primary" disabled={begun?.id === a.id || !canFly} onClick={() => begin(a)} title={why ?? ''}>
-                      {begun?.id === a.id ? 'In progress…' : 'Begin flight'}
-                    </button>
+                    <div className="assign-actions">
+                      <button className="primary" disabled={begun?.id === a.id || !canFly} onClick={() => begin(a)} title={why ?? ''}>
+                        {begun?.id === a.id ? 'In progress…' : 'Begin flight'}
+                      </button>
+                      <button className="linky" disabled={begun?.id === a.id} onClick={() => cancelJob(a)} title="Hand the job back — a small hit to the client's loyalty">Cancel</button>
+                    </div>
                     {why && begun?.id !== a.id && <div className="assign-why muted">{why}</div>}
                   </li>
                 )

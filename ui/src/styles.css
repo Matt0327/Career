@@ -198,6 +198,7 @@ input { font: inherit; }
 .assign { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 16px; padding: 12px 0; border-top: 1px solid var(--line); }
 .assign:first-child { border-top: none; }
 .assign-why { grid-column: 1 / -1; font-size: 12px; margin-top: -2px; }
+.assign-actions { display: flex; align-items: center; gap: 12px; }
 /* Flight-tab readiness ("matching plane and location") */
 .readiness { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: color-mix(in srgb, var(--panel) 60%, transparent); font-size: 13px; }
 .readiness .r-title { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
