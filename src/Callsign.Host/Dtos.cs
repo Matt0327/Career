@@ -47,7 +47,10 @@ public record PriceFactorDto(string Label, long AmountCents);
 
 public record AircraftOfferDto(
     Guid TypeId, string Name, string Category, long PriceCents, bool OnDisk,
-    int? Seats, int? UsefulLoadLbs, int? CruiseKtas, IReadOnlyList<PriceFactorDto> Factors);
+    int? Seats, int? UsefulLoadLbs, int? CruiseKtas, IReadOnlyList<PriceFactorDto> Factors,
+    // Where this airframe physically sits — buying takes delivery HERE (fly it home or ferry it). DistanceNm is
+    // measured from where you are now, so it updates as you reposition. LocationName is the field's plain name.
+    string LocationIcao, string LocationName, double DistanceNm);
 
 public record OwnedAircraftDto(
     Guid Id, Guid TypeId, string Tail, string Name, string Category, string LocationIcao,
@@ -93,7 +96,9 @@ public record CheckFlightAttemptRequest(string Class, FlightResultDto Flight);
 public record CheckFlightResultDto(bool Passed, string Class, string ClassName, int Stars, long FeeCents, double TouchdownFpm);
 
 public record BuyAircraftRequest(Guid TypeId);
-public record UsedListingDto(int Seed, Guid TypeId, string TypeName, string Category, double AirframeHours, int ConditionMilli, long PriceCents, long NewPriceCents);
+public record UsedListingDto(int Seed, Guid TypeId, string TypeName, string Category, double AirframeHours, int ConditionMilli, long PriceCents, long NewPriceCents,
+    // Where the pre-owned airframe sits today — buying takes delivery here, same as a new one.
+    string LocationIcao, string LocationName, double DistanceNm);
 public record BuyUsedRequest(Guid TypeId, int Seed);
 
 // --- Phase 9f-1: aircraft rental ---

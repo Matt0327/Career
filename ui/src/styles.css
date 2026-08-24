@@ -268,6 +268,9 @@ input { font: inherit; }
 .cap.buy { color: var(--pos); background: color-mix(in srgb, var(--pos) 15%, transparent); border-color: color-mix(in srgb, var(--pos) 40%, transparent); }
 .cap.rent { color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, transparent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .cap.lease { color: var(--warn); background: color-mix(in srgb, var(--warn) 15%, transparent); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.ac-loc { display: flex; align-items: baseline; gap: 4px; font-size: 13px; margin-top: 2px; }
+.ac-loc .loc { font-weight: 600; }
+.ac-loc .ac-dist { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; padding-left: 10px; }
 .shop-term { align-items: center; margin-bottom: 12px; }
 .shop-term .metalabel { margin-right: 6px; }
 @media (max-width: 560px) {

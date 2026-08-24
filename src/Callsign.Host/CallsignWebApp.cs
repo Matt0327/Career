@@ -327,6 +327,50 @@ public static class CallsignWebApp
         return await db.Airports.Where(a => set.Contains(a.Ident)).ToDictionaryAsync(a => a.Ident, a => a);
     }
 
+    // How far from home the dealer network reaches when placing for-sale airframes at real fields.
+    private const double DealerRadiusNm = 300;
+
+    // A per-request context for deciding WHERE a for-sale airframe sits. The candidate pool is anchored at the
+    // pilot's HOME field (stable — an aircraft on the market doesn't teleport when you fly somewhere else), while
+    // the distance shown is measured from where the pilot is NOW, so it updates as you reposition. The GET (market
+    // listing) and the POST (purchase) both build this the same way and call the same pure placement, so the field
+    // a buyer sees is exactly the field the aircraft is delivered to.
+    private sealed class DealerPlacement
+    {
+        private readonly IReadOnlyList<Callsign.Core.Domain.Airport> _pool;
+        private readonly Dictionary<string, Callsign.Core.Domain.Airport> _byIdent;
+        private readonly double _curLat, _curLon;
+        private readonly string _fallbackIcao;
+
+        private DealerPlacement(IReadOnlyList<Callsign.Core.Domain.Airport> pool, double curLat, double curLon, string fallbackIcao)
+        {
+            _pool = pool;
+            _byIdent = pool.ToDictionary(a => a.Ident, a => a, StringComparer.OrdinalIgnoreCase);
+            _curLat = curLat; _curLon = curLon; _fallbackIcao = fallbackIcao;
+        }
+
+        public static async Task<DealerPlacement> BuildAsync(
+            AirportRepository airports, string homeIcao, string currentIcao, CancellationToken ct = default)
+        {
+            var anchor = await airports.GetByIdentAsync(homeIcao, ct) ?? await airports.GetByIdentAsync(currentIcao, ct);
+            IReadOnlyList<Callsign.Core.Domain.Airport> pool = anchor is null
+                ? Array.Empty<Callsign.Core.Domain.Airport>()
+                : (await airports.WithinRadiusAsync(anchor.Latitude, anchor.Longitude, DealerRadiusNm, ct))
+                    .Select(x => x.Airport).ToList();
+            var cur = await airports.GetByIdentAsync(currentIcao, ct);
+            return new DealerPlacement(pool, cur?.Latitude ?? 0, cur?.Longitude ?? 0, currentIcao);
+        }
+
+        /// <summary>Place a for-sale airframe and describe it: (icao, field name, distance from where you are now).</summary>
+        public (string Icao, string Name, double DistanceNm) Locate(string seedKey, int? minRunwayFt)
+        {
+            string icao = DealerLocations.Place(seedKey, minRunwayFt, _pool, _fallbackIcao);
+            if (_byIdent.TryGetValue(icao, out var ap))
+                return (icao, ap.Name, Callsign.Core.Geo.GeoMath.DistanceNm(_curLat, _curLon, ap.Latitude, ap.Longitude));
+            return (icao, icao, 0); // fell back to the buyer's own field (no suitable field in the world data)
+        }
+    }
+
     private static void MapEndpoints(WebApplication app, string uiPath)
     {
         app.MapGet("/api/health", () => Results.Ok(new { ok = true }));
@@ -583,13 +627,21 @@ public static class CallsignWebApp
         });
 
         // --- Aircraft ownership (Phase 2a): buy market, hangar ---
-        app.MapGet("/api/aircraft/market", async (AircraftDealerService dealer) =>
+        app.MapGet("/api/aircraft/market", async (CallsignDbContext db, AircraftDealerService dealer, AirportRepository airports) =>
         {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
             var offers = await dealer.GetOffersAsync();
-            return Results.Ok(offers.Select(o => new AircraftOfferDto(
-                o.Type.Id, o.Type.CanonicalName, o.Type.Category.ToString(), o.Quote.TotalCents, o.OnDisk,
-                o.Type.Seats, o.Type.UsefulLoadLbs, o.Type.CruiseKtas,
-                o.Quote.Factors.Select(f => new PriceFactorDto(f.Label, f.AmountCents)).ToList())));
+            var placement = await DealerPlacement.BuildAsync(airports, pilot.HomeIcao, pilot.CurrentIcao);
+            return Results.Ok(offers.Select(o =>
+            {
+                var (icao, name, dist) = placement.Locate(o.Type.Key, o.Type.MinRunwayFt);
+                return new AircraftOfferDto(
+                    o.Type.Id, o.Type.CanonicalName, o.Type.Category.ToString(), o.Quote.TotalCents, o.OnDisk,
+                    o.Type.Seats, o.Type.UsefulLoadLbs, o.Type.CruiseKtas,
+                    o.Quote.Factors.Select(f => new PriceFactorDto(f.Label, f.AmountCents)).ToList(),
+                    icao, name, dist);
+            }));
         });
 
         app.MapGet("/api/aircraft", async (CallsignDbContext db, AircraftDealerService dealer, QualificationService quals, EconomyConfig cfg) =>
@@ -748,13 +800,19 @@ public static class CallsignWebApp
             }
         });
 
-        app.MapPost("/api/aircraft/buy", async (BuyAircraftRequest req, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, AircraftDealerService dealer) =>
+        app.MapPost("/api/aircraft/buy", async (BuyAircraftRequest req, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, AircraftDealerService dealer, AirportRepository airports) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
+            var type = await db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == req.TypeId);
+            if (type is null) return Results.BadRequest(new { error = "Unknown aircraft type." });
             try
             {
-                var inst = await dealer.BuyAsync(pilot.CompanyId, req.TypeId, pilot.CurrentIcao, idem);
+                // Take delivery where the airframe actually sits (recomputed here so the client can't pick a
+                // convenient field) — you then fly it home or ferry it. Same placement the market listing showed.
+                var placement = await DealerPlacement.BuildAsync(airports, pilot.HomeIcao, pilot.CurrentIcao);
+                var atIcao = placement.Locate(type.Key, type.MinRunwayFt).Icao;
+                var inst = await dealer.BuyAsync(pilot.CompanyId, req.TypeId, atIcao, idem);
                 return Results.Ok(new { id = inst.Id, tail = inst.Tail });
             }
             catch (DbUpdateConcurrencyException)
@@ -769,21 +827,34 @@ public static class CallsignWebApp
         });
 
         // Used-aircraft market (Phase 7g): pre-owned airframes, cheaper but flown.
-        app.MapGet("/api/aircraft/used", async (CallsignDbContext db, AircraftDealerService dealer) =>
+        app.MapGet("/api/aircraft/used", async (CallsignDbContext db, AircraftDealerService dealer, AirportRepository airports) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             var listings = await dealer.GetUsedMarketAsync(pilot.CompanyId.GetHashCode());
-            return Results.Ok(listings.Select(l => new UsedListingDto(l.Seed, l.TypeId, l.TypeName, l.Category, l.AirframeHours, l.ConditionMilli, l.PriceCents, l.NewPriceCents)));
+            var placement = await DealerPlacement.BuildAsync(airports, pilot.HomeIcao, pilot.CurrentIcao);
+            var typeIds = listings.Select(l => l.TypeId).Distinct().ToList();
+            var types = await db.AircraftTypes.Where(t => typeIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id);
+            return Results.Ok(listings.Select(l =>
+            {
+                int? minRw = types.TryGetValue(l.TypeId, out var t) ? t.MinRunwayFt : null;
+                var (icao, name, dist) = placement.Locate($"used:{l.Seed}", minRw);
+                return new UsedListingDto(l.Seed, l.TypeId, l.TypeName, l.Category, l.AirframeHours, l.ConditionMilli, l.PriceCents, l.NewPriceCents,
+                    icao, name, dist);
+            }));
         });
 
-        app.MapPost("/api/aircraft/buy-used", async (BuyUsedRequest req, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, AircraftDealerService dealer) =>
+        app.MapPost("/api/aircraft/buy-used", async (BuyUsedRequest req, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, AircraftDealerService dealer, AirportRepository airports) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
+            var type = await db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == req.TypeId);
+            if (type is null) return Results.BadRequest(new { error = "Unknown aircraft type." });
             try
             {
-                var inst = await dealer.BuyUsedAsync(pilot.CompanyId, req.TypeId, req.Seed, pilot.CurrentIcao, idem);
+                var placement = await DealerPlacement.BuildAsync(airports, pilot.HomeIcao, pilot.CurrentIcao);
+                var atIcao = placement.Locate($"used:{req.Seed}", type.MinRunwayFt).Icao;
+                var inst = await dealer.BuyUsedAsync(pilot.CompanyId, req.TypeId, req.Seed, atIcao, idem);
                 return Results.Ok(new { id = inst.Id, tail = inst.Tail });
             }
             catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "Cash changed at the same time — try again." }); }

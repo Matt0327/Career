@@ -209,6 +209,10 @@ export interface AircraftOffer {
   usefulLoadLbs: number | null
   cruiseKtas: number | null
   factors: PriceFactor[]
+  // Where the airframe physically sits — buying takes delivery here; distanceNm is from where you are now.
+  locationIcao: string
+  locationName: string
+  distanceNm: number
 }
 
 export interface UsedListing {
@@ -220,6 +224,9 @@ export interface UsedListing {
   conditionMilli: number
   priceCents: number
   newPriceCents: number
+  locationIcao: string
+  locationName: string
+  distanceNm: number
 }
 
 // Phase 9f-1 — aircraft rental

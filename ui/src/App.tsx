@@ -2922,14 +2922,16 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
     return () => { live = false }
   }, [selId, owned])
 
+  const delivery = (icao: string, distNm: number) =>
+    distNm <= 1 ? `It's at ${icao}, right where you are.` : `It's parked at ${icao} (${Math.round(distNm)} nm away) — fly it home or ferry it from the Hangar.`
   const buy = async (o: AircraftOffer) => {
     setBusy(true); setMsg(null)
-    try { await api.buyAircraft(o.typeId); await load(); onChanged(); setMsg(`Bought a ${o.name} — it's in your hangar.`) }
+    try { await api.buyAircraft(o.typeId); await load(); onChanged(); setMsg(`Bought a ${o.name}. ${delivery(o.locationIcao, o.distanceNm)}`) }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
   const buyUsedListing = async (l: UsedListing) => {
     setBusy(true); setMsg(null)
-    try { await api.buyUsed(l.typeId, l.seed); await load(); onChanged(); setMsg(`Bought a used ${l.typeName} (${Math.round(l.airframeHours)} h, ${Math.round(l.conditionMilli / 1000)}% condition) — it's in your hangar.`) }
+    try { await api.buyUsed(l.typeId, l.seed); await load(); onChanged(); setMsg(`Bought a used ${l.typeName} (${Math.round(l.airframeHours)} h, ${Math.round(l.conditionMilli / 1000)}% condition). ${delivery(l.locationIcao, l.distanceNm)}`) }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
   const rentAircraft = async (o: RentalOffer) => {
@@ -3097,10 +3099,15 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
                         {o.usefulLoadLbs != null && <Meta label="Payload" value={`${o.usefulLoadLbs.toLocaleString()} lb`} />}
                         {o.cruiseKtas != null && <Meta label="Cruise" value={`${o.cruiseKtas} kt`} />}
                       </div>
+                      <div className="ac-loc" title="Buying takes delivery here — you fly it home or ferry it.">
+                        <span className="loc">{o.locationIcao}</span>
+                        <span className="muted"> · {o.locationName}</span>
+                        <span className="ac-dist">{o.distanceNm <= 1 ? 'here' : `${Math.round(o.distanceNm)} nm`}</span>
+                      </div>
                     </div>
                     <div className="ac-buy">
                       <div className="price num">{money(o.priceCents)}</div>
-                      <button className="primary" disabled={busy || !afford} title={afford ? 'Buy outright' : 'over budget'} onClick={() => buy(o)}>Buy</button>
+                      <button className="primary" disabled={busy || !afford} title={afford ? `Buy — delivered at ${o.locationIcao}` : 'over budget'} onClick={() => buy(o)}>Buy</button>
                       {rent && <button className="ghost small" disabled={busy || state.cashCents < rent.depositCents} title={`Deposit ${money(rent.depositCents)} · ${money(rent.flightHourCents)}/h`} onClick={() => rentAircraft(rent)}>Rent · {money(rent.depositCents)}</button>}
                       {lease && <button className="ghost small" disabled={busy || state.cashCents < lease.upfrontCents} title={`${money(lease.weeklyRateCents)}/wk · buyout ${money(lease.buyoutCents)}`} onClick={() => leaseAircraft(lease)}>Lease · {money(lease.upfrontCents)}</button>}
                     </div>
@@ -3127,6 +3134,11 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
                     <div className="job-meta">
                       <Meta label="Hours" value={`${Math.round(l.airframeHours).toLocaleString()} h`} />
                       <Meta label="Condition" value={`${Math.round(l.conditionMilli / 1000)}%`} />
+                    </div>
+                    <div className="ac-loc" title="Buying takes delivery here — you fly it home or ferry it.">
+                      <span className="loc">{l.locationIcao}</span>
+                      <span className="muted"> · {l.locationName}</span>
+                      <span className="ac-dist">{l.distanceNm <= 1 ? 'here' : `${Math.round(l.distanceNm)} nm`}</span>
                     </div>
                   </div>
                   <div className="ac-buy">
