@@ -403,6 +403,8 @@ export interface Telemetry {
   lon: number
   fuel: number
   title: string
+  parkingBrake?: boolean
+  engineRunning?: boolean
 }
 
 /** A settlement event pushed over the WebSocket when a begun flight lands. */

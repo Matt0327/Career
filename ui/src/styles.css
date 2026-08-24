@@ -206,6 +206,12 @@ input { font: inherit; }
 .readiness .r-item.ok { color: var(--pos); }
 .readiness .r-item.no { color: var(--warn); }
 .readiness .r-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
+.finish-checklist { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 8px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--pos) 35%, var(--line)); border-radius: 10px; background: color-mix(in srgb, var(--pos) 8%, transparent); font-size: 13px; }
+.finish-checklist .r-title { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+.finish-checklist .fin-step { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); }
+.finish-checklist .fin-step.ok { color: var(--pos); }
+.finish-checklist .fin-step.no { color: var(--warn); }
+.finish-checklist .r-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
 /* Flight objectives (the grading rubric for a leg) */
 .obj-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; }
 .obj { display: flex; gap: 10px; align-items: start; font-size: 14px; }

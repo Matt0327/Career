@@ -2412,7 +2412,24 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
         </div>
         {diverted && <div className="banner warn">You landed {Math.round(diverted.distanceNm)} nm from <b>{diverted.destIcao}</b>. The job's still open — take off and fly on to {diverted.destIcao}.</div>}
         {begun
-          ? <div className="banner ok">Flying <b>{begun.origin} → {begun.dest}</b> · {begun.destName} — land at {begun.dest} and Callsign settles it automatically.</div>
+          ? <>
+            <div className="banner ok">Flying <b>{begun.origin} → {begun.dest}</b> · {begun.destName} — land at {begun.dest}, then park to settle.</div>
+            {tele?.onGround && (tele.phase === 'Landing' || tele.phase === 'Shutdown') && (() => {
+              const landed = true // on the ground after flying
+              const braked = !!tele.parkingBrake
+              const engOff = tele.engineRunning === false
+              const Step = ({ ok, label }: { ok: boolean; label: string }) =>
+                <span className={`fin-step ${ok ? 'ok' : 'no'}`}><span className="r-dot" />{label}</span>
+              return (
+                <div className="finish-checklist" title="Land at the destination, set the parking brake, and shut the engine down — then the job settles.">
+                  <span className="r-title">To finish</span>
+                  <Step ok={landed} label={`Landed at ${begun.dest}`} />
+                  <Step ok={braked} label="Parking brake set" />
+                  <Step ok={engOff} label="Engine shut down" />
+                </div>
+              )
+            })()}
+          </>
           : freeFlight
             ? <div className="banner ok">Free flight — fly anywhere. Land and it's logged (scored, no payout, no job).</div>
             : <div className="hint">Begin a leg below, or fly free. The next landing at the destination settles the job.</div>}
@@ -2427,7 +2444,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
               <span className="r-title">Matching plane &amp; location</span>
               <Row ok={simOn} wait={!simOn} label={simOn ? 'Simulator connected' : 'Waiting for simulator'} />
               <Row ok={acHere} label={acHere ? `${selAc?.tail} with you at ${state.currentIcao}` : selAc ? `${selAc.tail} is at ${selAc.locationIcao}, not ${state.currentIcao}` : 'No aircraft selected'} />
-              <Row ok={acMatch} wait={!simOn} label={!simOn ? 'Sim aircraft — start MSFS' : acMatch ? 'Sim aircraft matches' : `Load ${selAc?.name ?? 'the aircraft'} in MSFS${tele?.title ? ` (sim has ${tele.title})` : ''}`} />
+              <Row ok={acMatch} wait={!simOn} label={!simOn ? 'Sim aircraft — start MSFS' : acMatch ? 'Sim aircraft matches' : `Load your ${selAc?.name ?? 'aircraft'} in MSFS${tele?.title ? ` — the sim has “${tele.title}” loaded` : ''}`} />
             </div>
           )
         })()}

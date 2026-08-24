@@ -187,6 +187,9 @@ public sealed class FlightSessionService : IDisposable
             lon = showLive ? t.LongitudeDeg : 0.0,
             fuel = showLive ? t.FuelQuantityLbs : 0.0,
             title = t.AircraftTitle,
+            // Shutdown-checklist state (Phase 13): lets the Flight tab show land → brake → engine-off live.
+            parkingBrake = showLive && t.ParkingBrakeSet,
+            engineRunning = showLive && t.EngineRunning,
         });
 
         // Stream the real scored moments as they happen (Phase 7a). Same events that get persisted at
