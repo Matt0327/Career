@@ -71,6 +71,8 @@ public sealed class AircraftDealerService
     };
     public static bool IsCareerAircraft(AircraftType t)
     {
+        // An uncategorised add-on (Unknown) has no real class and only a fallback price — keep it off the market.
+        if (t.Category == AircraftCategory.Unknown) return false;
         if (t.Category == AircraftCategory.Jet && t.Seats is int s && s <= 2) return false; // a 1-2 seat jet is a fighter
         string hay = ((t.CanonicalName ?? "") + " " + (t.Manufacturer ?? "")).ToLowerInvariant();
         return !NonCareerKeywords.Any(k => hay.Contains(k));
@@ -563,7 +565,7 @@ public sealed class AircraftDealerService
     /// <summary>Every rentable type at a field, priced (holding/day + usage/flight-hour + deposit), cheapest first.</summary>
     public async Task<IReadOnlyList<RentalOffer>> GetRentalOffersAsync(CancellationToken ct = default)
     {
-        var types = await _db.AircraftTypes.ToListAsync(ct);
+        var types = (await _db.AircraftTypes.ToListAsync(ct)).Where(IsCareerAircraft);
         return types
             .Select(t =>
             {
@@ -827,7 +829,7 @@ public sealed class AircraftDealerService
     public async Task<IReadOnlyList<LeaseOffer>> GetLeaseOffersAsync(int termDays = 0, CancellationToken ct = default)
     {
         int term = Math.Clamp(termDays <= 0 ? _cfg.LeaseMinTermDays : termDays, _cfg.LeaseMinTermDays, _cfg.LeaseMaxTermDays);
-        var types = await _db.AircraftTypes.ToListAsync(ct);
+        var types = (await _db.AircraftTypes.ToListAsync(ct)).Where(IsCareerAircraft);
         return types
             .Select(t =>
             {
