@@ -47,7 +47,26 @@ public static class CuratedAircraftImages
 
     public static bool TryGet(string key, out Entry entry) => ByIcao.TryGetValue(key.Trim(), out entry!);
 
-    /// <summary>Fetch the curated image bytes (once); null on any failure so the caller falls back to the cloud.</summary>
+    // Where the bundled photos live at runtime (copied next to the app; see Callsign.Host.csproj).
+    private static readonly string LocalDir = Path.Combine(AppContext.BaseDirectory, "CuratedImages");
+
+    /// <summary>
+    /// The bundled curated photo bytes for a key, read from the app's own files (Phase 13) — no network, so the
+    /// hand-picked images ALWAYS load. Wikimedia rate-limited runtime fetches, which made images flicker in and
+    /// out; the photos are now shipped with the app (still credited to Wikimedia Commons on the caption).
+    /// </summary>
+    public static byte[]? LocalBytes(string key)
+    {
+        try
+        {
+            var path = Path.Combine(LocalDir, key.Trim().ToUpperInvariant() + ".jpg");
+            return File.Exists(path) ? File.ReadAllBytes(path) : null;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>Fetch the curated image bytes from the source URL (a last-resort fallback if the bundled file is
+    /// missing); null on any failure so the caller falls back to the cloud.</summary>
     public static async Task<byte[]?> FetchAsync(string url)
     {
         try

@@ -17,6 +17,12 @@
     <ProjectReference Include="..\Callsign.Core\Callsign.Core.csproj" />
   </ItemGroup>
 
+  <!-- Hand-picked aircraft photos, bundled with the app so they always load (Wikimedia rate-limits
+       runtime fetches). Credited to Wikimedia Commons in the image caption; sources in CuratedAircraftImages. -->
+  <ItemGroup>
+    <Content Include="CuratedImages\**\*.jpg" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!-- Live telemetry is wired only into the Windows build. On net10.0 the SimConnect adapter
        type doesn't exist, so SimTelemetryFactory falls back to the synthetic source (see #if WINDOWS). -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows'">

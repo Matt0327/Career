@@ -777,14 +777,24 @@ public static class CallsignWebApp
         {
             var type = await db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == typeId);
 
-            // Curated override (hand-picked photos) wins for its ICAO keys — fetch once, then cache.
-            if (type is not null && Callsign.Host.Cloud.CuratedAircraftImages.TryGet(type.Key, out var cur))
+            // Curated override (hand-picked photos) wins — matched by the type's Key OR its ICAO designator (so a
+            // scanned add-on that maps to a curated ICAO gets the good photo too). Served from the BUNDLED files
+            // first (no network — Wikimedia rate-limits runtime fetches), then cache, then a URL fetch as a last resort.
+            string? curKey = type is null ? null
+                : Callsign.Host.Cloud.CuratedAircraftImages.TryGet(type.Key, out _) ? type.Key.Trim().ToUpperInvariant()
+                : (type.IcaoTypeDesignator is { } icao && Callsign.Host.Cloud.CuratedAircraftImages.TryGet(icao, out _)) ? icao.Trim().ToUpperInvariant()
+                : null;
+            if (curKey is not null && Callsign.Host.Cloud.CuratedAircraftImages.TryGet(curKey, out var cur))
             {
-                var hit = cache.TryGet(type.Key);
+                // The BUNDLED file is authoritative — check it FIRST (before any cache), so a stale cached fetch
+                // or a rate-limited network call can never win over the hand-picked photo shipped with the app.
+                var local = Callsign.Host.Cloud.CuratedAircraftImages.LocalBytes(curKey);
+                if (local is not null) return Results.File(local, Callsign.Host.Cloud.ImageSniff.ContentType(local));
+                var hit = cache.TryGet(curKey);
                 if (hit is not null) return Results.File(hit, Callsign.Host.Cloud.ImageSniff.ContentType(hit));
                 var bytes = await Callsign.Host.Cloud.CuratedAircraftImages.FetchAsync(cur.Url);
-                if (bytes is not null) { cache.Put(type.Key, bytes); return Results.File(bytes, Callsign.Host.Cloud.ImageSniff.ContentType(bytes)); }
-                // fetch failed — fall through to the player's thumbnail / cloud index below
+                if (bytes is not null) { cache.Put(curKey, bytes); return Results.File(bytes, Callsign.Host.Cloud.ImageSniff.ContentType(bytes)); }
+                // both bundled + fetch failed — fall through to the player's thumbnail / cloud index below
             }
 
             var pkg = await db.InstalledPackages.FirstOrDefaultAsync(p => p.AircraftTypeId == typeId && p.IsOnDisk);
@@ -810,7 +820,10 @@ public static class CallsignWebApp
         app.MapGet("/api/aircraft/type/{typeId:guid}/image/meta", async (Guid typeId, CallsignDbContext db, Callsign.Host.Cloud.CloudGateway cloud) =>
         {
             var type = await db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == typeId);
-            if (type is not null && Callsign.Host.Cloud.CuratedAircraftImages.TryGet(type.Key, out var cur))
+            // Credit the curated photo whether it matched by Key or ICAO designator.
+            if (type is not null
+                && (Callsign.Host.Cloud.CuratedAircraftImages.TryGet(type.Key, out var cur)
+                    || (type.IcaoTypeDesignator is { } icao && Callsign.Host.Cloud.CuratedAircraftImages.TryGet(icao, out cur))))
                 return Results.Ok(new { attribution = cur.Attribution, license = cur.License, sourceUrl = cur.SourceUrl });
 
             var pkg = await db.InstalledPackages.FirstOrDefaultAsync(p => p.AircraftTypeId == typeId && p.IsOnDisk);
