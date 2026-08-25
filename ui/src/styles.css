@@ -206,6 +206,7 @@ input { font: inherit; }
 .combo-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 10px 14px; margin: 4px 0 12px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); background: color-mix(in srgb, var(--accent) 10%, transparent); border-radius: 10px; font-size: 14px; }
 .combo-bar.bad { border-color: color-mix(in srgb, var(--warn) 50%, var(--line)); background: color-mix(in srgb, var(--warn) 10%, transparent); }
 .combo-bar span { margin-right: auto; }
+.good-ico { display: inline-block; width: 1.4em; margin-right: 6px; text-align: center; font-size: 15px; line-height: 1; }
 /* Flight-tab readiness ("matching plane and location") */
 .readiness { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: color-mix(in srgb, var(--panel) 60%, transparent); font-size: 13px; }
 .readiness .r-title { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }

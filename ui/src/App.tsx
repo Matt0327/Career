@@ -4010,6 +4010,22 @@ function Bases({ state, onChanged }: { state: State; onChanged: () => void }) {
 
 // ─── Trade ───────────────────────────────────────────────────────────────────
 
+// A recognisable glyph per commodity, for quick scanning of the market (Phase 13).
+function goodIcon(name: string): string {
+  const s = name.toLowerCase()
+  if (s.includes('coffee')) return '☕'
+  if (s.includes('produce') || s.includes('fruit') || s.includes('veg') || s.includes('grain') || s.includes('food')) return '🥬'
+  if (s.includes('livestock') || s.includes('cattle') || s.includes('animal')) return '🐄'
+  if (s.includes('medicine') || s.includes('medical') || s.includes('pharma')) return '💊'
+  if (s.includes('electronic') || s.includes('computer') || s.includes('chip')) return '💻'
+  if (s.includes('machinery') || s.includes('machine') || s.includes('parts') || s.includes('equipment')) return '⚙️'
+  if (s.includes('spirits') || s.includes('wine') || s.includes('liquor') || s.includes('drink')) return '🍾'
+  if (s.includes('textile') || s.includes('cloth') || s.includes('fabric')) return '🧵'
+  if (s.includes('fuel') || s.includes('oil') || s.includes('petro')) return '🛢️'
+  if (s.includes('timber') || s.includes('wood') || s.includes('lumber')) return '🪵'
+  return '📦'
+}
+
 function Trade({ state, onChanged }: { state: State; onChanged: () => void }) {
   const [market, setMarket] = useState<MarketQuote[]>([])
   const [inv, setInv] = useState<Inventory[]>([])
@@ -4068,7 +4084,7 @@ function Trade({ state, onChanged }: { state: State; onChanged: () => void }) {
             <tbody>{[...market].sort((a, b) => b.bestSellMarginCents - a.bestSellMarginCents).map(m => (
               <tr key={m.good}>
                 <td>
-                  {m.name}
+                  <span className="good-ico" aria-hidden="true">{goodIcon(m.name)}</span>{m.name}
                   {m.region === 'export' ? <span className="region-tag exp">produced here</span> : m.region === 'demand' ? <span className="region-tag dem">in demand</span> : null}
                   {m.pressurePct >= 1 ? <span className="pressure-tag up" title="Your buying has bid this market up. It drifts back to normal once you stop.">you bid +{m.pressurePct}%</span>
                     : m.pressurePct <= -1 ? <span className="pressure-tag down" title="Your selling has flooded this market. It drifts back to normal once you stop.">you softened −{Math.abs(m.pressurePct)}%</span> : null}
@@ -4110,7 +4126,7 @@ function Trade({ state, onChanged }: { state: State; onChanged: () => void }) {
                     : null
                 return (
                   <tr key={v.id} className={v.spoiled ? 'spoiled-row' : ''}>
-                    <td>{v.name}{freshTag}</td>
+                    <td><span className="good-ico" aria-hidden="true">{goodIcon(v.name)}</span>{v.name}{freshTag}</td>
                     <td className="r num">{v.quantity}</td>
                     <td className="r num muted">{money(v.unitCostCents)}</td>
                     <td className="r num">{v.spoiled ? <span className="neg">worthless</span> : money(v.marketSellCents)}</td>
