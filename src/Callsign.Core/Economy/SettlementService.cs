@@ -369,8 +369,12 @@ public sealed class SettlementService
                 // loss — on top of the hours — which then bills through the existing maintenance + resale paths
                 // (never a per-exceedance cash hit). Zero for a clean leg, or one the sim didn't instrument (L10).
                 int engineAbuseWear = _cfg.EngineAbuseWearMilli(flight.EngineDamagePctAccrued);
-                instance.HullConditionMilli = Math.Max(0, instance.HullConditionMilli - hullWear);
-                instance.EngineConditionMilli = Math.Max(0, instance.EngineConditionMilli - hourWear - engineAbuseWear);
+                // Phase 13 (L9): cap what a SINGLE leg can strip, so one rough flight can't total an airframe —
+                // wear is real and accumulates, but never a one-shot write-off.
+                int hullLoss = Math.Min(hullWear, _cfg.MaxConditionLossPerLegMilli);
+                int engineLoss = Math.Min(hourWear + engineAbuseWear, _cfg.MaxConditionLossPerLegMilli);
+                instance.HullConditionMilli = Math.Max(0, instance.HullConditionMilli - hullLoss);
+                instance.EngineConditionMilli = Math.Max(0, instance.EngineConditionMilli - engineLoss);
                 instance.UpdatedAt = now;
             }
         }

@@ -207,10 +207,16 @@ public sealed record EconomyConfig
     // authority — a leg's accrued damage-percent points (max − baseline) become engine-condition loss here,
     // which then bills through the existing maintenance visits + resale + insurance paths. Never a per-
     // exceedance cash hit: a brief harmless exceedance leaves the sim's damage untouched → zero cost; only
-    // genuine, sim-modelled harm accrues, warned first in the live log (L4). At 1500, 1% of engine damage
-    // costs 1.5% of engine condition, so a destroyed engine (~100%) fully wears it down to an overhaul.
-    public int EngineAbuseWearMilliPerPct { get; init; } = 1_500;
+    // genuine, sim-modelled harm accrues, warned first in the live log (L4). Phase 13 — softened 1500→900 (L9,
+    // "one rough flight shouldn't total the engine"): 1% of engine damage now costs 0.9% of engine condition,
+    // and the per-leg cap below means even a badly abused leg can't write an airframe off in one go.
+    public int EngineAbuseWearMilliPerPct { get; init; } = 900;
     public int EngineAbuseWearMilli(double pctAccrued) => (int)Math.Round(Math.Max(0, pctAccrued) * EngineAbuseWearMilliPerPct);
+
+    /// <summary>The most condition (hull OR engine) a SINGLE leg can strip (Phase 13, L9 — reward mastery, bill
+    /// only real damage, but never a one-shot write-off). 30000 = 30% of full: even a catastrophic flight leaves
+    /// something to fly home on; a persistently rough operator still grinds the airframe down over several legs.</summary>
+    public int MaxConditionLossPerLegMilli { get; init; } = 30_000;
 
     // --- Airworthiness & inspections (Phase 7e): a worn or overdue tail is grounded until serviced ---
     public int AirworthyFloorMilli { get; init; } = 20_000;        // below 20% hull/engine condition = grounded
