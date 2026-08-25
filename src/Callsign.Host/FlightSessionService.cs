@@ -67,6 +67,10 @@ public sealed class FlightSessionService : IDisposable
         _ = BroadcastAsync(new { type = "state", connection = state.ToString(), phase = Phase.ToString() });
     }
 
+    /// <summary>Push a user-facing notification to every connected client (Phase 13) — e.g. an autonomous crew
+    /// leg that just banked. Reuses the telemetry socket, so it reaches the app on any tab.</summary>
+    public Task NotifyAsync(string text) => BroadcastAsync(new { type = "notify", text });
+
     /// <summary>Start the telemetry source (idempotent at the source level).</summary>
     public Task StartAsync(CancellationToken ct = default) => _source.StartAsync(ct);
 

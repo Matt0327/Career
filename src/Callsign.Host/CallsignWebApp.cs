@@ -94,6 +94,7 @@ public static class CallsignWebApp
         builder.Services.AddSingleton<ISimTelemetrySource>(sp =>
             SimTelemetryFactory.Create(sp.GetRequiredService<ILoggerFactory>().CreateLogger("Telemetry")));
         builder.Services.AddSingleton<FlightSessionService>();
+        builder.Services.AddHostedService<AutoReconcileService>(); // Phase 13 — auto-bank autonomous crew work + notify
 
         // --- Scoped services (per request) ---
         builder.Services.AddScoped<AirportRepository>();

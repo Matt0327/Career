@@ -82,6 +82,26 @@ export function App() {
   useEffect(() => { void reload() }, [reload])
   useEffect(() => { if (state) loadAirline() }, [state, loadAirline])
 
+  // Global notifications (Phase 13): autonomous crew work that banks in the background pushes a toast on ANY tab,
+  // and refreshes state so the newly-banked cash shows. Reuses the telemetry socket the server broadcasts on.
+  useEffect(() => {
+    let ws: WebSocket | null = null, closed = false, retry: ReturnType<typeof setTimeout>
+    const connect = () => {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+      ws = new WebSocket(`${proto}://${location.host}/ws/telemetry`)
+      ws.onmessage = e => {
+        try {
+          const m = JSON.parse(e.data) as { type?: string; text?: string }
+          if (m.type === 'notify' && m.text) { notify(m.text, 'ok'); void reload() }
+        } catch { /* ignore malformed frames */ }
+      }
+      ws.onclose = () => { if (!closed) retry = setTimeout(connect, 2000) }
+      ws.onerror = () => ws?.close()
+    }
+    connect()
+    return () => { closed = true; clearTimeout(retry); ws?.close() }
+  }, [reload])
+
   if (state === undefined) return error
     ? <StartupError error={error} onRetry={() => { setError(null); void reload() }} />
     : <Splash />
@@ -3561,7 +3581,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
 
       {dispatches.length > 0 && (
         <section className="card">
-          <div className="row-head"><h2>Crew dispatches</h2><span className="hint">One-off jobs your crews are flying — banked by Process now</span></div>
+          <div className="row-head"><h2>Crew dispatches</h2><span className="hint">One-off jobs your crews are flying — they finish and pay automatically</span></div>
           <div className="tbl-wrap"><table className="tbl">
             <thead><tr><th>Crew</th><th>Aircraft</th><th>Leg</th><th>Status</th><th className="r">Reward</th><th className="r"></th></tr></thead>
             <tbody>{dispatches.map(d => (
@@ -3569,9 +3589,9 @@ function Ops({ onChanged }: { onChanged: () => void }) {
                 <td>{d.crewName}</td>
                 <td>{d.aircraftName || d.tail}{d.aircraftName && <span className="muted loc"> · {d.tail}</span>}</td>
                 <td className="loc">{d.origin} → {d.dest} <span className="muted num">· {Math.round(d.distanceNm)} nm</span></td>
-                <td>{d.ready ? <span className="pos">landed · ready to bank</span> : <span className="muted">{dueText(d.readyAt)}</span>}</td>
+                <td>{d.ready ? <span className="pos">landed · banking…</span> : <span className="muted">{dueText(d.readyAt)}</span>}</td>
                 <td className="r num pos">{money(d.rewardCents)}</td>
-                <td className="r"><button className="linky" disabled={busy} onClick={() => cancelDispatch(d.id)}>Recall</button></td>
+                <td className="r"><button className="linky" disabled={busy} title="Pull this crew leg out of the air early — only needed to abort; completed legs bank on their own" onClick={() => cancelDispatch(d.id)}>{d.ready ? '—' : 'Recall'}</button></td>
               </tr>
             ))}</tbody>
           </table></div>
