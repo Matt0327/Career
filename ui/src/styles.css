@@ -1031,6 +1031,16 @@ button.danger:hover:not(:disabled){filter:brightness(1.08)}
 .rel-badge.ok{color:var(--pos);background:color-mix(in srgb,var(--pos) 12%,transparent)}
 .rel-badge.mid{color:var(--warn);background:color-mix(in srgb,var(--warn) 12%,transparent)}
 .rel-badge.bad{color:var(--neg);background:color-mix(in srgb,var(--neg) 14%,transparent)}
+/* Network Operations dashboard (Phase 14e) */
+.netops-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin:4px 0 16px}
+.nos-stat{display:flex;flex-direction:column;gap:3px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:color-mix(in srgb,var(--line) 22%,transparent)}
+.nos-label{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.nos-num{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums}
+.nos-num.pos{color:var(--pos)}.nos-num.neg{color:var(--neg)}.nos-num.warn{color:var(--warn)}
+.netops-tbl{font-size:12.5px}
+.netops-tbl td,.netops-tbl th{padding:6px 8px}
+.netops-tbl .num{font-variant-numeric:tabular-nums}
+.netops-tbl .num.pos{color:var(--pos)}.netops-tbl .num.neg{color:var(--neg)}.netops-tbl .num.warn{color:var(--warn)}
 .credit-badge{font-size:12px;font-weight:700;padding:2px 10px;border-radius:6px;letter-spacing:.02em}
 .credit-badge.g-A{color:var(--pos);background:color-mix(in srgb,var(--pos) 15%,transparent)}
 .credit-badge.g-B{color:var(--pos);background:color-mix(in srgb,var(--pos) 11%,transparent)}

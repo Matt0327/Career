@@ -1516,6 +1516,56 @@ public static class CallsignWebApp
             });
         });
 
+        // Phase 14e — the Network Operations dashboard: the scheduled network with a full per-route P&L (revenue,
+        // fuel, crew, margin, utilisation) computed live, plus network totals. Read-only.
+        app.MapGet("/api/airline/network", async (CallsignDbContext db, EconomyConfig cfg, IClock clock) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            int repMilliN = await db.Companies.Where(c => c.Id == pilot.CompanyId).Select(c => c.OperatingReputationMilli).FirstOrDefaultAsync();
+            double seasonN = Callsign.Core.Economy.ScheduledDemand.SeasonMultiplier(cfg, clock.UtcNow);
+            var sched = await db.Routes.Where(r => r.CompanyId == pilot.CompanyId && r.Active && !r.IsDeleted && r.SeatCapacity != null).ToListAsync();
+            var staffN = await db.Staff.Where(s => s.CompanyId == pilot.CompanyId).ToDictionaryAsync(s => s.Id);
+            var acN = await db.AircraftInstances.Where(a => a.CompanyId == pilot.CompanyId).ToDictionaryAsync(a => a.Id);
+            var catN = await db.AircraftTypes.ToDictionaryAsync(t => t.Id, t => t.Category);
+
+            var rowsN = new List<NetworkRouteDto>();
+            long totRevDay = 0, totCostDay = 0; int totPaxDay = 0;
+            foreach (var r in sched)
+            {
+                int seats = r.SeatCapacity!.Value;
+                var comp = Callsign.Core.Economy.RouteCompetition.Evaluate(cfg, r.Id, repMilliN, r.PriceMultiplierMilli);
+                double marketMult = comp.LoadMultiplier * cfg.ReliabilityLoadMultiplier(r.ReliabilityMilli);
+                int load = Callsign.Core.Economy.ScheduledDemand.LoadFactorMilli(cfg, repMilliN, seasonN, r.PriceMultiplierMilli, marketMult);
+                long revTrip = Callsign.Core.Economy.ScheduledDemand.RevenuePerTripCents(seats, load, r.SeatYieldCents!.Value, r.PriceMultiplierMilli);
+                double tripsDay = cfg.AutonomousTripsFlown(24, r.RoundTripHours); // duty-capped trips a day
+                double blockHrsDay = tripsDay * r.RoundTripHours;
+                var ac = acN.GetValueOrDefault(r.AircraftInstanceId);
+                var cat = ac != null && catN.TryGetValue(ac.TypeId, out var cc) ? cc : AircraftCategory.Unknown;
+                long fuelTrip = cfg.EstimatedFuelCents(cat, r.RoundTripHours);
+                var crew = staffN.GetValueOrDefault(r.StaffId);
+                long wageDay = crew?.WagePerDayCents ?? 0;
+                long revDay = (long)Math.Round(revTrip * tripsDay);
+                long costDay = (long)Math.Round(fuelTrip * tripsDay) + wageDay;
+                long crewCostTrip = tripsDay > 0 ? (long)Math.Round(wageDay / tripsDay) : wageDay;
+                rowsN.Add(new NetworkRouteDto(r.Id, r.Name, r.OriginIcao, r.DestIcao, ac?.Tail ?? "?", crew?.Name ?? "?",
+                    seats, (int)Math.Round(load / 10.0), r.PriceMultiplierMilli, (int)Math.Round(comp.YourShareMilli), r.ReliabilityMilli, comp.Rivals.Count,
+                    r.RoundTripHours, tripsDay, blockHrsDay,
+                    revTrip, fuelTrip, crewCostTrip, revTrip - fuelTrip - crewCostTrip, revDay, revDay - costDay));
+                totRevDay += revDay; totCostDay += costDay;
+                totPaxDay += (int)Math.Round(seats * (load / 1000.0) * tripsDay);
+            }
+            int nN = rowsN.Count;
+            var summary = new NetworkSummaryDto(
+                nN, totPaxDay,
+                nN > 0 ? (int)Math.Round(rowsN.Average(x => (double)x.LoadPct)) : 0,
+                nN > 0 ? (int)Math.Round(rowsN.Average(x => (double)x.ReliabilityMilli)) : 1000,
+                nN > 0 ? (int)Math.Round(rowsN.Average(x => (double)x.MarketShareMilli)) : 0,
+                totRevDay, totCostDay, totRevDay - totCostDay,
+                nN > 0 ? rowsN.Average(x => x.BlockHoursPerDay) : 0);
+            return Results.Ok(new NetworkDto(summary, rowsN));
+        });
+
         app.MapPost("/api/routes", async (CreateRouteRequest req, CallsignDbContext db, RouteService routes) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();

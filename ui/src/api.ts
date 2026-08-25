@@ -623,6 +623,20 @@ export interface RouteData {
   hasAoc: boolean // Phase 11f — holds a valid Air Operator Certificate (can run scheduled service)
 }
 
+// Phase 14e — the Network Operations dashboard: the scheduled network with a full per-route P&L + totals.
+export interface NetworkRoute {
+  id: string; name: string; origin: string; dest: string; aircraftTail: string; crewName: string
+  seats: number; loadPct: number; fareMultiplierMilli: number; marketShareMilli: number; reliabilityMilli: number; rivalCount: number
+  roundTripHours: number; tripsPerDay: number; blockHoursPerDay: number
+  revenuePerTripCents: number; fuelPerTripCents: number; crewCostPerTripCents: number; marginPerTripCents: number
+  revenuePerDayCents: number; marginPerDayCents: number
+}
+export interface NetworkSummary {
+  routeCount: number; seatsPerDay: number; avgLoadPct: number; avgReliabilityMilli: number; avgMarketShareMilli: number
+  revenuePerDayCents: number; costPerDayCents: number; marginPerDayCents: number; avgUtilisationHoursPerDay: number
+}
+export interface NetworkData { summary: NetworkSummary; routes: NetworkRoute[] }
+
 export interface LoanOffer {
   tier: number
   name: string
@@ -1106,6 +1120,7 @@ export const api = {
   statement: (days: number) => fetch(`/api/finances/statement?days=${days}`).then(ok<StatementRow[]>),
   insurance: () => fetch('/api/insurance').then(ok<Insurance>),
   routes: () => fetch('/api/routes').then(ok<RouteData>),
+  network: () => fetch('/api/airline/network').then(ok<NetworkData>),
   createScheduledRoute: (body: { name?: string; originIcao: string; destIcao: string; aircraftInstanceId: string; staffId: string; fareMultiplierMilli?: number }) =>
     POST('/api/routes/scheduled', body).then(ok<{ id: string; name: string; rewardPerTripCents: number; seatCapacity: number; loadFactorMilli: number; fareMultiplierMilli: number }>),
   createRoute: (body: { name?: string; originIcao: string; destIcao: string; aircraftInstanceId: string; staffId: string; mission: string; priceMultiplierMilli?: number }) =>

@@ -149,6 +149,18 @@ public record RouteDto(Guid Id, string Name, string Origin, string Dest, string 
     int? MarketShareMilli = null, IReadOnlyList<RivalDto>? Rivals = null, // Phase 14b — competition on a scheduled route
     int? ReliabilityMilli = null); // Phase 14c — rolling on-time record (scheduled only)
 public record RivalDto(string Name, int ReputationMilli, int FareMultiplierMilli);
+
+// --- Phase 14e: the Network Operations dashboard — the scheduled network with a full per-route P&L + totals. ---
+public record NetworkDto(NetworkSummaryDto Summary, IReadOnlyList<NetworkRouteDto> Routes);
+public record NetworkSummaryDto(
+    int RouteCount, int SeatsPerDay, int AvgLoadPct, int AvgReliabilityMilli, int AvgMarketShareMilli,
+    long RevenuePerDayCents, long CostPerDayCents, long MarginPerDayCents, double AvgUtilisationHoursPerDay);
+public record NetworkRouteDto(
+    Guid Id, string Name, string Origin, string Dest, string AircraftTail, string CrewName,
+    int Seats, int LoadPct, int FareMultiplierMilli, int MarketShareMilli, int ReliabilityMilli, int RivalCount,
+    double RoundTripHours, double TripsPerDay, double BlockHoursPerDay,
+    long RevenuePerTripCents, long FuelPerTripCents, long CrewCostPerTripCents, long MarginPerTripCents,
+    long RevenuePerDayCents, long MarginPerDayCents);
 public record RouteBaseDto(string Icao, string Name);
 public record CreateRouteRequest(string? Name, string OriginIcao, string DestIcao, Guid AircraftInstanceId, Guid StaffId, string Mission, int? PriceMultiplierMilli);
 public record ScheduledRouteRequest(string? Name, string OriginIcao, string DestIcao, Guid AircraftInstanceId, Guid StaffId, int? FareMultiplierMilli = null); // Phase 11f + 14a fare

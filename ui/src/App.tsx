@@ -5270,6 +5270,57 @@ function AirlineReputationCard({ rep, color }: { rep: AirlineData['reputation'];
   )
 }
 
+// Phase 14e — the Network Operations dashboard: the scheduled network with a live per-route P&L (revenue, fuel,
+// crew, margin, utilisation) and network totals. The airline-management centrepiece.
+function NetworkOps({ color }: { color: string }) {
+  const [net, setNet] = useState<import('./api').NetworkData | null>(null)
+  useEffect(() => { api.network().then(setNet).catch(() => {}) }, [])
+  if (!net || net.routes.length === 0) return null
+  const s = net.summary
+  const pctFare = (m: number) => (m === 1000 ? 'market' : `${m > 1000 ? '+' : ''}${Math.round(m / 10 - 100)}%`)
+  const relClass = (m: number) => (m >= 950 ? 'pos' : m >= 850 ? 'warn' : 'neg')
+  return (
+    <section className="card netops">
+      <div className="row-head"><h2>Network operations</h2><span className="hint">{s.routeCount} scheduled route{s.routeCount === 1 ? '' : 's'} · live P&amp;L</span></div>
+      <div className="netops-summary">
+        <div className="nos-stat"><span className="nos-label">Revenue / day</span><span className="nos-num pos">{money(s.revenuePerDayCents)}</span></div>
+        <div className="nos-stat"><span className="nos-label">Costs / day</span><span className="nos-num neg">{money(s.costPerDayCents)}</span></div>
+        <div className="nos-stat"><span className="nos-label">Margin / day</span><span className="nos-num" style={{ color: s.marginPerDayCents >= 0 ? 'var(--pos)' : 'var(--neg)' }}>{money(s.marginPerDayCents)}</span></div>
+        <div className="nos-stat"><span className="nos-label">Passengers / day</span><span className="nos-num num">{s.seatsPerDay.toLocaleString()}</span></div>
+        <div className="nos-stat"><span className="nos-label">Avg load</span><span className="nos-num num">{s.avgLoadPct}%</span></div>
+        <div className="nos-stat"><span className="nos-label">Avg on-time</span><span className={`nos-num num ${relClass(s.avgReliabilityMilli)}`}>{Math.round(s.avgReliabilityMilli / 10)}%</span></div>
+        <div className="nos-stat"><span className="nos-label">Avg share</span><span className="nos-num num">{Math.round(s.avgMarketShareMilli / 10)}%</span></div>
+        <div className="nos-stat"><span className="nos-label">Fleet utilisation</span><span className="nos-num num">{s.avgUtilisationHoursPerDay.toFixed(1)} h/day</span></div>
+      </div>
+      <div className="tbl-wrap">
+        <table className="tbl netops-tbl">
+          <thead><tr>
+            <th>Route</th><th className="r">Load</th><th className="r">Fare</th><th className="r">Share</th><th className="r">On-time</th>
+            <th className="r">Trips/day</th><th className="r">Rev/trip</th><th className="r">Fuel</th><th className="r">Crew</th><th className="r">Margin/trip</th><th className="r">Margin/day</th>
+          </tr></thead>
+          <tbody>{net.routes.map(r => (
+            <tr key={r.id}>
+              <td><b>{r.origin}</b> → <b>{r.dest}</b> <span className="muted">· {r.name}</span>
+                <div className="route-crew">{r.aircraftTail} · {r.crewName} · {r.seats} seats · {r.blockHoursPerDay.toFixed(1)} h/day</div></td>
+              <td className="r num">{r.loadPct}%</td>
+              <td className="r num">{pctFare(r.fareMultiplierMilli)}</td>
+              <td className="r num">{Math.round(r.marketShareMilli / 10)}%</td>
+              <td className={`r num ${relClass(r.reliabilityMilli)}`}>{Math.round(r.reliabilityMilli / 10)}%</td>
+              <td className="r num">{r.tripsPerDay.toFixed(1)}</td>
+              <td className="r num pos">{money(r.revenuePerTripCents)}</td>
+              <td className="r num neg">{money(r.fuelPerTripCents)}</td>
+              <td className="r num neg">{money(r.crewCostPerTripCents)}</td>
+              <td className="r num" style={{ color: r.marginPerTripCents >= 0 ? 'var(--pos)' : 'var(--neg)' }}>{money(r.marginPerTripCents)}</td>
+              <td className="r num" style={{ color: r.marginPerDayCents >= 0 ? 'var(--pos)' : 'var(--neg)', fontWeight: 700 }}>{money(r.marginPerDayCents)}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+      <p className="hint" style={{ marginTop: 10 }}>Demand is live: cabin fill rides your reputation, the season, your fare, your market share, and your on-time record. Tune fares on the Trade tab — <b style={{ color }}>+33%</b> is the revenue sweet spot.</p>
+    </section>
+  )
+}
+
 // "The Flotation" (Phase 13): the enterprise value read as a share price — a ticker with market cap, growth
 // since flotation, and a sparkline of the value history that builds as you operate. Purely a re-framing of the
 // enterprise value (market cap == enterprise value), so it mints no money.
@@ -5414,6 +5465,7 @@ function Airline({ onSaved }: { onSaved: () => void }) {
           </div>
         </section>
         {data.hq.market && <ShareTicker market={data.hq.market} color={color} />}
+        <NetworkOps color={color} />
         <section className="card">
           <h2>Airline identity</h2>
           <div className="airline-head">
