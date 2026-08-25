@@ -1021,6 +1021,7 @@ button.danger:hover:not(:disabled){filter:brightness(1.08)}
 .credit-badge.g-C{color:var(--warn);background:color-mix(in srgb,var(--warn) 14%,transparent)}
 .credit-badge.g-D{color:var(--neg);background:color-mix(in srgb,var(--neg) 12%,transparent)}
 .credit-badge.g-E{color:var(--neg);background:color-mix(in srgb,var(--neg) 17%,transparent)}
+.assign-meta .loaded-chip{font-weight:600;color:var(--pos);letter-spacing:.02em}
 .assign-meta .due{font-weight:600}
 .assign-meta .due.warn{color:var(--warn)}
 .assign-meta .due.neg{color:var(--neg)}

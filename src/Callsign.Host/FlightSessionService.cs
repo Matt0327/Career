@@ -48,6 +48,8 @@ public sealed class FlightSessionService : IDisposable
     public FlightPhase Phase { get; private set; } = FlightPhase.Parked;
     public SimConnectionState Connection => _source.State;
     public Guid? CurrentAssignmentId => _assignmentId;
+    public bool FreeFlightActive => _freeFlight;                 // a free flight is armed (for tab-switch restore)
+    public IReadOnlyList<Guid> AlsoAssignmentIds => _alsoAssignmentIds; // extra same-leg jobs, so a restore can rebuild the combo
 
     public FlightSessionService(ISimTelemetrySource source, IServiceScopeFactory scopes,
         ILogger<FlightSessionService> logger, EconomyConfig config)

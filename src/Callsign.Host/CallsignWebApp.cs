@@ -2020,6 +2020,7 @@ public static class CallsignWebApp
             var t = session.Latest;
             return Results.Ok(new FlightLiveDto(
                 session.Phase.ToString(), session.Connection.ToString(), session.CurrentAssignmentId,
+                session.FreeFlightActive, session.AlsoAssignmentIds,
                 t?.AltitudeFt, t?.IndicatedAirspeedKts, t?.VerticalSpeedFpm, t?.OnGround, t?.AircraftTitle));
         });
 

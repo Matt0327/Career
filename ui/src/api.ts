@@ -409,6 +409,25 @@ export interface Telemetry {
   title: string
   parkingBrake?: boolean
   engineRunning?: boolean
+  destIcao?: string        // the armed leg's destination airport (empty when nothing armed)
+  distToDestNm?: number | null // live great-circle distance to that airport (null until resolved / off a real position)
+  inSector?: boolean       // within the arrival sector — landing here settles the job
+  arrivalRadiusNm?: number // the sector radius, so the UI can name it
+}
+
+/** The server's current flight-session state — used to RESTORE the Flight tab after a tab switch (the server
+ * keeps tracking; only the React component unmounted), so a long flight is never "reset" by leaving the tab. */
+export interface FlightLive {
+  phase: string
+  connection: string
+  assignmentId: string | null
+  freeFlight: boolean
+  alsoAssignmentIds: string[]
+  altitudeFt: number | null
+  indicatedAirspeedKts: number | null
+  verticalSpeedFpm: number | null
+  onGround: boolean | null
+  aircraftTitle: string | null
 }
 
 /** A settlement event pushed over the WebSocket when a begun flight lands. */
@@ -1099,6 +1118,7 @@ export const api = {
     POST(`/api/assignments/${id}/hand-off`, { staffId, aircraftInstanceId }).then(ok<{ legId: string; dest: string; rewardCents: number }>),
   beginFlight: (assignmentId: string, aircraftInstanceId?: string, alsoAssignmentIds?: string[]) =>
     POST('/api/flight/begin', { assignmentId, aircraftInstanceId, alsoAssignmentIds }).then(ok),
+  flightLive: () => fetch('/api/flight/live').then(ok<FlightLive>),
   ledger: (limit = 50) => fetch(`/api/ledger?limit=${limit}`).then(ok<LedgerEntry[]>),
   flights: (skip = 0, take = 50): Promise<FlightLog[]> => fetch(`/api/flights?skip=${skip}&take=${take}`).then(ok<FlightLog[]>),
   flight: (id: string) => fetch(`/api/flights/${id}`).then(ok<FlightDetail>),

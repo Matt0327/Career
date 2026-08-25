@@ -235,7 +235,7 @@ public record FlightTotalsDto(
 public record BeginFlightRequest(Guid AssignmentId, Guid? AircraftInstanceId, IReadOnlyList<Guid>? AlsoAssignmentIds = null); // Phase 13 — extra same-dest jobs on the same leg
 
 public record FlightLiveDto(
-    string Phase, string Connection, Guid? AssignmentId,
+    string Phase, string Connection, Guid? AssignmentId, bool FreeFlight, IReadOnlyList<Guid> AlsoAssignmentIds,
     double? AltitudeFt, double? IndicatedAirspeedKts, double? VerticalSpeedFpm, bool? OnGround, string? AircraftTitle);
 
 public record FlightResultDto(

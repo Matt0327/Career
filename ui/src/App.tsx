@@ -2083,14 +2083,20 @@ function matchesSimTitle(simTitle: string | undefined, ac: OwnedAircraft | null)
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
   const sim = norm(simTitle)
   if (!sim) return false
+  const simTokens = new Set(sim.split(' '))
   const model = norm(ac.icaoModel || '')
-  if (model && sim.includes(model)) return true
-  // Otherwise: most of the aircraft-name's significant tokens should appear in the sim title.
-  const stop = new Set(['the', 'and', 'of', 'aircraft', 'plane'])
-  const tokens = norm(ac.name).split(' ').filter(t => t.length > 2 && !stop.has(t))
+  if (model && (sim.includes(model) || simTokens.has(model))) return true
+  // Drop the noise words liveries/publishers add ("Asobo", "Carenado", "Ready to Fly") so they can't dilute the match.
+  const stop = new Set(['the', 'and', 'of', 'aircraft', 'plane', 'msfs', 'asobo', 'carenado', 'ready', 'to', 'fly', 'edition'])
+  const tokens = norm(ac.name).split(' ').filter(t => t.length > 1 && !stop.has(t))
   if (tokens.length === 0) return false
+  // A distinctive type NUMBER both share (152, 172, DR400, TBM930) is a strong match on its own — GA titles vary
+  // wildly ("Cessna 152", "C152", "152 G1000"), but the number pins the model. This alone fixes "152" not matching.
+  const numeric = tokens.filter(t => /\d/.test(t))
+  if (numeric.some(t => simTokens.has(t) || sim.includes(t))) return true
+  // Otherwise: a reasonable share of the name's tokens appear somewhere in the sim title.
   const hit = tokens.filter(t => sim.includes(t)).length
-  return hit / tokens.length >= 0.6
+  return hit / tokens.length >= 0.5
 }
 
 // A deterministic passenger manifest for a cabin — the same assignment always yields the same souls aboard
@@ -2330,6 +2336,9 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [begun, setBegun] = useState<Assignment | null>(null)
   const [freeFlight, setFreeFlight] = useState(false) // Phase 12 — flying with no job, tracked + logged
+  // Bug #10 — the server keeps tracking a flight across a tab switch (only this React component unmounts), so on
+  // mount we ask what's in progress and re-adopt it, instead of the tab looking "reset" mid-flight.
+  const [pendingRestore, setPendingRestore] = useState<import('./api').FlightLive | null>(null)
   const [settled, setSettled] = useState<Settled | null>(null)
   const [diverted, setDiverted] = useState<Diverted | null>(null)
   const [fleet, setFleet] = useState<OwnedAircraft[]>([])
@@ -2337,6 +2346,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
   const [crew, setCrew] = useState<Staff[]>([])   // Phase 13 — hire-out: fly a job as yourself or hand it to a crew
   const [who, setWho] = useState('')              // '' = you (hand-fly); else a staffId (they fly it autonomously)
   const [combo, setCombo] = useState<Set<string>>(new Set()) // Phase 13 — extra same-dest jobs to fly on one leg
+  const [loaded, setLoaded] = useState<Set<string>>(new Set()) // bug #2 — jobs whose payload you've loaded aboard (the tablet load step)
   const [beginErr, setBeginErr] = useState<string | null>(null)
   const [quals, setQuals] = useState<QualClass[]>([])
   const [checkPending, setCheckPending] = useState<string | null>(null) // class name of a check-flight in progress
@@ -2412,14 +2422,19 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
   useEffect(() => {
     // Only narrate rare, meaningful beats — takeoff and touchdown already arrive as scored events from
     // the server, so we drop the climb/cruise/descent chatter and log each cue at most once per flight.
-    const PHASE_LOG: Record<string, string> = { Approach: 'On approach.', Shutdown: 'Aircraft secured.' }
+    // Bug #7: "On approach" fired on ANY descent, far from the field. Now it only fires when we're actually
+    // near the destination sector — a descent out in the cruise is just a descent, not an approach.
     const p = tele?.phase ?? null
     if (!p) return
     if (p === 'Parked' || p === 'Taxi') loggedPhases.current.clear() // new flight cycle on the ground
-    const label = PHASE_LOG[p]
+    const near = tele?.inSector || (tele?.distToDestNm != null && tele.distToDestNm <= 12)
+    const label = p === 'Approach' && near
+      ? `On approach to ${tele?.destIcao || 'the field'}.`
+      : null
     if (label && !loggedPhases.current.has(p)) { addLog('info', label); loggedPhases.current.add(p) }
     prevPhase.current = p
-  }, [tele?.phase, addLog])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tele?.phase, tele?.inSector, addLog])
 
   const beginCheck = async (cls: string, name: string) => {
     setBeginErr(null); setCheckResult(null)
@@ -2432,7 +2447,25 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
     try { setCentres(await api.checkCentres(cls)) } catch { setCentres([]) }
   }
 
+  // Bug #2 — a real, required "load the aircraft" step (the tablet load), so a leg can't be flown with an empty
+  // hold. A job that carries something must be loaded before it arms; loading is the player's cue to set their
+  // MSFS weight & balance to match. Purely gameplay state the app owns — it never reads the sim's flaky weights.
+  const loadDesc = (a: Assignment) => a.pax > 0
+    ? `${a.pax} passenger${a.pax > 1 ? 's' : ''}`
+    : `${a.weightLbs.toLocaleString()} lb of ${(a.commodity || spaced(a.type)).toLowerCase()}`
+  const needsLoad = (a: Assignment) => (a.pax > 0 || a.weightLbs > 0) && !loaded.has(a.id)
+  const loadJob = async (a: Assignment) => {
+    if (!await confirmDialog({
+      title: `Load ${selAc?.tail ?? 'the aircraft'}?`,
+      message: `Board ${loadDesc(a)} for ${a.origin} → ${a.dest}. Set your weight & balance in MSFS to match, then just take off — the leg arms itself.`,
+      confirmLabel: 'Load it aboard', cancelLabel: 'Not yet',
+    })) return
+    setLoaded(s => new Set(s).add(a.id))
+    addLog('ok', `Loaded ${loadDesc(a)} aboard for ${a.dest}.`)
+  }
+
   const begin = async (a: Assignment) => {
+    if (needsLoad(a)) { setBeginErr(`Load the payload aboard first — ${loadDesc(a)}.`); return }
     setSettled(null)
     setDiverted(null)
     setBeginErr(null)
@@ -2472,6 +2505,8 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
   const toggleCombo = (id: string) => setCombo(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
   const beginCombo = async (jobs: Assignment[]) => {
     if (jobs.length < 2) return
+    const unloaded = jobs.filter(needsLoad)
+    if (unloaded.length) { setBeginErr(`Load every job first — ${unloaded.length} still to board.`); return }
     setSettled(null); setDiverted(null); setBeginErr(null); setFreeFlight(false)
     const [primary, ...rest] = jobs
     try {
@@ -2515,10 +2550,34 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
     if (link !== 'Connected' || !tele || tele.onGround !== true || tele.gs < 35) return
     const flyable = assignments.filter(a =>
       state.currentIcao === a.origin && selAc?.locationIcao === a.origin && !!aircraftId
+      && !needsLoad(a) // must be loaded aboard first (bug #2) — take-off only auto-arms a loaded job
       && payloadFit(selAc, a.pax, a.weightLbs).ok && matchesSimTitle(tele.title, selAc))
     if (flyable.length === 1) { autoArmed.current = true; void begin(flyable[0]) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tele, link, begun, freeFlight, who, assignments, aircraftId, selAc, state.currentIcao])
+
+  // Bug #10 — on mount, fetch what the server is tracking, then re-adopt it once the pieces are loaded. The
+  // flight never resets on a tab switch: leaving the tab only unmounted the view, the server flew on.
+  useEffect(() => { api.flightLive().then(setPendingRestore).catch(() => {}) }, [])
+  useEffect(() => {
+    if (!pendingRestore || begun || freeFlight) return
+    const fl = pendingRestore
+    if (fl.freeFlight) {
+      setFreeFlight(true); autoArmed.current = true; setPendingRestore(null)
+      addLog('info', 'Rejoined your free flight in progress.')
+      return
+    }
+    if (fl.assignmentId) {
+      const a = assignments.find(x => x.id === fl.assignmentId)
+      if (!a) return // assignments not loaded yet — this effect re-runs when they arrive
+      setBegun(a); autoArmed.current = true
+      if (fl.alsoAssignmentIds?.length) setCombo(new Set(fl.alsoAssignmentIds))
+      setPendingRestore(null)
+      addLog('info', `Rejoined your flight in progress — ${a.origin} → ${a.dest}. Land at ${a.dest} to settle.`)
+    } else {
+      setPendingRestore(null) // nothing was in progress
+    }
+  }, [pendingRestore, assignments, begun, freeFlight, addLog])
 
   return (
     <div className="grid">
@@ -2546,19 +2605,23 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
         {diverted && <div className="banner warn">You landed {Math.round(diverted.distanceNm)} nm from <b>{diverted.destIcao}</b>. The job's still open — take off and fly on to {diverted.destIcao}.</div>}
         {begun
           ? <>
-            <div className="banner ok">Armed <b>{begun.origin} → {begun.dest}</b> · {begun.destName} — take off to start; land at {begun.dest}, then park to settle.</div>
+            <div className="banner ok">
+              Armed <b>{begun.origin} → {begun.dest}</b> · {begun.destName} — fly it and land inside the {begun.dest} sector; the job settles once you're stopped.
+              {tele && !tele.onGround && tele.distToDestNm != null && <> <b className="num">{Math.round(tele.distToDestNm)} nm</b> to {begun.dest}{tele.inSector ? ' — in the sector' : ''}.</>}
+            </div>
             {tele?.onGround && (tele.phase === 'Landing' || tele.phase === 'Shutdown') && (() => {
-              const landed = true // on the ground after flying
-              const braked = !!tele.parkingBrake
-              const engOff = tele.engineRunning === false
+              // Honest completion criteria (bugs #8/#9): you must be DOWN inside the destination sector and come to
+              // a full STOP — that's what logs the leg. The old parking-brake / engine-off steps are gone: those
+              // SimVars read unreliably (the brake showed "set" when it wasn't), and completion no longer needs them.
+              const inSector = tele.inSector !== false && (tele.distToDestNm == null || tele.inSector) // unknown dist → don't nag
+              const stopped = tele.gs < 3
               const Step = ({ ok, label }: { ok: boolean; label: string }) =>
                 <span className={`fin-step ${ok ? 'ok' : 'no'}`}><span className="r-dot" />{label}</span>
               return (
-                <div className="finish-checklist" title="Land at the destination, set the parking brake, and shut the engine down — then the job settles.">
+                <div className="finish-checklist" title="Land inside the destination's arrival sector and come to a full stop — the job then logs automatically.">
                   <span className="r-title">To finish</span>
-                  <Step ok={landed} label={`Landed at ${begun.dest}`} />
-                  <Step ok={braked} label="Parking brake set" />
-                  <Step ok={engOff} label="Engine shut down" />
+                  <Step ok={!!inSector} label={inSector ? `Down in the ${begun.dest} sector` : `Land at ${begun.dest}${tele.distToDestNm != null ? ` — ${Math.round(tele.distToDestNm)} nm off` : ''}`} />
+                  <Step ok={stopped} label={stopped ? 'Stopped — logging the flight…' : 'Come to a full stop'} />
                 </div>
               )
             })()}
@@ -2624,10 +2687,14 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
           const pax = comboJobs.reduce((n, a) => n + a.pax, 0), wt = comboJobs.reduce((n, a) => n + a.weightLbs, 0)
           const fit = payloadFit(selAc, pax, wt)
           const pay = comboJobs.reduce((n, a) => n + a.rewardQuoteCents, 0)
+          const unloaded = comboJobs.filter(needsLoad)
+          const loadAll = async () => { for (const j of unloaded) await loadJob(j) }
           return (
             <div className={`combo-bar ${fit.ok ? '' : 'bad'}`}>
               <span><b>{comboJobs.length} jobs</b> → <span className="loc">{comboJobs[0].dest}</span> · {pax > 0 ? `${pax} pax` : `${wt.toLocaleString()} lb`} · <span className="pos">{money(pay)}</span></span>
-              <button className="primary" disabled={!!begun || !aircraftId || !fit.ok} title={fit.ok ? 'Fly them all on one leg — they settle together on landing' : fit.msg} onClick={() => beginCombo(comboJobs)}>Fly {comboJobs.length} together</button>
+              {unloaded.length > 0
+                ? <button className="primary" disabled={!!begun || !aircraftId || !fit.ok} title={fit.ok ? 'Board every job\'s payload before you fly' : fit.msg} onClick={loadAll}>Load {unloaded.length}</button>
+                : <button className="primary" disabled={!!begun || !aircraftId || !fit.ok} title={fit.ok ? 'Fly them all on one leg — they settle together on landing' : fit.msg} onClick={() => beginCombo(comboJobs)}>Fly {comboJobs.length} together</button>}
               <button className="linky" onClick={() => setCombo(new Set())}>Clear</button>
             </div>
           )
@@ -2667,14 +2734,19 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
                       <span>{Math.round(a.distanceNm)} nm</span>
                       <span>{loadText(a.type, a.weightLbs, a.pax)}</span>
                       <span className="pos">{money(a.rewardQuoteCents)}</span>
+                      {loaded.has(a.id) && <span className="loaded-chip">✓ loaded</span>}
                       {a.deadlineAt && <span className={`due ${Date.parse(a.deadlineAt) < Date.now() ? 'neg' : 'warn'}`}>{dueText(a.deadlineAt)}</span>}
                     </div>
                     <div className="assign-actions">
                       {isCrew
                         ? <button className="primary" disabled={!!begun || !canSend} onClick={() => handOff(a)} title={why ?? `${crewName} flies it autonomously`}>Send {crewName}</button>
-                        : <button className="primary" disabled={begun?.id === a.id || !canFly} onClick={() => begin(a)} title={why ?? 'Arms the leg — it starts scoring the moment you take off'}>
-                            {begun?.id === a.id ? 'In progress…' : 'Fly this job'}
-                          </button>}
+                        : needsLoad(a)
+                          ? <button className="primary" disabled={begun?.id === a.id || !canFly} onClick={() => loadJob(a)} title={why ?? 'Board the payload before you fly — set your MSFS weight & balance to match'}>
+                              Load {a.pax > 0 ? `${a.pax} pax` : `${a.weightLbs.toLocaleString()} lb`}
+                            </button>
+                          : <button className="primary" disabled={begun?.id === a.id || !canFly} onClick={() => begin(a)} title={why ?? 'Loaded — take off and it arms itself, or press to arm now'}>
+                              {begun?.id === a.id ? 'In progress…' : 'Fly this job'}
+                            </button>}
                       {!isCrew && !atOrigin && begun?.id !== a.id && <button className="ghost small" disabled={!!begun} onClick={() => travelTo(a.origin)} title={`Fly commercial to ${a.origin} so you can depart from there`}>Travel to {a.origin}</button>}
                       <button className="linky" disabled={begun?.id === a.id} onClick={() => cancelJob(a)} title="Hand the job back — a small hit to the client's loyalty">Cancel</button>
                     </div>
