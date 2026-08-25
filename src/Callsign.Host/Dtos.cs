@@ -279,5 +279,8 @@ public record AirlineStandingDto(int Stage, string StageName, int Score, IReadOn
 // --- Phase 11a: the airline's operating reputation, with a two-source ("your flying / your crew") split and a log ---
 public record AirlineRepEventDto(int DeltaMilli, int BalanceMilli, string Source, string Reason, DateTimeOffset At);
 public record AirlineReputationDto(int OperatingReputationMilli, int RecentPlayerDeltaMilli, int RecentCrewDeltaMilli, IReadOnlyList<AirlineRepEventDto> Recent);
-public record AirlineDto(AirlineIdentityDto Identity, AirlineStandingDto Standing, AirlineReputationDto Reputation, IReadOnlyList<string> Emblems);
+public record AirlineDto(AirlineIdentityDto Identity, AirlineStandingDto Standing, AirlineReputationDto Reputation, IReadOnlyList<string> Emblems,
+    AirlineIncorporationDto Incorporation); // Phase 13 — the "become an airline" gate + status
+public record AirlineIncorporationDto(bool Incorporated, DateTimeOffset? IncorporatedAt, int Stage, bool RegionalReached, bool HasAoc, bool Eligible, long FoundingFeeCents);
+public record IncorporateRequest(string? Name, string? TailCode, string? AccentColorHex, string? EmblemKey);
 public record SetAirlineRequest(string? Name, string? TailCode, string? AccentColorHex, string? EmblemKey);

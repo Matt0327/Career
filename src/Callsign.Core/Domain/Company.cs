@@ -28,6 +28,12 @@ public sealed class Company : ISyncable
     public string? AccentColorHex { get; set; }
     public string? EmblemKey { get; set; }
 
+    /// <summary>Phase 13 — when the company formally INCORPORATED as an airline. Null while you're still just an
+    /// Operator: the airline identity (name, livery, HQ) is earned, not granted on day one. Set once, at the
+    /// incorporation milestone (reach Regional on the career ladder + hold an Air Operator Certificate + pay the
+    /// founding fee). Additive; a legacy save with a customised name is treated as already incorporated on load.</summary>
+    public DateTimeOffset? AirlineIncorporatedAt { get; set; }
+
     /// <summary>
     /// The airline's OPERATING reputation (Phase 11a), in thousandths (0–100000 = 0.0–100.0) so tiny
     /// per-leg moves don't round away — the exact scale of <see cref="Pilot.ReputationMilli"/>, but a

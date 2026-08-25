@@ -26,6 +26,14 @@ public sealed record AirlineStanding(
     int Stage, string StageName, int Score, IReadOnlyList<StandingContribution> Contributions,
     IReadOnlyList<CareerStage> Stages, NextMove? NextMove);
 
+/// <summary>Where the company stands on FORMING an airline (Phase 13). Early game you're an Operator; the airline
+/// identity is earned. The two gates are already-meaningful milestones — reaching the Regional rung on the career
+/// ladder, and holding a valid Air Operator Certificate — so this deepens the ladder rather than adding a parallel
+/// one. <see cref="Eligible"/> is true when both gates are met and you haven't incorporated yet.</summary>
+public sealed record AirlineIncorporation(
+    bool Incorporated, DateTimeOffset? IncorporatedAt, int Stage,
+    bool RegionalReached, bool HasAoc, bool Eligible, long FoundingFeeCents);
+
 /// <summary>
 /// Airline identity (Phase 5c): the company's name, operator tail code, accent colour and emblem — set by
 /// the player, with sensible derived defaults so there's always a look to show — plus a computed
@@ -37,13 +45,22 @@ public sealed class AirlineService
     private static readonly string[] Palette =
         { "#4f46e5", "#0e938d", "#c0362c", "#b8860b", "#2f6f4f", "#7a3ea8", "#c05621", "#1565c0" };
 
+    private const int RegionalStage = 2; // the ladder rung at which an airline can incorporate
+
     private readonly CallsignDbContext _db;
     private readonly ProgressMetricsService _metrics;
+    private readonly Callsign.Core.Economy.LedgerService? _ledger;   // Phase 13 — only needed to charge the founding fee
+    private readonly Callsign.Core.Time.IClock? _clock;
+    private readonly Callsign.Core.Economy.EconomyConfig? _cfg;
 
-    public AirlineService(CallsignDbContext db, ProgressMetricsService metrics)
+    public AirlineService(CallsignDbContext db, ProgressMetricsService metrics,
+        Callsign.Core.Economy.LedgerService? ledger = null, Callsign.Core.Time.IClock? clock = null, Callsign.Core.Economy.EconomyConfig? cfg = null)
     {
         _db = db;
         _metrics = metrics;
+        _ledger = ledger;
+        _clock = clock;
+        _cfg = cfg;
     }
 
     public async Task<AirlineIdentity> GetIdentityAsync(Guid companyId, CancellationToken ct = default)
@@ -65,6 +82,22 @@ public sealed class AirlineService
         var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId, ct)
                       ?? throw new InvalidOperationException($"Company {companyId} not found.");
 
+        // Phase 13 — you can only name/re-brand once you've formally incorporated (or on a legacy save that already
+        // had a name). Before that you're an Operator, and the identity is earned via IncorporateAsync.
+        if (company.AirlineIncorporatedAt is null && string.IsNullOrWhiteSpace(company.AirlineName))
+            throw new InvalidOperationException("Incorporate your airline first — you can't name it until then.");
+
+        var (trimmed, code, color) = ValidateIdentity(name, tailCode, accentColorHex, emblemKey);
+        company.AirlineName = trimmed;
+        company.TailCode = code;
+        company.AccentColorHex = color;
+        company.EmblemKey = emblemKey;
+        await _db.SaveChangesAsync(ct);
+        return await GetIdentityAsync(companyId, ct);
+    }
+
+    private static (string Name, string Code, string Color) ValidateIdentity(string? name, string? tailCode, string? accentColorHex, string? emblemKey)
+    {
         var trimmed = name?.Trim();
         if (string.IsNullOrWhiteSpace(trimmed) || trimmed.Length > 60)
             throw new InvalidOperationException("An airline name of 1–60 characters is required.");
@@ -80,11 +113,57 @@ public sealed class AirlineService
 
         if (!AirlineEmblems.IsValid(emblemKey))
             throw new InvalidOperationException($"Unknown emblem '{emblemKey}'.");
+        return (trimmed, code, color);
+    }
 
+    /// <summary>Where the company stands on incorporating (Phase 13): whether it already has, and the two earned
+    /// gates — reaching Regional on the ladder + holding a valid Air Operator Certificate.</summary>
+    public async Task<AirlineIncorporation> GetIncorporationStatusAsync(Guid companyId, Guid pilotId, CancellationToken ct = default)
+    {
+        var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId, ct)
+                      ?? throw new InvalidOperationException($"Company {companyId} not found.");
+        bool incorporated = company.AirlineIncorporatedAt is not null || !string.IsNullOrWhiteSpace(company.AirlineName); // legacy grandfather
+        var m = await _metrics.SnapshotAsync(companyId, pilotId, ct);
+        var (stage, _, _) = CareerLadder.Evaluate(m);
+        bool regional = stage >= RegionalStage;
+        var now = _clock?.UtcNow ?? DateTimeOffset.UtcNow;
+        bool hasAoc = await _db.OperatingCertificates.AnyAsync(
+            c => c.CompanyId == companyId && c.Kind == Callsign.Core.Domain.CertificateKind.AirOperator && c.ExpiresAt > now, ct);
+        long fee = _cfg?.AirlineFoundingFeeCents ?? 50_000_000;
+        return new AirlineIncorporation(incorporated, company.AirlineIncorporatedAt, stage, regional, hasAoc,
+            !incorporated && regional && hasAoc, fee);
+    }
+
+    /// <summary>Formally incorporate as an airline: validate the two gates + the identity, charge the founding fee,
+    /// stamp the incorporation, and set the name/livery. One atomic step (Phase 13).</summary>
+    public async Task<AirlineIdentity> IncorporateAsync(
+        Guid companyId, Guid pilotId, string? name, string? tailCode, string? accentColorHex, string? emblemKey, CancellationToken ct = default)
+    {
+        var status = await GetIncorporationStatusAsync(companyId, pilotId, ct);
+        if (status.Incorporated) throw new InvalidOperationException("Your airline is already incorporated.");
+        if (!status.RegionalReached) throw new InvalidOperationException("Reach the Regional rung on the career ladder before incorporating.");
+        if (!status.HasAoc) throw new InvalidOperationException("You need a valid Air Operator Certificate to incorporate — apply in the Certificates panel.");
+        if (_ledger is null || _clock is null) throw new InvalidOperationException("Incorporation isn't available here.");
+
+        var (trimmed, code, color) = ValidateIdentity(name, tailCode, accentColorHex, emblemKey);
+        var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId, ct)
+                      ?? throw new InvalidOperationException($"Company {companyId} not found.");
+        long fee = status.FoundingFeeCents;
+        if (company.CashCents < fee)
+            throw new InvalidOperationException($"Founding an airline costs {fee / 100m:C0} — you have {company.Cash:C0}.");
+
+        var now = _clock.UtcNow;
+        await _ledger.StageBatchAsync(companyId, new[]
+        {
+            new Callsign.Core.Economy.LedgerPosting(Callsign.Core.Domain.LedgerCategory.AirlineFounding, -(fee / 100m),
+                $"Airline incorporation — {trimmed}", DedupeKey: $"incorporate:{companyId}"),
+        }, ct);
         company.AirlineName = trimmed;
         company.TailCode = code;
         company.AccentColorHex = color;
         company.EmblemKey = emblemKey;
+        company.AirlineIncorporatedAt = now;
+        company.UpdatedAt = now;
         await _db.SaveChangesAsync(ct);
         return await GetIdentityAsync(companyId, ct);
     }

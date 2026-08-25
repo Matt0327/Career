@@ -322,6 +322,12 @@ public static class CallsignWebApp
     }
 
     // Look up human airport names for a set of idents (so the UI can show "EHRD · Rotterdam The Hague").
+    private static async Task<AirlineIncorporationDto> MapIncorporationAsync(AirlineService airline, Guid companyId, Guid pilotId)
+    {
+        var inc = await airline.GetIncorporationStatusAsync(companyId, pilotId);
+        return new AirlineIncorporationDto(inc.Incorporated, inc.IncorporatedAt, inc.Stage, inc.RegionalReached, inc.HasAoc, inc.Eligible, inc.FoundingFeeCents);
+    }
+
     private static async Task<Dictionary<string, string>> AirportNamesAsync(CallsignDbContext db, IEnumerable<string> idents)
     {
         var set = idents.Distinct().ToList();
@@ -2121,7 +2127,21 @@ public static class CallsignWebApp
                         s.Unlocks.Select(u => new StageUnlockDto(u.Text, u.Live)).ToList())).ToList(),
                     st.NextMove is { } nm ? new NextMoveDto(nm.StageIndex, nm.StageName, nm.MetCount, nm.TotalCount, nm.ProgressPct, nm.Metric, nm.Label, nm.Display) : null),
                 reputation,
-                AirlineEmblems.All));
+                AirlineEmblems.All,
+                await MapIncorporationAsync(airline, pilot.CompanyId, pilot.Id)));
+        });
+
+        // Phase 13 — formally incorporate as an airline (gated: Regional rung + a valid AOC + the founding fee).
+        app.MapPost("/api/airline/incorporate", async (IncorporateRequest req, CallsignDbContext db, AirlineService airline) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                var id = await airline.IncorporateAsync(pilot.CompanyId, pilot.Id, req.Name, req.TailCode, req.AccentColorHex, req.EmblemKey);
+                return Results.Ok(new AirlineIdentityDto(id.Name, id.TailCode, id.AccentColorHex, id.EmblemKey, id.Customised));
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
         app.MapPost("/api/airline", async (SetAirlineRequest req, CallsignDbContext db, AirlineService airline) =>

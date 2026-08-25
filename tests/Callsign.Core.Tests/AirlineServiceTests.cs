@@ -19,6 +19,15 @@ public class AirlineServiceTests
         return new AirlineService(db, new ProgressMetricsService(db, new FinanceService(db, clock, EconomyConfig.Default)));
     }
 
+    // Phase 13 — mark a seeded company as already incorporated, so identity-setting (now gated) is allowed.
+    private static async Task MarkIncorporatedAsync(TestDb tdb, Guid companyId)
+    {
+        using var db = tdb.NewContext();
+        var c = await db.Companies.FindAsync(companyId);
+        c!.AirlineIncorporatedAt = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        await db.SaveChangesAsync();
+    }
+
     private static (Company Company, Pilot Pilot) Seed(CallsignDbContext db, string name = "SkyBridge Air")
     {
         var company = new Company { Id = Guid.NewGuid(), Name = name };
@@ -50,6 +59,7 @@ public class AirlineServiceTests
     {
         using var tdb = new TestDb();
         var (companyId, _) = await SeedSavedAsync(tdb);
+        await MarkIncorporatedAsync(tdb, companyId); // Phase 13 — naming is unlocked only after incorporation
 
         using (var db = tdb.NewContext())
         {
@@ -68,6 +78,7 @@ public class AirlineServiceTests
     {
         using var tdb = new TestDb();
         var (companyId, _) = await SeedSavedAsync(tdb);
+        await MarkIncorporatedAsync(tdb, companyId);
         using var db = tdb.NewContext();
         var svc = Svc(db);
 
@@ -75,6 +86,32 @@ public class AirlineServiceTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => svc.SetIdentityAsync(companyId, "OK Air", "A", "#123456", "delta"));   // tail too short
         await Assert.ThrowsAsync<InvalidOperationException>(() => svc.SetIdentityAsync(companyId, "OK Air", "TST", "blue", "delta"));    // bad colour
         await Assert.ThrowsAsync<InvalidOperationException>(() => svc.SetIdentityAsync(companyId, "OK Air", "TST", "#123456", "nope")); // unknown emblem
+    }
+
+    [Fact]
+    public async Task Incorporation_FreshOperator_NotEligible_AndRefused()
+    {
+        using var tdb = new TestDb();
+        var (companyId, pilotId) = await SeedSavedAsync(tdb);
+        using var db = tdb.NewContext();
+        var svc = Svc(db);
+        var status = await svc.GetIncorporationStatusAsync(companyId, pilotId);
+        Assert.False(status.Incorporated);
+        Assert.False(status.RegionalReached); // a fresh operator is Contract Operator (stage 0)
+        Assert.False(status.Eligible);
+        // Can't found an airline yet — the Regional gate refuses it.
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => svc.IncorporateAsync(companyId, pilotId, "Test Air", "TST", "#4f46e5", "delta"));
+    }
+
+    [Fact]
+    public async Task Incorporation_LegacyNamedCompany_CountsAsIncorporated()
+    {
+        using var tdb = new TestDb();
+        var (companyId, pilotId) = await SeedSavedAsync(tdb);
+        using (var db = tdb.NewContext()) { var c = await db.Companies.FindAsync(companyId); c!.AirlineName = "Old Air"; await db.SaveChangesAsync(); }
+        using var db2 = tdb.NewContext();
+        Assert.True((await Svc(db2).GetIncorporationStatusAsync(companyId, pilotId)).Incorporated); // grandfathered
     }
 
     [Fact]

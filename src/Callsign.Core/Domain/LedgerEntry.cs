@@ -32,6 +32,7 @@ public enum LedgerCategory
     Adjustment,
     CrewPositioning, // Phase 12 — the deadhead fee to reposition a hired pilot to another field
     ChallengeReward, // Phase 12 — the payout for completing a rotating daily/weekly challenge
+    AirlineFounding, // Phase 13 — the one-time capex to formally incorporate as an airline
 }
 
 /// <summary>

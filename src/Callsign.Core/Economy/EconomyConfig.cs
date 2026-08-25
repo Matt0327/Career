@@ -693,6 +693,11 @@ public sealed record EconomyConfig
         return Math.Clamp(1.0 - ContractDemandSensitivity * (markup - 1.0), ContractFillFloor, 1.0);
     }
 
+    // --- The airline (Phase 13) ---
+    /// <summary>The one-time capex to formally incorporate as an airline once you're eligible — founding an airline
+    /// is a real commitment, not a free rename. $500,000.</summary>
+    public long AirlineFoundingFeeCents { get; init; } = 50_000_000;
+
     // --- Loans (Phase 4a) ---
     /// <summary>Repayment horizon for a new loan (straight-line principal over this many days).</summary>
     public int LoanTermDays { get; init; } = 90;

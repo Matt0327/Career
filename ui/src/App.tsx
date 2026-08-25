@@ -5197,8 +5197,15 @@ function Airline({ onSaved }: { onSaved: () => void }) {
     try { await api.setAirline({ name, tailCode: code, accentColorHex: color, emblemKey: emblem }); await load(); onSaved(); setMsg('Airline identity saved.') }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
+  const incorporate = async () => {
+    if (!await confirmDialog({ title: `Incorporate ${name || 'your airline'}?`, message: `Founding an airline is a one-time commitment — the founding fee is ${money(data?.incorporation.foundingFeeCents ?? 0)}. Your name, code and livery are set now.`, confirmLabel: 'Incorporate', tone: 'default' })) return
+    setBusy(true); setMsg(null)
+    try { await api.incorporate({ name, tailCode: code, accentColorHex: color, emblemKey: emblem }); await load(); onSaved(); setMsg(`${name} is incorporated — welcome to the airline business.`) }
+    catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
+  }
 
   if (!data) return <div className="empty">Loading…</div>
+  const inc = data.incorporation
   const st = data.standing
   const nm = st.nextMove
   const pct = nm ? nm.progressPct : 100
@@ -5206,29 +5213,73 @@ function Airline({ onSaved }: { onSaved: () => void }) {
 
   return (
     <div className="grid">
-      <section className="card">
-        <h2>Airline identity</h2>
-        <div className="airline-head">
-          <Emblem emblem={emblem} color={color} size={76} />
-          <div>
-            <div className="airline-name">{name || 'Your airline'}</div>
-            <div className="muted"><span className="loc">{code || '—'}</span> · {data.identity.customised ? 'operator code' : 'suggested — make it yours'}</div>
+      {!inc.incorporated ? (
+        <section className="card">
+          <div className="op-head">
+            <span className="op-badge">Operator</span>
+            <div>
+              <h2 style={{ margin: 0 }}>Found your airline</h2>
+              <p className="muted" style={{ margin: '4px 0 0' }}>Right now you're an independent operator. Earn the airline — a name, a livery, a scheduled network — by growing into it.</p>
+            </div>
           </div>
-        </div>
-                <div className="airline-form">
-          <label>Airline name<input value={name} maxLength={60} onChange={e => setName(e.target.value)} /></label>
-          <label>Tail code<input className="tail-in" value={code} maxLength={3} onChange={e => setCode(e.target.value.toUpperCase())} /></label>
-          <label className="color-lbl">Accent<input type="color" value={color} onChange={e => setColor(e.target.value)} /></label>
-        </div>
-        <div className="emblem-picker">
-          {data.emblems.map(k => (
-            <button key={k} type="button" className={`emblem-opt ${emblem === k ? 'on' : ''}`} onClick={() => setEmblem(k)} title={k}>
-              <Emblem emblem={k} color={color} size={38} />
-            </button>
-          ))}
-        </div>
-        <button className="primary" disabled={busy} onClick={save}>Save identity</button>
-      </section>
+          <div className="inc-gates">
+            <div className={`inc-gate ${inc.regionalReached ? 'met' : ''}`}>
+              <span className="ig-check">{inc.regionalReached ? '✓' : '○'}</span>
+              <div><b>Reach the Regional rung</b><span className="muted"> — build the fleet, bases and reputation of a real regional carrier (see the ladder below).</span></div>
+            </div>
+            <div className={`inc-gate ${inc.hasAoc ? 'met' : ''}`}>
+              <span className="ig-check">{inc.hasAoc ? '✓' : '○'}</span>
+              <div><b>Hold an Air Operator Certificate</b><span className="muted"> — earn the AOC in the Certificates panel below.</span></div>
+            </div>
+          </div>
+          {inc.eligible ? (
+            <>
+              <h3 className="sub-h">Name your airline</h3>
+              <div className="airline-head">
+                <Emblem emblem={emblem} color={color} size={64} />
+                <div><div className="airline-name">{name || 'Your airline'}</div><div className="muted"><span className="loc">{code || '—'}</span> · operator code</div></div>
+              </div>
+              <div className="airline-form">
+                <label>Airline name<input value={name} maxLength={60} onChange={e => setName(e.target.value)} /></label>
+                <label>Tail code<input className="tail-in" value={code} maxLength={3} onChange={e => setCode(e.target.value.toUpperCase())} /></label>
+                <label className="color-lbl">Accent<input type="color" value={color} onChange={e => setColor(e.target.value)} /></label>
+              </div>
+              <div className="emblem-picker">
+                {data.emblems.map(k => (
+                  <button key={k} type="button" className={`emblem-opt ${emblem === k ? 'on' : ''}`} onClick={() => setEmblem(k)} title={k}><Emblem emblem={k} color={color} size={38} /></button>
+                ))}
+              </div>
+              <button className="primary" disabled={busy} onClick={incorporate}>Incorporate · {money(inc.foundingFeeCents)}</button>
+            </>
+          ) : (
+            <p className="hint muted">Meet both milestones above to found your airline. The founding fee will be {money(inc.foundingFeeCents)}.</p>
+          )}
+        </section>
+      ) : (
+        <section className="card">
+          <h2>Airline identity</h2>
+          <div className="airline-head">
+            <Emblem emblem={emblem} color={color} size={76} />
+            <div>
+              <div className="airline-name">{name || 'Your airline'}</div>
+              <div className="muted"><span className="loc">{code || '—'}</span> · incorporated{inc.incorporatedAt ? ` ${new Date(inc.incorporatedAt).toLocaleDateString()}` : ''}</div>
+            </div>
+          </div>
+          <div className="airline-form">
+            <label>Airline name<input value={name} maxLength={60} onChange={e => setName(e.target.value)} /></label>
+            <label>Tail code<input className="tail-in" value={code} maxLength={3} onChange={e => setCode(e.target.value.toUpperCase())} /></label>
+            <label className="color-lbl">Accent<input type="color" value={color} onChange={e => setColor(e.target.value)} /></label>
+          </div>
+          <div className="emblem-picker">
+            {data.emblems.map(k => (
+              <button key={k} type="button" className={`emblem-opt ${emblem === k ? 'on' : ''}`} onClick={() => setEmblem(k)} title={k}>
+                <Emblem emblem={k} color={color} size={38} />
+              </button>
+            ))}
+          </div>
+          <button className="primary" disabled={busy} onClick={save}>Save identity</button>
+        </section>
+      )}
 
       <section className="card">
         <div className="row-head"><h2>Career ladder</h2><span className="tier-badge" style={{ background: `color-mix(in srgb, ${color} 16%, transparent)`, color }}>{st.stageName}</span></div>

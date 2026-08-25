@@ -292,6 +292,14 @@ input { font: inherit; }
 .dlg-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 .dlg-actions button { padding: 9px 16px; }
 @media (prefers-reduced-motion: reduce) { .dlg-backdrop { animation: none; } }
+/* Airline incorporation (Operator -> founded airline) */
+.op-head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.op-badge { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 5px 11px; border-radius: 999px; color: var(--muted); background: var(--panel-2); border: 1px solid var(--line); flex: none; align-self: flex-start; }
+.inc-gates { display: grid; gap: 10px; margin: 6px 0 16px; }
+.inc-gate { display: flex; align-items: flex-start; gap: 11px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); font-size: 14px; }
+.inc-gate.met { border-color: color-mix(in srgb, var(--pos) 45%, var(--line)); background: color-mix(in srgb, var(--pos) 7%, transparent); }
+.ig-check { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; flex: none; color: var(--muted); background: var(--panel-2); }
+.inc-gate.met .ig-check { color: #fff; background: var(--pos); }
 .assign-meta { display: flex; gap: 14px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .leg { font-size: 15px; }
 

@@ -948,6 +948,16 @@ export interface AirlineData {
   standing: AirlineStanding
   reputation: AirlineReputation
   emblems: string[]
+  incorporation: AirlineIncorporation
+}
+export interface AirlineIncorporation {
+  incorporated: boolean
+  incorporatedAt: string | null
+  stage: number
+  regionalReached: boolean
+  hasAoc: boolean
+  eligible: boolean
+  foundingFeeCents: number
 }
 
 export interface CloudStatus {
@@ -1154,6 +1164,8 @@ export const api = {
   airline: () => fetch('/api/airline').then(ok<AirlineData>),
   setAirline: (body: { name: string; tailCode: string; accentColorHex: string; emblemKey: string }) =>
     POST('/api/airline', body).then(ok<AirlineIdentity>),
+  incorporate: (body: { name: string; tailCode: string; accentColorHex: string; emblemKey: string }) =>
+    POST('/api/airline/incorporate', body).then(ok<AirlineIdentity>),
   version: () => fetch('/api/version').then(ok<VersionInfo>),
   backups: () => fetch('/api/save/backups').then(ok<BackupFile[]>),
   backup: () => POST('/api/save/backup').then(ok<BackupFile>),
