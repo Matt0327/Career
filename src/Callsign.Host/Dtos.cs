@@ -56,6 +56,7 @@ public record OwnedAircraftDto(
     Guid Id, Guid TypeId, string Tail, string Name, string Category, string LocationIcao,
     string Availability, long? PurchasePriceCents, double AirframeHours,
     int HullConditionMilli, int EngineConditionMilli, bool MaintenanceDue, long MaintenanceQuoteCents,
+    long HullServiceCents, long EngineServiceCents, // Phase 13 — service hull / engine separately (damage-scaled)
     string RequiredClass, bool Rated,
     string? Manufacturer, string? IcaoTypeDesignator, string? IcaoModel, bool OnDisk,
     int? Seats, int? UsefulLoadLbs, int? FuelCapacityLbs, int? CruiseKtas, int? MinRunwayFt,

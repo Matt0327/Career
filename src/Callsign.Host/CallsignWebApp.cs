@@ -726,7 +726,9 @@ public static class CallsignWebApp
                     inst.LocationIcao, inst.Availability.ToString(),
                     inst.PurchasePriceCents, inst.AirframeHours,
                     inst.HullConditionMilli, inst.EngineConditionMilli,
-                    dealer.MaintenanceDue(inst), dealer.MaintenanceQuoteCents(inst),
+                    dealer.MaintenanceDue(inst), dealer.MaintenanceQuoteCents(inst, MaintenanceScope.Both, dealer.MarketValueCents(t)),
+                    dealer.MaintenanceQuoteCents(inst, MaintenanceScope.Hull, dealer.MarketValueCents(t)),
+                    dealer.MaintenanceQuoteCents(inst, MaintenanceScope.Engine, dealer.MarketValueCents(t)),
                     QualificationClasses.Def(reqd).DisplayName, held.Contains(reqd),
                     t.Manufacturer, t.IcaoTypeDesignator, t.IcaoModel, onDisk.Contains(t.Id),
                     t.Seats, t.UsefulLoadLbs, t.FuelCapacityLbs, t.CruiseKtas, t.MinRunwayFt,
@@ -820,13 +822,14 @@ public static class CallsignWebApp
             return Results.Ok(new { attribution = meta?.Attribution, license = meta?.License, sourceUrl = meta?.SourceUrl });
         });
 
-        app.MapPost("/api/aircraft/{id:guid}/maintain", async (Guid id, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, AircraftDealerService dealer) =>
+        app.MapPost("/api/aircraft/{id:guid}/maintain", async (Guid id, string? scope, [FromHeader(Name = "Idempotency-Key")] string? idem, CallsignDbContext db, AircraftDealerService dealer) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
+            var svcScope = scope?.ToLowerInvariant() switch { "hull" => MaintenanceScope.Hull, "engine" => MaintenanceScope.Engine, _ => MaintenanceScope.Both };
             try
             {
-                var cost = await dealer.MaintainAsync(pilot.CompanyId, id, idem);
+                var cost = await dealer.MaintainAsync(pilot.CompanyId, id, svcScope, idem);
                 return Results.Ok(new { maintainedCents = cost });
             }
             catch (DbUpdateConcurrencyException)

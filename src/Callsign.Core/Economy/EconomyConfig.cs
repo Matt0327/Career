@@ -182,6 +182,11 @@ public sealed record EconomyConfig
     public long MaintenancePerHourCents { get; init; } = 20_000;   // $200 per airframe hour since the last service
     public int ConditionWearMilliPerHour { get; init; } = 400;     // hull + engine wear per airframe hour (0..100000)
     public int HardLandingWearMilli { get; init; } = 1_500;        // extra hull wear on a hard touchdown
+    /// <summary>Phase 13 — how much a component's WEAR adds to its service price, as a fraction of the aircraft's
+    /// market value to fully overhaul a dead component. A 40%-condition engine costs far more to service than a
+    /// 90% one; a clean component adds nothing. Applied per component (hull, engine) so a worn jet's overhaul is
+    /// dear and a lightly-used trainer's is cheap.</summary>
+    public double MaintenanceOverhaulFactor { get; init; } = 0.05;
     public long FuelPriceCentsPerLb { get; init; } = 90;           // ~$0.90/lb of consumable fuel burned (Phase 7e)
 
     // Estimated cruise fuel burn (lb/hour) by category — used to bill fuel on AUTONOMOUS legs (Phase 12 Wave-2),

@@ -2906,7 +2906,7 @@ function MaintMeter({ a }: { a: OwnedAircraft }) {
 // flight history, and every action for one tail. This is the detail-panel pattern the Hangar establishes.
 function AircraftDetail({ a, history, bases, crew, busy, onService, onInspect, onInsure, onRelocate, onSell, onAssignPilot }: {
   a: OwnedAircraft; history: AircraftHistory | null; bases: BaseView[]; crew: Staff[]; busy: boolean
-  onService: (a: OwnedAircraft) => void; onInspect: (a: OwnedAircraft) => void; onInsure: (a: OwnedAircraft) => void
+  onService: (a: OwnedAircraft, scope?: 'hull' | 'engine' | 'both') => void; onInspect: (a: OwnedAircraft) => void; onInsure: (a: OwnedAircraft) => void
   onRelocate: (a: OwnedAircraft, dest: string) => void; onSell: (a: OwnedAircraft) => void
   onAssignPilot: (a: OwnedAircraft, staffId: string | null) => void
 }) {
@@ -3038,9 +3038,19 @@ function AircraftDetail({ a, history, bases, crew, busy, onService, onInspect, o
 
       <div className="acd-actions">
         <button className="primary" disabled={busy || (!a.maintenanceDue && a.hullConditionMilli >= 100000 && a.engineConditionMilli >= 100000)}
-          onClick={() => onService(a)} title={a.maintenanceDue ? 'Service due' : 'Restore to full condition'}>
-          Service · {money(a.maintenanceQuoteCents)}
+          onClick={() => onService(a, 'both')} title={a.maintenanceDue ? 'Service due' : 'Restore hull + engine to full condition'}>
+          Service both · {money(a.maintenanceQuoteCents)}
         </button>
+        {a.hullConditionMilli < 100000 && (
+          <button className="ghost" disabled={busy} onClick={() => onService(a, 'hull')} title="Restore the hull only — priced by how worn it is">
+            Hull · {money(a.hullServiceCents)}
+          </button>
+        )}
+        {a.engineConditionMilli < 100000 && (
+          <button className="ghost" disabled={busy} onClick={() => onService(a, 'engine')} title="Restore the engine only — priced by how worn it is">
+            Engine · {money(a.engineServiceCents)}
+          </button>
+        )}
         {a.inspectionQuoteCents > 0 && (
           <button className="primary" disabled={busy} onClick={() => onInspect(a)} title="Clear the due 100-hour / annual inspections">
             Inspect · {money(a.inspectionQuoteCents)}
@@ -3157,9 +3167,10 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
     try { const res = await api.casualtyLease(l.agreementId); await load(); onChanged(); setMsg(`${l.tail} written off — you paid the ${money(res.deductibleCents)} deductible, deposit refunded.`) }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
-  const maintain = async (a: OwnedAircraft) => {
+  const maintain = async (a: OwnedAircraft, scope: 'hull' | 'engine' | 'both' = 'both') => {
     setBusy(true); setMsg(null)
-    try { await api.maintain(a.id); await load(); onChanged(); setMsg(`Serviced ${a.tail} — good as new.`) }
+    const what = scope === 'hull' ? 'Hull serviced' : scope === 'engine' ? 'Engine serviced' : 'Serviced'
+    try { await api.maintain(a.id, scope); await load(); onChanged(); setMsg(`${what} on ${a.tail}.`) }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
   const inspect = async (a: OwnedAircraft) => {

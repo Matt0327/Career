@@ -265,11 +265,17 @@ public class AircraftDealerServiceTests
             instId = inst.Id;
         }
 
-        long cost;
+        long cost, expected;
         using (var db = tdb.NewContext())
-            cost = await new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg).MaintainAsync(companyId, instId);
-
-        Assert.Equal(Cfg.MaintenanceBaseCents + 60 * Cfg.MaintenancePerHourCents, cost); // base + per-hour since watermark
+        {
+            var dealer = new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg);
+            var inst = await db.AircraftInstances.FindAsync(instId);
+            // Phase 13 — damage-scaled: base + per-hour since watermark, PLUS a wear charge for the worn hull + engine.
+            expected = dealer.MaintenanceQuoteCents(inst!, MaintenanceScope.Both, dealer.MarketValueCents(type));
+            cost = await dealer.MaintainAsync(companyId, instId);
+        }
+        Assert.True(cost > Cfg.MaintenanceBaseCents + 60 * Cfg.MaintenancePerHourCents); // damage adds to the flat visit
+        Assert.Equal(expected, cost);
 
         using (var db = tdb.NewContext())
         {
@@ -281,6 +287,43 @@ public class AircraftDealerServiceTests
             Assert.Equal(-cost, debit.AmountCents);
             Assert.Equal(instId, debit.AircraftInstanceId);
             Assert.Equal(10_000_000 - cost, (await db.Companies.FindAsync(companyId))!.CashCents);
+        }
+    }
+
+    [Fact]
+    public async Task Maintain_EngineOnly_RestoresEngine_LeavesHullWorn_AndCostsLess()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var type = C172();
+        var companyId = await SeedCompanyWithCashAsync(tdb, clock, 100_000_000, type);
+        Guid instId;
+        using (var db = tdb.NewContext())
+        {
+            var inst = new AircraftInstance
+            {
+                Id = Guid.NewGuid(), TypeId = type.Id, CompanyId = companyId, Tail = "CS-1", LocationIcao = "EHAM",
+                Ownership = OwnershipKind.Owned, AirframeHours = 60, HullConditionMilli = 40_000, EngineConditionMilli = 50_000,
+            };
+            db.AircraftInstances.Add(inst);
+            await db.SaveChangesAsync();
+            instId = inst.Id;
+        }
+
+        long engineOnly, both;
+        using (var db = tdb.NewContext())
+        {
+            var dealer = new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg);
+            var inst = await db.AircraftInstances.FindAsync(instId);
+            both = dealer.MaintenanceQuoteCents(inst!, MaintenanceScope.Both, dealer.MarketValueCents(type));
+            engineOnly = await dealer.MaintainAsync(companyId, instId, MaintenanceScope.Engine);
+        }
+        Assert.True(engineOnly < both); // servicing one component is cheaper than both
+        using (var db = tdb.NewContext())
+        {
+            var inst = await db.AircraftInstances.FindAsync(instId);
+            Assert.Equal(100_000, inst!.EngineConditionMilli); // engine restored
+            Assert.Equal(40_000, inst.HullConditionMilli);     // hull left as it was
         }
     }
 
@@ -332,9 +375,9 @@ public class AircraftDealerServiceTests
 
         long c1, c2;
         using (var db = tdb.NewContext())
-            c1 = await new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg).MaintainAsync(companyId, instId, "maint-1");
+            c1 = await new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg).MaintainAsync(companyId, instId, MaintenanceScope.Both, "maint-1");
         using (var db = tdb.NewContext())
-            c2 = await new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg).MaintainAsync(companyId, instId, "maint-1");
+            c2 = await new AircraftDealerService(db, new LedgerService(db, clock), clock, Cfg).MaintainAsync(companyId, instId, MaintenanceScope.Both, "maint-1");
 
         Assert.Equal(c1, c2);
         using (var db = tdb.NewContext())

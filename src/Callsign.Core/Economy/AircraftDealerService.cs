@@ -8,6 +8,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Callsign.Core.Economy;
 
+/// <summary>Which components a maintenance visit services (Phase 13 — hull, engine, or both).</summary>
+public enum MaintenanceScope { Both, Hull, Engine }
+
 /// <summary>A priced, buyable aircraft type — with whether it's installed on this sim PC.</summary>
 public sealed record AircraftOffer(AircraftType Type, AircraftPriceQuote Quote, bool OnDisk);
 
@@ -278,10 +281,20 @@ public sealed class AircraftDealerService
         return disc <= 0 ? cost : (long)Math.Round(cost * (1 - disc));
     }
 
-    /// <summary>What a maintenance service costs now: a base plus per-hour since the last service.</summary>
-    public long MaintenanceQuoteCents(AircraftInstance inst)
-        => _cfg.MaintenanceBaseCents
-         + (long)Math.Round(Math.Max(0, inst.AirframeHours - inst.MaintenanceHoursWatermark) * _cfg.MaintenancePerHourCents);
+    /// <summary>What a maintenance service costs now: the shop-visit base + per-hour-since-service, PLUS a
+    /// damage charge for each component being serviced that scales with how worn it is and the aircraft's value
+    /// (Phase 13). <paramref name="marketValueCents"/> lets a worn jet's overhaul be dear and a trainer's cheap.
+    /// The base + hours are charged on any visit, so splitting hull and engine into two visits costs a touch more.</summary>
+    public long MaintenanceQuoteCents(AircraftInstance inst, MaintenanceScope scope = MaintenanceScope.Both, long marketValueCents = 0)
+    {
+        long visit = _cfg.MaintenanceBaseCents
+                   + (long)Math.Round(Math.Max(0, inst.AirframeHours - inst.MaintenanceHoursWatermark) * _cfg.MaintenancePerHourCents);
+        long ComponentCost(int conditionMilli) =>
+            (long)Math.Round((1 - conditionMilli / 100_000.0) * marketValueCents * _cfg.MaintenanceOverhaulFactor);
+        long damage = (scope is MaintenanceScope.Hull or MaintenanceScope.Both ? ComponentCost(inst.HullConditionMilli) : 0)
+                    + (scope is MaintenanceScope.Engine or MaintenanceScope.Both ? ComponentCost(inst.EngineConditionMilli) : 0);
+        return visit + damage;
+    }
 
     /// <summary>True once enough airframe hours have accrued since the last service.</summary>
     public bool MaintenanceDue(AircraftInstance inst)
@@ -292,7 +305,7 @@ public sealed class AircraftDealerService
     /// stable <paramref name="idempotencyKey"/> so a retried request replays instead of billing twice.
     /// </summary>
     public async Task<long> MaintainAsync(
-        Guid companyId, Guid instanceId, string? idempotencyKey = null, CancellationToken ct = default)
+        Guid companyId, Guid instanceId, MaintenanceScope scope = MaintenanceScope.Both, string? idempotencyKey = null, CancellationToken ct = default)
     {
         string? dedupe = idempotencyKey is null ? null : $"maint:{idempotencyKey}";
         if (dedupe is not null && await _ledger.FindByDedupeKeyAsync(companyId, dedupe, ct) is { } prior)
@@ -307,21 +320,24 @@ public sealed class AircraftDealerService
         if (inst.Ownership != OwnershipKind.Owned)
             throw new InvalidOperationException("You can only service an aircraft you own — the lessor maintains a rental.");
 
-        long cost = await ApplyShopDiscountAsync(companyId, inst.LocationIcao, MaintenanceQuoteCents(inst), ct);
+        var type = await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == inst.TypeId, ct);
+        long value = type is null ? 0 : MarketValueCents(type);
+        long cost = await ApplyShopDiscountAsync(companyId, inst.LocationIcao, MaintenanceQuoteCents(inst, scope, value), ct);
         if (company.CashCents < cost)
             throw new InvalidOperationException(
-                $"Not enough cash: maintenance costs {cost / 100m:C0}, you have {company.Cash:C0}.");
+                $"Not enough cash: this service costs {cost / 100m:C0}, you have {company.Cash:C0}.");
 
         var now = _clock.UtcNow;
+        string what = scope switch { MaintenanceScope.Hull => "Hull service", MaintenanceScope.Engine => "Engine service", _ => "Maintenance" };
         // Without a client key, fall back to a state-derived key so a same-state double-submit still dedupes.
         await _ledger.StageBatchAsync(companyId, new[]
         {
-            new LedgerPosting(LedgerCategory.Repair, -(cost / 100m), $"Maintenance on {inst.Tail}",
-                AircraftInstanceId: inst.Id, DedupeKey: dedupe ?? $"maint:{inst.Id}:{inst.AirframeHours:F1}"),
+            new LedgerPosting(LedgerCategory.Repair, -(cost / 100m), $"{what} on {inst.Tail}",
+                AircraftInstanceId: inst.Id, DedupeKey: dedupe ?? $"maint:{inst.Id}:{scope}:{inst.AirframeHours:F1}"),
         }, ct);
-        inst.HullConditionMilli = 100_000;
-        inst.EngineConditionMilli = 100_000;
-        inst.MaintenanceHoursWatermark = inst.AirframeHours;
+        if (scope is MaintenanceScope.Hull or MaintenanceScope.Both) inst.HullConditionMilli = 100_000;
+        if (scope is MaintenanceScope.Engine or MaintenanceScope.Both) inst.EngineConditionMilli = 100_000;
+        inst.MaintenanceHoursWatermark = inst.AirframeHours; // the shop visit resets the hours clock either way
         inst.UpdatedAt = now;
         try
         {

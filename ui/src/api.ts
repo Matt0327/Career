@@ -301,6 +301,8 @@ export interface OwnedAircraft {
   engineConditionMilli: number
   maintenanceDue: boolean
   maintenanceQuoteCents: number
+  hullServiceCents: number
+  engineServiceCents: number
   requiredClass: string
   rated: boolean
   manufacturer: string | null
@@ -1100,7 +1102,7 @@ export const api = {
   returnLease: (id: string) => POST_IDEM(`/api/leases/${id}/return`).then(ok<{ refundCents: number }>),
   buyoutLease: (id: string) => POST_IDEM(`/api/leases/${id}/buyout`).then(ok<{ buyoutCents: number }>),
   casualtyLease: (id: string) => POST_IDEM(`/api/leases/${id}/casualty`).then(ok<{ deductibleCents: number }>),
-  maintain: (id: string) => POST_IDEM(`/api/aircraft/${id}/maintain`).then(ok),
+  maintain: (id: string, scope?: 'hull' | 'engine' | 'both') => POST_IDEM(`/api/aircraft/${id}/maintain${scope && scope !== 'both' ? `?scope=${scope}` : ''}`).then(ok),
   inspect: (id: string) => POST_IDEM(`/api/aircraft/${id}/inspect`).then(ok),
   aircraftHistory: (id: string) => fetch(`/api/aircraft/${id}/history`).then(ok<AircraftHistory>),
   sellAircraft: (id: string) => POST_IDEM(`/api/aircraft/${id}/sell`).then(ok<{ proceedsCents: number }>),
