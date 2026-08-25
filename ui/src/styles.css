@@ -282,6 +282,16 @@ input { font: inherit; }
 .toast .toast-text { color: var(--ink); } /* keep body text legible; tone shows on the rail + dot */
 @keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
+/* In-app dialogs (confirm / prompt) — replace the native browser popups */
+.dlg-backdrop { position: fixed; inset: 0; z-index: 5000; background: rgba(6,10,14,.55); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; padding: 20px; animation: toast-in .14s ease; }
+.dlg { width: min(440px, 94vw); background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 16px; padding: 22px 22px 18px; box-shadow: 0 24px 70px rgba(0,0,0,.4); }
+.dlg-title { font-size: 17px; margin: 0 0 8px; }
+.dlg-msg { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; white-space: pre-line; }
+.dlg-input { width: 100%; margin-top: 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); color: var(--ink); font: inherit; }
+.dlg-input:focus { outline: none; border-color: var(--accent); }
+.dlg-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+.dlg-actions button { padding: 9px 16px; }
+@media (prefers-reduced-motion: reduce) { .dlg-backdrop { animation: none; } }
 .assign-meta { display: flex; gap: 14px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .leg { font-size: 15px; }
 

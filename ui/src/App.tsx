@@ -50,6 +50,49 @@ function ToastHost() {
   )
 }
 
+// ─── Dialogs ─────────────────────────────────────────────────────────────────
+// In-app confirm / prompt modals, replacing the browser's ugly native window.confirm/prompt. Same imperative
+// pattern as the toasts: call confirmDialog(...) / promptDialog(...) and await the result; a single DialogHost
+// (mounted in the shell) renders the modal and resolves the promise.
+type DialogTone = 'default' | 'danger'
+interface DialogReq {
+  id: number; title?: string; message: string; confirmLabel: string; cancelLabel: string; tone: DialogTone
+  input?: { placeholder?: string; initial?: string }
+  resolve: (v: string | boolean | null) => void
+}
+let _dlg: DialogReq | null = null
+const _dlgSubs = new Set<(d: DialogReq | null) => void>()
+function _emitDlg() { for (const fn of _dlgSubs) fn(_dlg) }
+function confirmDialog(o: { title?: string; message: string; confirmLabel?: string; cancelLabel?: string; tone?: DialogTone }): Promise<boolean> {
+  return new Promise(res => { _dlg = { id: Date.now() + Math.random(), title: o.title, message: o.message, confirmLabel: o.confirmLabel ?? 'Confirm', cancelLabel: o.cancelLabel ?? 'Cancel', tone: o.tone ?? 'default', resolve: v => res(v === true) }; _emitDlg() })
+}
+function promptDialog(o: { title?: string; message: string; placeholder?: string; initial?: string; confirmLabel?: string }): Promise<string | null> {
+  return new Promise(res => { _dlg = { id: Date.now() + Math.random(), title: o.title, message: o.message, confirmLabel: o.confirmLabel ?? 'OK', cancelLabel: 'Cancel', tone: 'default', input: { placeholder: o.placeholder, initial: o.initial }, resolve: v => res(typeof v === 'string' ? v : null) }; _emitDlg() })
+}
+function DialogHost() {
+  const [dlg, setDlg] = useState<DialogReq | null>(_dlg)
+  const [val, setVal] = useState('')
+  useEffect(() => { _dlgSubs.add(setDlg); setDlg(_dlg); return () => { _dlgSubs.delete(setDlg) } }, [])
+  useEffect(() => { setVal(dlg?.input?.initial ?? '') }, [dlg?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  if (!dlg) return null
+  const close = (result: string | boolean | null) => { const r = dlg.resolve; _dlg = null; _emitDlg(); r(result) }
+  const onOk = () => close(dlg.input ? val : true)
+  return (
+    <div className="dlg-backdrop" onClick={() => close(false)}>
+      <div className="dlg" role="dialog" aria-modal="true" onClick={e => e.stopPropagation()}>
+        {dlg.title && <h3 className="dlg-title">{dlg.title}</h3>}
+        <p className="dlg-msg">{dlg.message}</p>
+        {dlg.input && <input className="dlg-input" autoFocus value={val} placeholder={dlg.input.placeholder}
+          onChange={e => setVal(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') onOk(); if (e.key === 'Escape') close(false) }} />}
+        <div className="dlg-actions">
+          <button className="ghost" onClick={() => close(false)}>{dlg.cancelLabel}</button>
+          <button className={dlg.tone === 'danger' ? 'danger' : 'primary'} onClick={onOk}>{dlg.confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 type Tab = 'dashboard' | 'airline' | 'jobs' | 'clients' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'finances' | 'campaigns' | 'awards' | 'logbook' | 'settings'
 
 export function App() {
@@ -110,6 +153,7 @@ export function App() {
   return (
     <div className="shell">
       <ToastHost />
+      <DialogHost />
       <TitleBar />
       <div className="app">
       <NavRail tab={tab} setTab={setTab} airline={airline} />
@@ -2402,7 +2446,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
     }
   }
   const cancelJob = async (a: Assignment) => {
-    if (!confirm(`Cancel the job to ${a.dest}? You'll hand it back — the client's opinion of you dips a little.`)) return
+    if (!await confirmDialog({ title: 'Cancel this job?', message: `You'll hand the job to ${a.dest} back. The client's opinion of you dips a little.`, confirmLabel: 'Hand it back', cancelLabel: 'Keep the job', tone: 'danger' })) return
     setBeginErr(null)
     try {
       const r = await api.cancelAssignment(a.id)
@@ -3521,14 +3565,14 @@ function Ops({ onChanged }: { onChanged: () => void }) {
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
   const relocateCrew = async (s: Staff) => {
-    const dest = window.prompt(`Reposition ${s.name} — destination airport ICAO:`, s.currentIcao ?? '')?.trim().toUpperCase()
+    const dest = (await promptDialog({ title: `Reposition ${s.name}`, message: 'Fly them (deadhead) to another field — enter the destination airport ICAO:', initial: s.currentIcao ?? '', placeholder: 'e.g. EGLL', confirmLabel: 'Reposition' }))?.trim().toUpperCase()
     if (!dest || dest === s.currentIcao) return
     setBusy(true); setMsg(null)
     try { const r = await api.relocateCrew(s.id, dest); await load(); onChanged(); setMsg(`Repositioned ${s.name} to ${dest} — ${money(r.feeCents)}.`) }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
   const dismiss = async (s: Staff) => {
-    if (!window.confirm(`Let ${s.name} go? Their wage stops and this can't be undone.`)) return
+    if (!await confirmDialog({ title: `Let ${s.name} go?`, message: `Their wage stops and this can't be undone.`, confirmLabel: 'Let them go', cancelLabel: 'Keep them', tone: 'danger' })) return
     setBusy(true); setMsg(null)
     try { await api.dismissStaff(s.id); await load(); onChanged(); setMsg(`${s.name} has left the company.`) }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
@@ -5553,7 +5597,7 @@ function CloudAccount() {
   }
 
   const pull = async () => {
-    if (!window.confirm('Replace your local save with the cloud copy?\n\nYour current save is set aside as a backup, and Callsign loads the cloud one the next time it starts.')) return
+    if (!await confirmDialog({ title: 'Replace your local save with the cloud copy?', message: 'Your current save is set aside as a backup, and Callsign loads the cloud one the next time it starts.', confirmLabel: 'Replace from cloud', tone: 'danger' })) return
     setBusy(true); setMsg(null)
     try {
       const r = await api.cloud.pull()
@@ -5643,7 +5687,7 @@ function Settings() {
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
   const restore = async (name: string) => {
-    if (!window.confirm(`Restore ${name}?\n\nYour current save is set aside as a backup, and Callsign loads the restored one the next time it starts.`)) return
+    if (!await confirmDialog({ title: `Restore ${name}?`, message: 'Your current save is set aside as a backup, and Callsign loads the restored one the next time it starts.', confirmLabel: 'Restore', tone: 'danger' })) return
     setBusy(true); setMsg(null)
     try { await api.restore(name); setStaged(true); setMsg(`Restore staged from ${name}.`) }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
