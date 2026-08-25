@@ -3888,6 +3888,12 @@ function Ops({ onChanged }: { onChanged: () => void }) {
                       {(r.marketShareMilli / 10).toFixed(0)}% market · {r.rivals.length} rival{r.rivals.length === 1 ? '' : 's'}
                     </span>
                   )}
+                  {r.seatCapacity != null && r.reliabilityMilli != null && (
+                    <span className={`rel-badge ${r.reliabilityMilli >= 950 ? 'ok' : r.reliabilityMilli >= 850 ? 'mid' : 'bad'}`}
+                      title="On-time record — the share of scheduled trips flown clean. Weather cancellations and crew diversions drag it down, and a poor record thins demand (passengers avoid an unreliable line).">
+                      {(r.reliabilityMilli / 10).toFixed(0)}% on-time
+                    </span>
+                  )}
                   <div className="route-crew">{r.crewName} · <span className="num">{r.aircraftTail}</span></div>
                 </td>
                 <td><span className="loc">{r.origin}</span> → <span className="loc">{r.dest}</span> <span className="muted">· {Math.round(r.distanceNm)} nm</span></td>

@@ -609,6 +609,7 @@ export interface RouteInfo {
   loadFactorMilli: number | null // Phase 14a — LIVE seat fill (thousandths): rides reputation, season, fare, competition
   marketShareMilli?: number | null // Phase 14b — your share of the route's market (thousandths), scheduled only
   rivals?: { name: string; reputationMilli: number; fareMultiplierMilli: number }[] | null // Phase 14b — invented rival carriers
+  reliabilityMilli?: number | null // Phase 14c — rolling on-time record (thousandths), scheduled only
   crewName: string      // the pilot flying this route
   aircraftTail: string  // the tail flying this route
   pendingTrips: number  // trips accrued since the last reconcile, ready to bank

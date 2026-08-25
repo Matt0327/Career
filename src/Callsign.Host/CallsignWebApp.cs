@@ -1488,7 +1488,8 @@ public static class CallsignWebApp
                     {
                         // Phase 14b — your market share vs the route's rivals flexes the live cabin fill.
                         var comp = Callsign.Core.Economy.RouteCompetition.Evaluate(cfg, r.Id, repMilliR, r.PriceMultiplierMilli);
-                        int liveLoad = Callsign.Core.Economy.ScheduledDemand.LoadFactorMilli(cfg, repMilliR, seasonR, r.PriceMultiplierMilli, comp.LoadMultiplier);
+                        double marketMult = comp.LoadMultiplier * cfg.ReliabilityLoadMultiplier(r.ReliabilityMilli); // 14b competition × 14c reliability
+                        int liveLoad = Callsign.Core.Economy.ScheduledDemand.LoadFactorMilli(cfg, repMilliR, seasonR, r.PriceMultiplierMilli, marketMult);
                         effReward = Callsign.Core.Economy.ScheduledDemand.RevenuePerTripCents(seatsR, liveLoad, yieldR, r.PriceMultiplierMilli);
                         fillPct = (int)Math.Round(liveLoad / 10.0);
                         liveLoadMilli = liveLoad;
@@ -1506,7 +1507,8 @@ public static class CallsignWebApp
                         r.DistanceNm, r.RoundTripHours, effReward, r.PriceMultiplierMilli, fillPct, r.RewardPerTripCents,
                         r.SeatCapacity, liveLoadMilli,
                         routeStaff.GetValueOrDefault(r.StaffId, "?"), routeTails.GetValueOrDefault(r.AircraftInstanceId, "?"),
-                        pending, pending * effReward, marketShareMilli, rivals);
+                        pending, pending * effReward, marketShareMilli, rivals,
+                        r.SeatCapacity != null ? r.ReliabilityMilli : null);
                 }),
                 bases = baseViews.Select(b => new RouteBaseDto(b.Icao, b.Name)),
                 missions,

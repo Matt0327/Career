@@ -489,6 +489,18 @@ public sealed record EconomyConfig
     /// more seats, losing it bleeds them, but always bounded.</summary>
     public double CompetitionLoadSwing { get; init; } = 0.15;
 
+    // --- Phase 14c: reliability & disruptions. A scheduled route earns a rolling on-time record from the share of
+    // its trips flown clean; a poor record dampens future demand (passengers avoid an unreliable line). Bounded,
+    // income-only, off the commodity market — same pump-safety. ---
+    /// <summary>EMA weight on the newest pass when updating a route's reliability — how fast the record reacts.</summary>
+    public double ReliabilityEmaAlpha { get; init; } = 0.35;
+    /// <summary>The worst a perfectly-unreliable route's demand is dragged (a load multiplier floor). At full
+    /// reliability the multiplier is 1.0; at zero it is this — so a shambolic operation fills meaningfully fewer.</summary>
+    public double ReliabilityLoadFloor { get; init; } = 0.80;
+    /// <summary>Reliability's load multiplier: floor..1.0 across the reliability range.</summary>
+    public double ReliabilityLoadMultiplier(int reliabilityMilli)
+        => ReliabilityLoadFloor + (1 - ReliabilityLoadFloor) * Math.Clamp(reliabilityMilli / 1000.0, 0, 1);
+
     // --- Used-aircraft market (Phase 7g): buy pre-owned airframes cheaper, at the cost of hours + condition ---
     public int UsedMarketCount { get; init; } = 6;                            // listings on the used lot at a time
     /// <summary>The condition-0 INTERCEPT of <see cref="UsedPriceFactor"/>, as a fraction of new — NOT the

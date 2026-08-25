@@ -146,7 +146,8 @@ public record RouteDto(Guid Id, string Name, string Origin, string Dest, string 
     int PriceMultiplierMilli, int FillPct, long FairRewardPerTripCents,
     int? SeatCapacity, int? LoadFactorMilli, // Phase 11f — non-null on a scheduled-passenger route
     string CrewName = "?", string AircraftTail = "?", int PendingTrips = 0, long PendingIncomeCents = 0, // who flies it + trips ready to bank
-    int? MarketShareMilli = null, IReadOnlyList<RivalDto>? Rivals = null); // Phase 14b — competition on a scheduled route
+    int? MarketShareMilli = null, IReadOnlyList<RivalDto>? Rivals = null, // Phase 14b — competition on a scheduled route
+    int? ReliabilityMilli = null); // Phase 14c — rolling on-time record (scheduled only)
 public record RivalDto(string Name, int ReputationMilli, int FareMultiplierMilli);
 public record RouteBaseDto(string Icao, string Name);
 public record CreateRouteRequest(string? Name, string OriginIcao, string DestIcao, Guid AircraftInstanceId, Guid StaffId, string Mission, int? PriceMultiplierMilli);

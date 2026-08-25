@@ -209,6 +209,62 @@ public class ScheduledServiceTests
     }
 
     [Fact]
+    public void ReliabilityLoadMultiplier_IsBounded_AndMonotonic()
+    {
+        Assert.Equal(1.0, Cfg.ReliabilityLoadMultiplier(1000), 6);            // a flawless record: no drag
+        Assert.Equal(Cfg.ReliabilityLoadFloor, Cfg.ReliabilityLoadMultiplier(0), 6); // a shambles: the full floor drag
+        Assert.True(Cfg.ReliabilityLoadMultiplier(1000) > Cfg.ReliabilityLoadMultiplier(500));
+        Assert.True(Cfg.ReliabilityLoadMultiplier(500) > Cfg.ReliabilityLoadMultiplier(0));
+    }
+
+    [Fact]
+    public async Task Reliability_PoorRecord_EarnsLessThanAReliableLine()
+    {
+        // Phase 14c — same route, same window, same everything EXCEPT the on-time record: the unreliable line
+        // fills fewer seats and earns less. Proves the reliability dampener actually bites at reconcile.
+        async Task<long> Run(int startReliability)
+        {
+            using var tdb = new TestDb();
+            var clock = new FakeClock();
+            var (companyId, aircraftId, staffId) = await SeedAsync(tdb, clock, repMilli: 80_000, holdsAoc: true);
+            Guid routeId;
+            using (var db = tdb.NewContext())
+                routeId = (await new RouteService(db, clock, Cfg).CreateScheduledServiceAsync(companyId, "s", "EHAM", "EGLL", aircraftId, staffId)).Id;
+            using (var db = tdb.NewContext())
+            {
+                var route = await db.Routes.FindAsync(routeId);
+                route!.ReliabilityMilli = startReliability;   // pre-set the record
+                await db.SaveChangesAsync();
+            }
+            clock.UtcNow = clock.UtcNow.AddDays(2);
+            using (var db = tdb.NewContext())
+                return (await new OperationsService(db, new LedgerService(db, clock), clock, Cfg).ReconcileAsync(companyId)).GrossIncomeCents;
+        }
+
+        long reliable = await Run(1000);
+        long shaky = await Run(400);
+        Assert.True(shaky < reliable, $"unreliable {shaky} should earn less than reliable {reliable}");
+    }
+
+    [Fact]
+    public async Task Reliability_IsUpdatedByAPass_AndStaysInRange()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var (companyId, aircraftId, staffId) = await SeedAsync(tdb, clock, repMilli: 80_000, holdsAoc: true);
+        Guid routeId;
+        using (var db = tdb.NewContext())
+            routeId = (await new RouteService(db, clock, Cfg).CreateScheduledServiceAsync(companyId, "s", "EHAM", "EGLL", aircraftId, staffId)).Id;
+
+        clock.UtcNow = clock.UtcNow.AddDays(2);
+        using (var db = tdb.NewContext())
+            await new OperationsService(db, new LedgerService(db, clock), clock, Cfg).ReconcileAsync(companyId);
+
+        using (var db = tdb.NewContext())
+            Assert.InRange((await db.Routes.FindAsync(routeId))!.ReliabilityMilli, 0, 1000);
+    }
+
+    [Fact]
     public void LivingDemand_LoadFactor_IsHardBounded_AndRidesReputation()
     {
         // Pump-safe: the load factor never escapes its band whatever the inputs, and a stronger name fills more.

@@ -30,6 +30,12 @@ public sealed class Route : ISyncable
     public int? LoadFactorMilli { get; set; }              // frozen seat fill (thousandths), driven by operating reputation
     public long? SeatYieldCents { get; set; }              // frozen per-seat round-trip revenue
 
+    /// <summary>Phase 14c — the scheduled route's rolling on-time record (thousandths; 1000 = a flawless month).
+    /// Updated each reconcile from the share of trips flown clean (weather cancellations and crew diversions drag
+    /// it down). A poor record dampens future demand — passengers avoid an unreliable line. Default 1000 (unproven
+    /// = trusted), so a pre-14c route and any plain route are unchanged (L10).</summary>
+    public int ReliabilityMilli { get; set; } = 1000;
+
     public bool Active { get; set; } = true;
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset LastReconciledAt { get; set; } // reconcile watermark

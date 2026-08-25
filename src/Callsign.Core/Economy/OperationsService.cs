@@ -924,9 +924,11 @@ public sealed class OperationsService
             if (route.SeatCapacity is int rtSeats && route.SeatYieldCents is long rtYield)
             {
                 double season = ScheduledDemand.SeasonMultiplier(_cfg, now);
-                // Phase 14b — your share of the route's market (vs its rivals) flexes the cabin fill.
+                // Phase 14b — your share of the route's market (vs its rivals) flexes the cabin fill; Phase 14c — a
+                // poor on-time record dampens demand too (passengers avoid an unreliable line). Both bounded.
                 var comp = RouteCompetition.Evaluate(_cfg, route.Id, repStartMilli, route.PriceMultiplierMilli);
-                int liveLoad = ScheduledDemand.LoadFactorMilli(_cfg, repStartMilli, season, route.PriceMultiplierMilli, comp.LoadMultiplier);
+                double marketMult = comp.LoadMultiplier * _cfg.ReliabilityLoadMultiplier(route.ReliabilityMilli);
+                int liveLoad = ScheduledDemand.LoadFactorMilli(_cfg, repStartMilli, season, route.PriceMultiplierMilli, marketMult);
                 perTripReward = ScheduledDemand.RevenuePerTripCents(rtSeats, liveLoad, rtYield, route.PriceMultiplierMilli);
                 rollMarkup = 1000;
             }
@@ -958,6 +960,16 @@ public sealed class OperationsService
                     aircraft.UpdatedAt = now;
                 }
                 totalFuel += fuel; // routes are fee-free at both bases; fuel is their operating cost
+            }
+            // Phase 14c — update the scheduled route's rolling on-time record from THIS pass: the share of the
+            // scheduled trips flown clean (weather cancellations and crew diversions both drag it down), blended in.
+            if (route.SeatCapacity != null && trips > 0)
+            {
+                int cleanTrips = Math.Max(0, flown - rtRoll.Incidents);
+                int onTimeMilli = (int)Math.Round(1000.0 * cleanTrips / trips);
+                route.ReliabilityMilli = Math.Clamp(
+                    (int)Math.Round(_cfg.ReliabilityEmaAlpha * onTimeMilli + (1 - _cfg.ReliabilityEmaAlpha) * route.ReliabilityMilli),
+                    0, 1000);
             }
             route.LastReconciledAt = dutyCapped ? now : route.LastReconciledAt.AddHours(trips * route.RoundTripHours);
             route.UpdatedAt = now;
