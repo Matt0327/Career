@@ -12,9 +12,11 @@ public sealed record EconomyConfig
     public int Version { get; init; } = 1;
 
     // --- Cargo reward = base + distance-rate + weight-rate (rates bumped ~1.7x so the grind pays off) ---
+    // Phase 13 — pay is DISTANCE-LED, then payload: distance is the big lever, weight a smaller top-up (the user
+    // wanted the logical "further = more, then how much you carried"). Retuned per-nm up, per-lb down.
     public long CargoBaseFeeCents { get; init; } = 25_000;   // $250 to show up
-    public long CargoPerNmCents { get; init; } = 1_600;      // $16 per nautical mile
-    public long CargoPerLbCents { get; init; } = 100;        // $1.00 per lb of freight
+    public long CargoPerNmCents { get; init; } = 2_800;      // $28 per nautical mile (the primary driver)
+    public long CargoPerLbCents { get; init; } = 40;         // $0.40 per lb of freight (secondary)
 
     // --- XP ---
     public int XpBase { get; init; } = 5;
@@ -38,9 +40,10 @@ public sealed record EconomyConfig
         => XpBase + (int)Math.Round(distanceNm * XpPerNm);
 
     // --- Passenger reward = base + pax * (per-seat-sold fee + per-passenger-mile fare) (bumped ~1.7x) ---
+    // Phase 13 — distance-led (see cargo note): per-passenger-per-nm up, flat per-seat down.
     public long PaxBaseFeeCents { get; init; } = 25_000;  // $250 dispatch
-    public long PaxPerPaxCents { get; init; } = 20_000;   // $200 per seat sold
-    public long PaxPerPaxNmCents { get; init; } = 260;    // $2.60 per passenger per nautical mile
+    public long PaxPerPaxCents { get; init; } = 9_000;    // $90 per seat sold (secondary)
+    public long PaxPerPaxNmCents { get; init; } = 450;    // $4.50 per passenger per nautical mile (primary)
     public int MinPax { get; init; } = 1;
     public int MaxPax { get; init; } = 6;                 // freelance charters stay GA-flyable
     public int PaxWeightLbs { get; init; } = 210;         // body + bag, so useful-load still bites
