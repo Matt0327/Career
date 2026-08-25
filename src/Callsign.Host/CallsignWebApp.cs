@@ -1867,8 +1867,39 @@ public static class CallsignWebApp
                     return Results.BadRequest(new { error = $"{inst.Tail} is parked at {inst.LocationIcao}, not {origin}. Ferry it there first (Hangar → bring the aircraft to you)." });
             }
 
-            session.BeginFlight(req.AssignmentId, req.AircraftInstanceId);
-            return Results.Ok(new { begun = req.AssignmentId, aircraft = req.AircraftInstanceId });
+            // Phase 13 — optional multi-job: fly extra accepted jobs on the SAME leg. Each must share the primary's
+            // origin AND destination, and the aircraft must fit the COMBINED load (pax against seats, cargo against
+            // useful load — the same split as the single-job gate). Validated here so a crafted request can't cheat.
+            var also = new List<Guid>();
+            if (assignment is not null && req.AlsoAssignmentIds is { Count: > 0 })
+            {
+                var type2 = inst is null ? null : await db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == inst.TypeId);
+                var extraIds = req.AlsoAssignmentIds.Where(x => x != req.AssignmentId).Distinct().ToList();
+                var extras = await db.JobAssignments.Where(a => extraIds.Contains(a.Id) && a.Status == AssignmentStatus.Accepted).ToListAsync();
+                int totalPax = assignment.Pax;
+                int totalWeight = assignment.WeightLbs;
+                bool anyPax = assignment.Type.CarriesPassengers();
+                foreach (var e in extras)
+                {
+                    if (!string.Equals(e.OriginIcao, assignment.OriginIcao, StringComparison.OrdinalIgnoreCase)
+                        || !string.Equals(e.DestIcao, assignment.DestIcao, StringComparison.OrdinalIgnoreCase))
+                        return Results.BadRequest(new { error = "Extra jobs must share this job's departure and destination." });
+                    totalPax += e.Pax;
+                    totalWeight += e.WeightLbs;
+                    anyPax |= e.Type.CarriesPassengers();
+                    also.Add(e.Id);
+                }
+                if (also.Count > 0 && type2 is not null)
+                {
+                    if (anyPax && type2.Seats is int cap && cap < totalPax)
+                        return Results.BadRequest(new { error = $"{inst?.Tail ?? type2.CanonicalName} seats {cap} — these jobs need {totalPax} together." });
+                    if (type2.UsefulLoadLbs is int ul2 && ul2 < totalWeight)
+                        return Results.BadRequest(new { error = $"{inst?.Tail ?? type2.CanonicalName} carries {ul2:N0} lb — these jobs need {totalWeight:N0} lb together." });
+                }
+            }
+
+            session.BeginFlight(req.AssignmentId, req.AircraftInstanceId, also.Count > 0 ? also : null);
+            return Results.Ok(new { begun = req.AssignmentId, aircraft = req.AircraftInstanceId, also });
         });
 
         // Free flight (Phase 12): no job, no check — just fly. The next completed leg is logged (no payout).

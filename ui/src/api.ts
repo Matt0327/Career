@@ -1073,8 +1073,8 @@ export const api = {
   cancelAssignment: (id: string) => POST(`/api/assignments/${id}/cancel`).then(ok<{ clientName: string | null, loyaltyLostMilli: number }>),
   handOffAssignment: (id: string, staffId: string, aircraftInstanceId: string) =>
     POST(`/api/assignments/${id}/hand-off`, { staffId, aircraftInstanceId }).then(ok<{ legId: string; dest: string; rewardCents: number }>),
-  beginFlight: (assignmentId: string, aircraftInstanceId?: string) =>
-    POST('/api/flight/begin', { assignmentId, aircraftInstanceId }).then(ok),
+  beginFlight: (assignmentId: string, aircraftInstanceId?: string, alsoAssignmentIds?: string[]) =>
+    POST('/api/flight/begin', { assignmentId, aircraftInstanceId, alsoAssignmentIds }).then(ok),
   ledger: (limit = 50) => fetch(`/api/ledger?limit=${limit}`).then(ok<LedgerEntry[]>),
   flights: (skip = 0, take = 50): Promise<FlightLog[]> => fetch(`/api/flights?skip=${skip}&take=${take}`).then(ok<FlightLog[]>),
   flight: (id: string) => fetch(`/api/flights/${id}`).then(ok<FlightDetail>),

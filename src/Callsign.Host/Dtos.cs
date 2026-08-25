@@ -231,7 +231,7 @@ public record FlightTotalsDto(
     long BestPayoutCents, double LongestLegNm,
     int ScoredFlights, double AvgScore, int BestScore); // Phase 12 — lifetime flying quality
 
-public record BeginFlightRequest(Guid AssignmentId, Guid? AircraftInstanceId);
+public record BeginFlightRequest(Guid AssignmentId, Guid? AircraftInstanceId, IReadOnlyList<Guid>? AlsoAssignmentIds = null); // Phase 13 — extra same-dest jobs on the same leg
 
 public record FlightLiveDto(
     string Phase, string Connection, Guid? AssignmentId,

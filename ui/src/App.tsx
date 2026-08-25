@@ -2292,6 +2292,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
   const [aircraftId, setAircraftId] = useState('')
   const [crew, setCrew] = useState<Staff[]>([])   // Phase 13 — hire-out: fly a job as yourself or hand it to a crew
   const [who, setWho] = useState('')              // '' = you (hand-fly); else a staffId (they fly it autonomously)
+  const [combo, setCombo] = useState<Set<string>>(new Set()) // Phase 13 — extra same-dest jobs to fly on one leg
   const [beginErr, setBeginErr] = useState<string | null>(null)
   const [quals, setQuals] = useState<QualClass[]>([])
   const [checkPending, setCheckPending] = useState<string | null>(null) // class name of a check-flight in progress
@@ -2422,6 +2423,17 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
       await api.handOffAssignment(a.id, who, aircraftId)
       loadAssignments(); loadFleet(); onSettled()
       addLog('ok', `Handed ${a.origin} → ${a.dest} to ${crewName} — they'll fly it and it banks automatically.`)
+    } catch (e) { setBeginErr(cleanErr(e)) }
+  }
+  const toggleCombo = (id: string) => setCombo(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const beginCombo = async (jobs: Assignment[]) => {
+    if (jobs.length < 2) return
+    setSettled(null); setDiverted(null); setBeginErr(null); setFreeFlight(false)
+    const [primary, ...rest] = jobs
+    try {
+      await api.beginFlight(primary.id, aircraftId || undefined, rest.map(r => r.id))
+      setBegun(primary); setCombo(new Set())
+      addLog('info', `Armed ${jobs.length} jobs → ${primary.dest} — fly it; all settle together on landing.`)
     } catch (e) { setBeginErr(cleanErr(e)) }
   }
   // Auto-arm on takeoff (Phase 13): if you start rolling with exactly one flyable job and the right aircraft
@@ -2561,6 +2573,20 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
             {who && <span className="muted">they'll fly it autonomously — it banks on completion (no telemetry score)</span>}
           </div>
         )}
+        {(() => {
+          const comboJobs = assignments.filter(a => combo.has(a.id))
+          if (comboJobs.length < 2) return null
+          const pax = comboJobs.reduce((n, a) => n + a.pax, 0), wt = comboJobs.reduce((n, a) => n + a.weightLbs, 0)
+          const fit = payloadFit(selAc, pax, wt)
+          const pay = comboJobs.reduce((n, a) => n + a.rewardQuoteCents, 0)
+          return (
+            <div className={`combo-bar ${fit.ok ? '' : 'bad'}`}>
+              <span><b>{comboJobs.length} jobs</b> → <span className="loc">{comboJobs[0].dest}</span> · {pax > 0 ? `${pax} pax` : `${wt.toLocaleString()} lb`} · <span className="pos">{money(pay)}</span></span>
+              <button className="primary" disabled={!!begun || !aircraftId || !fit.ok} title={fit.ok ? 'Fly them all on one leg — they settle together on landing' : fit.msg} onClick={() => beginCombo(comboJobs)}>Fly {comboJobs.length} together</button>
+              <button className="linky" onClick={() => setCombo(new Set())}>Clear</button>
+            </div>
+          )
+        })()}
         {assignments.length === 0
           ? <div className="empty"><p>No accepted jobs. Accept one on the Jobs board first.</p></div>
           : (
@@ -2573,6 +2599,10 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
                 const pf = payloadFit(selAc, a.pax, a.weightLbs)          // it can carry the load
                 const canFly = atOrigin && acHere && !!aircraftId && pf.ok
                 const canSend = acHere && !!aircraftId && pf.ok            // crew flies it — YOUR location doesn't matter
+                // Multi-job: a job can join the combo if it shares the departure+destination of whatever's already picked.
+                const comboJobs = assignments.filter(x => combo.has(x.id))
+                const sameLeg = comboJobs.length === 0 || (comboJobs[0].origin === a.origin && comboJobs[0].dest === a.dest)
+                const canCombo = !isCrew && !begun && (combo.has(a.id) || sameLeg)
                 const why = begun?.id === a.id ? null
                   : !aircraftId ? 'Pick an aircraft'
                   : !acHere ? `${selAc?.tail ?? 'That aircraft'} isn't at ${a.origin} — ferry it there first`
@@ -2580,8 +2610,14 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
                   : (!isCrew && !atOrigin) ? `You're at ${state.currentIcao} — this leg departs ${a.origin}`
                   : null
                 return (
-                  <li key={a.id} className="assign">
-                    <div className="leg"><b>{a.origin}</b> → <b>{a.dest}</b> <span className="muted">{a.destName} · {a.commodity}</span></div>
+                  <li key={a.id} className={`assign ${combo.has(a.id) ? 'in-combo' : ''}`}>
+                    <div className="leg">
+                      {!isCrew && !begun && assignments.length > 1 && (
+                        <input type="checkbox" className="combo-check" checked={combo.has(a.id)} disabled={!canCombo}
+                          title={canCombo ? 'Fly this together with other jobs to the same field' : 'Only jobs to the same destination can share a leg'}
+                          onChange={() => toggleCombo(a.id)} />
+                      )}
+                      <b>{a.origin}</b> → <b>{a.dest}</b> <span className="muted">{a.destName} · {a.commodity}</span></div>
                     <div className="assign-meta">
                       <span>{Math.round(a.distanceNm)} nm</span>
                       <span>{loadText(a.type, a.weightLbs, a.pax)}</span>

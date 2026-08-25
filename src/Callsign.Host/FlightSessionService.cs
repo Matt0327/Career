@@ -32,6 +32,7 @@ public sealed class FlightSessionService : IDisposable
 
     private FlightTracker _tracker = new();
     private Guid? _assignmentId;
+    private IReadOnlyList<Guid> _alsoAssignmentIds = Array.Empty<Guid>(); // Phase 13 — extra jobs flown on the same leg
     private Guid? _aircraftInstanceId; // the owned airframe flown this leg, if any
     private QualClass? _checkClass;    // a check-flight in progress for this class (Phase 3d), if any
     private bool _freeFlight;          // a free flight (Phase 12): tracked + logged, but no job to settle
@@ -76,12 +77,15 @@ public sealed class FlightSessionService : IDisposable
 
     /// <summary>Track a fresh flight for the given accepted assignment (optionally in an owned airframe);
     /// the next landing at the destination settles it.</summary>
-    public void BeginFlight(Guid assignmentId, Guid? aircraftInstanceId = null)
+    public void BeginFlight(Guid assignmentId, Guid? aircraftInstanceId = null, IReadOnlyList<Guid>? alsoSettle = null)
     {
         lock (_gate)
         {
             _tracker = new FlightTracker(); _sentEventCount = 0;
             _assignmentId = assignmentId;
+            // Phase 13 — extra same-destination jobs flown together on this one leg; each settles with the same
+            // landing when the primary does (validated at the begin endpoint: shared origin+dest, combined fit).
+            _alsoAssignmentIds = alsoSettle is { Count: > 0 } ? alsoSettle.ToArray() : Array.Empty<Guid>();
             _aircraftInstanceId = aircraftInstanceId;
             _checkClass = null; // a job flight and a check-flight are mutually exclusive
             _freeFlight = false;
@@ -338,10 +342,24 @@ public sealed class FlightSessionService : IDisposable
         }
 
         var result = await SettleAsync(assignmentId, aircraftInstanceId, completed);
+        // Phase 13 — settle any extra jobs flown on the same leg (same destination) with THIS landing. Each is
+        // independent (its own frozen reward + ledger, dedupe-keyed); we sum pay + XP for the end-of-flight card.
+        long extraPay = 0; int extraXp = 0;
+        var extras = _alsoAssignmentIds;
+        if (result is not null && extras.Count > 0)
+            foreach (var extraId in extras)
+            {
+                try
+                {
+                    var er = await SettleAsync(extraId, aircraftInstanceId, completed);
+                    if (er is not null) { extraPay += er.PayoutCents; extraXp += er.XpAwarded; }
+                }
+                catch { /* one bad companion job never blocks the primary settlement */ }
+            }
         lock (_gate)
         {
             _tracker = new FlightTracker(); _sentEventCount = 0;
-            if (result is not null) { _assignmentId = null; _aircraftInstanceId = null; } // settled → done; on error keep for retry
+            if (result is not null) { _assignmentId = null; _aircraftInstanceId = null; _alsoAssignmentIds = Array.Empty<Guid>(); } // settled → done; on error keep for retry
             _settling = false;
         }
         if (result is not null)
@@ -350,8 +368,8 @@ public sealed class FlightSessionService : IDisposable
                 type = "settled",
                 assignmentId,
                 flightId = result.FlightId, // Phase 12 — so the end-of-flight card can show the score + coaching debrief
-                payoutCents = result.PayoutCents,
-                xp = result.XpAwarded,
+                payoutCents = result.PayoutCents + extraPay,
+                xp = result.XpAwarded + extraXp,
                 payloadMatched = result.PayloadMatched,
                 promotedTo = result.PromotedTo is { } pr ? Callsign.Core.Progression.RankTiers.Def(pr).DisplayName : null,
                 touchdownFpm = completed.TouchdownFpm,
