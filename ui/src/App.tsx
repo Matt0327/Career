@@ -2290,6 +2290,8 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
   const [diverted, setDiverted] = useState<Diverted | null>(null)
   const [fleet, setFleet] = useState<OwnedAircraft[]>([])
   const [aircraftId, setAircraftId] = useState('')
+  const [crew, setCrew] = useState<Staff[]>([])   // Phase 13 — hire-out: fly a job as yourself or hand it to a crew
+  const [who, setWho] = useState('')              // '' = you (hand-fly); else a staffId (they fly it autonomously)
   const [beginErr, setBeginErr] = useState<string | null>(null)
   const [quals, setQuals] = useState<QualClass[]>([])
   const [checkPending, setCheckPending] = useState<string | null>(null) // class name of a check-flight in progress
@@ -2301,6 +2303,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
   const addLog = useCallback((sev: LogSev, text: string) => setLog(l => [...l, { id: logId.current++, at: clock(), sev, text }].slice(-80)), [])
 
   const loadAssignments = useCallback(() => { api.assignments().then(setAssignments).catch(() => {}) }, [])
+  const loadCrew = useCallback(() => { api.staff().then(s => setCrew(s.filter(x => x.role !== 'Manager'))).catch(() => {}) }, [])
   const loadQuals = useCallback(() => { api.quals().then(setQuals).catch(() => {}) }, [])
   const loadFleet = useCallback(() => {
     api.hangar().then(hs => {
@@ -2313,7 +2316,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
         || avail.find(h => h.rated)?.id || avail[0]?.id || '')
     }).catch(() => {})
   }, [state.currentIcao])
-  useEffect(() => { loadAssignments(); loadFleet(); loadQuals() }, [loadAssignments, loadFleet, loadQuals])
+  useEffect(() => { loadAssignments(); loadFleet(); loadQuals(); loadCrew() }, [loadAssignments, loadFleet, loadQuals, loadCrew])
 
   const { tele, wsOpen, link } = useTelemetry(
     s => {
@@ -2412,20 +2415,29 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
     try { const r = await api.relocateSelf(icao); onSettled(); loadAssignments(); addLog('ok', `Travelled to ${icao} — ${money(r.feeCents)}. You can fly from here now.`) }
     catch (e) { setBeginErr(cleanErr(e)) }
   }
+  const handOff = async (a: Assignment) => {
+    setBeginErr(null)
+    const crewName = crew.find(c => c.id === who)?.name ?? 'the crew'
+    try {
+      await api.handOffAssignment(a.id, who, aircraftId)
+      loadAssignments(); loadFleet(); onSettled()
+      addLog('ok', `Handed ${a.origin} → ${a.dest} to ${crewName} — they'll fly it and it banks automatically.`)
+    } catch (e) { setBeginErr(cleanErr(e)) }
+  }
   // Auto-arm on takeoff (Phase 13): if you start rolling with exactly one flyable job and the right aircraft
   // loaded, arm it for you — so the flight "just starts when you go" instead of needing a button press. Tightly
   // guarded (connected, on ground at the origin, the matching aircraft, a real takeoff-roll speed) and fires once.
   const autoArmed = useRef(false)
   useEffect(() => { if (!begun) autoArmed.current = false }, [begun])
   useEffect(() => {
-    if (begun || freeFlight || autoArmed.current) return
+    if (begun || freeFlight || who || autoArmed.current) return // 'who' set = you're handing it to a crew, not flying
     if (link !== 'Connected' || !tele || tele.onGround !== true || tele.gs < 35) return
     const flyable = assignments.filter(a =>
       state.currentIcao === a.origin && selAc?.locationIcao === a.origin && !!aircraftId
       && payloadFit(selAc, a.pax, a.weightLbs).ok && matchesSimTitle(tele.title, selAc))
     if (flyable.length === 1) { autoArmed.current = true; void begin(flyable[0]) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tele, link, begun, freeFlight, assignments, aircraftId, selAc, state.currentIcao])
+  }, [tele, link, begun, freeFlight, who, assignments, aircraftId, selAc, state.currentIcao])
   const startFreeFlight = async () => {
     setSettled(null); setDiverted(null); setBeginErr(null); setBegun(null)
     try { await api.beginFreeFlight(); setFreeFlight(true); addLog('info', 'Free flight armed — fly anywhere; it\'s tracked and logged, no job attached.') }
@@ -2539,20 +2551,33 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
           </button>
         </div>
         {beginErr && <div className="banner error" onClick={() => setBeginErr(null)}>{beginErr} — tap to dismiss</div>}
+        {crew.length > 0 && (
+          <div className="fly-as">
+            <span className="metalabel">Flying as</span>
+            <select value={who} onChange={e => setWho(e.target.value)} disabled={!!begun || freeFlight}>
+              <option value="">You — hand-fly &amp; scored</option>
+              {crew.map(c => <option key={c.id} value={c.id}>{c.name} · {Math.round(c.skillMilli / 1000)}%</option>)}
+            </select>
+            {who && <span className="muted">they'll fly it autonomously — it banks on completion (no telemetry score)</span>}
+          </div>
+        )}
         {assignments.length === 0
           ? <div className="empty"><p>No accepted jobs. Accept one on the Jobs board first.</p></div>
           : (
             <ul className="assign-list">
               {assignments.map(a => {
+                const isCrew = !!who
+                const crewName = crew.find(c => c.id === who)?.name ?? 'the crew'
                 const atOrigin = state.currentIcao === a.origin           // you're at the departure field
                 const acHere = !!selAc && selAc.locationIcao === a.origin  // the chosen aircraft is too
                 const pf = payloadFit(selAc, a.pax, a.weightLbs)          // it can carry the load
                 const canFly = atOrigin && acHere && !!aircraftId && pf.ok
+                const canSend = acHere && !!aircraftId && pf.ok            // crew flies it — YOUR location doesn't matter
                 const why = begun?.id === a.id ? null
                   : !aircraftId ? 'Pick an aircraft'
-                  : !atOrigin ? `You're at ${state.currentIcao} — this leg departs ${a.origin}`
                   : !acHere ? `${selAc?.tail ?? 'That aircraft'} isn't at ${a.origin} — ferry it there first`
                   : !pf.ok ? pf.msg
+                  : (!isCrew && !atOrigin) ? `You're at ${state.currentIcao} — this leg departs ${a.origin}`
                   : null
                 return (
                   <li key={a.id} className="assign">
@@ -2564,10 +2589,12 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
                       {a.deadlineAt && <span className={`due ${Date.parse(a.deadlineAt) < Date.now() ? 'neg' : 'warn'}`}>{dueText(a.deadlineAt)}</span>}
                     </div>
                     <div className="assign-actions">
-                      <button className="primary" disabled={begun?.id === a.id || !canFly} onClick={() => begin(a)} title={why ?? 'Arms the leg — it starts scoring the moment you take off'}>
-                        {begun?.id === a.id ? 'In progress…' : 'Fly this job'}
-                      </button>
-                      {!atOrigin && begun?.id !== a.id && <button className="ghost small" disabled={!!begun} onClick={() => travelTo(a.origin)} title={`Fly commercial to ${a.origin} so you can depart from there`}>Travel to {a.origin}</button>}
+                      {isCrew
+                        ? <button className="primary" disabled={!!begun || !canSend} onClick={() => handOff(a)} title={why ?? `${crewName} flies it autonomously`}>Send {crewName}</button>
+                        : <button className="primary" disabled={begun?.id === a.id || !canFly} onClick={() => begin(a)} title={why ?? 'Arms the leg — it starts scoring the moment you take off'}>
+                            {begun?.id === a.id ? 'In progress…' : 'Fly this job'}
+                          </button>}
+                      {!isCrew && !atOrigin && begun?.id !== a.id && <button className="ghost small" disabled={!!begun} onClick={() => travelTo(a.origin)} title={`Fly commercial to ${a.origin} so you can depart from there`}>Travel to {a.origin}</button>}
                       <button className="linky" disabled={begun?.id === a.id} onClick={() => cancelJob(a)} title="Hand the job back — a small hit to the client's loyalty">Cancel</button>
                     </div>
                     {why && begun?.id !== a.id && <div className="assign-why muted">{why}</div>}

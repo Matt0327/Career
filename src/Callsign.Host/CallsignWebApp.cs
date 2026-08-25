@@ -626,6 +626,19 @@ public static class CallsignWebApp
             catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
+        // Phase 13 — hand a job you've accepted to a hired crew to fly autonomously (the Fly-tab equivalent of dispatch).
+        app.MapPost("/api/assignments/{id:guid}/hand-off", async (Guid id, HandOffRequest req, CallsignDbContext db, OperationsService ops) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                var leg = await ops.DispatchAssignmentAsync(pilot.CompanyId, id, req.StaffId, req.AircraftInstanceId);
+                return Results.Ok(new { legId = leg.Id, dest = leg.DestIcao, readyAt = leg.ReadyAt, rewardCents = leg.RewardCents });
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
         app.MapPost("/api/assignments/{id:guid}/settle", async (Guid id, FlightResultDto dto, SettlementService svc) =>
         {
             var record = new Callsign.Core.Flight.FlightRecord(

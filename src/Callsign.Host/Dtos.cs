@@ -98,6 +98,7 @@ public record CheckFlightResultDto(bool Passed, string Class, string ClassName, 
 
 public record BuyAircraftRequest(Guid TypeId);
 public record AssignPilotRequest(Guid? StaffId); // Phase 13 — assign a tail to a crew member (null = clear)
+public record HandOffRequest(Guid StaffId, Guid AircraftInstanceId); // Phase 13 — hand an accepted job to a crew
 public record UsedListingDto(int Seed, Guid TypeId, string TypeName, string Category, double AirframeHours, int ConditionMilli, long PriceCents, long NewPriceCents,
     // Where the pre-owned airframe sits today — buying takes delivery here, same as a new one.
     string LocationIcao, string LocationName, double DistanceNm);

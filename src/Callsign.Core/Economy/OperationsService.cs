@@ -336,6 +336,69 @@ public sealed class OperationsService
         return leg;
     }
 
+    /// <summary>
+    /// Hand a job you've ALREADY ACCEPTED to a hired crew to fly autonomously (Phase 13) — the Fly-tab equivalent
+    /// of dispatching a board job. The accepted assignment is marked Abandoned (it leaves your active jobs) and a
+    /// one-way <see cref="DispatchLeg"/> is created from its frozen snapshot. First-leg only: if the crew already
+    /// flies a line, hand off from the board or pick a free pilot. Same crew/aircraft/co-location gates as a
+    /// board dispatch, so a hand-off can never bypass what a direct dispatch enforces.
+    /// </summary>
+    public async Task<DispatchLeg> DispatchAssignmentAsync(Guid companyId, Guid assignmentId, Guid staffId, Guid aircraftId, CancellationToken ct = default)
+    {
+        var a = await _db.JobAssignments.FirstOrDefaultAsync(x => x.Id == assignmentId && x.AccountId == companyId, ct)
+                ?? throw new InvalidOperationException("Job not found.");
+        if (a.Status != AssignmentStatus.Accepted)
+            throw new InvalidOperationException("That job can no longer be handed to a crew.");
+        var staff = await _db.Staff.FirstOrDefaultAsync(s => s.Id == staffId && s.CompanyId == companyId && s.IsActive && !s.IsDeleted, ct)
+                    ?? throw new InvalidOperationException("Pilot not found.");
+        if (await _db.StandingOrders.AnyAsync(o => o.StaffId == staffId && o.IsActive && !o.IsDeleted, ct)
+            || await _db.Routes.AnyAsync(r => r.StaffId == staffId && r.Active && !r.IsDeleted, ct))
+            throw new InvalidOperationException($"{staff.Name} already flies a line — pick a different pilot.");
+        if (await _db.DispatchLegs.AnyAsync(d => d.StaffId == staffId && d.Status == DispatchStatus.Flying && !d.IsDeleted, ct))
+            throw new InvalidOperationException($"{staff.Name} is already on a run — hand this off from the Jobs board to chain it, or pick a free pilot.");
+
+        var aircraft = await _db.AircraftInstances.FirstOrDefaultAsync(x => x.Id == aircraftId && x.CompanyId == companyId && !x.IsDeleted, ct)
+                       ?? throw new InvalidOperationException("Aircraft not found in your fleet.");
+        if (aircraft.Availability != AircraftAvailability.Available)
+            throw new InvalidOperationException("That aircraft isn't available.");
+        if (aircraft.Ownership != OwnershipKind.Owned
+            && await _db.RentalAgreements.AnyAsync(g => g.AircraftInstanceId == aircraft.Id && g.Status == RentalStatus.Active && g.Kind == RentalKind.Lease, ct))
+            throw new InvalidOperationException("A leased aircraft can't be dispatched — fly it yourself, or use an owned or rented tail.");
+        if (!string.Equals(aircraft.LocationIcao, a.OriginIcao, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"The aircraft is at {aircraft.LocationIcao}, but this job departs {a.OriginIcao} — ferry it there first.");
+        if (!string.IsNullOrEmpty(staff.CurrentIcao) && !string.Equals(staff.CurrentIcao, a.OriginIcao, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"{staff.Name} is at {staff.CurrentIcao}, but this job departs {a.OriginIcao} — reposition them there first (Crew tab).");
+
+        var type = await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == aircraft.TypeId, ct);
+        int need = _cfg.MinSkillMilliForCategory(type?.Category ?? AircraftCategory.Unknown);
+        if (staff.SkillMilli < need)
+            throw new InvalidOperationException($"{staff.Name} ({staff.SkillMilli / 1000}%) isn't rated for the {type!.Category} — pick a pilot at {need / 1000}%+.");
+        if (CertificateCatalog.RequiredFor(a.Type) is { } reqCert
+            && !await _db.OperatingCertificates.AnyAsync(c => c.CompanyId == companyId && c.Kind == reqCert && c.ExpiresAt > _clock.UtcNow, ct))
+            throw new InvalidOperationException($"{CertificateCatalog.Def(reqCert).DisplayName} required — apply in the Airline tab.");
+
+        double cruise = type?.CruiseKtas ?? 150;
+        double oneWayHours = a.DistanceNm / Math.Max(60, cruise);
+        var now = _clock.UtcNow;
+        var leg = new DispatchLeg
+        {
+            Id = Guid.NewGuid(), CompanyId = companyId, StaffId = staffId, AircraftInstanceId = aircraftId, JobId = a.JobId,
+            Type = a.Type, OriginIcao = a.OriginIcao, DestIcao = a.DestIcao, Commodity = a.Commodity ?? "",
+            WeightLbs = a.WeightLbs, Pax = a.Pax, DistanceNm = a.DistanceNm, OneWayHours = oneWayHours,
+            RewardCents = Math.Max(0, a.RewardQuoteCents), ClientKey = a.ClientKey, ClientName = a.ClientName,
+            Status = DispatchStatus.Flying, DispatchedAt = now,
+            ReadyAt = now.AddHours(oneWayHours * 24.0 / Math.Max(1, _cfg.MaxDutyHoursPerDay)),
+            UpdatedAt = now,
+        };
+        _db.DispatchLegs.Add(leg);
+        aircraft.Availability = AircraftAvailability.Reserved;
+        aircraft.UpdatedAt = now;
+        staff.CurrentIcao = a.OriginIcao; staff.UpdatedAt = now;
+        a.Status = AssignmentStatus.Abandoned; // handed to the crew — the leg now carries it
+        await _db.SaveChangesAsync(ct);
+        return leg;
+    }
+
     /// <summary>Recall a dispatched leg still in the air — and every LATER leg of that crew's itinerary, since a
     /// downstream leg departs where an upstream one lands, so cancelling one orphans the rest. Those jobs are
     /// forfeited (they already left the board). The tail is freed only if no EARLIER leg still holds it. Reconcile-
