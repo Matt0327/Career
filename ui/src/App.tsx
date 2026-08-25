@@ -1409,7 +1409,7 @@ function DashCoach({ state, assignments, fleet, alerts, go }: {
   )
 }
 
-// "Your record" — career highlights straight off the flight log (NeoFly's Career highlights). A quick,
+// "Your record" — career highlights straight off the flight log (the Career highlights). A quick,
 // satisfying read of what you've built: your workhorse aircraft, best paydays, total distance, best landing.
 function DashHighlightsCard({ h }: { h: CareerHighlights }) {
   const hrs = Math.floor(h.blockMinutes / 60), mins = h.blockMinutes % 60
@@ -2075,7 +2075,7 @@ function distNm(a: [number, number], b: [number, number]): number {
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)))
 }
 
-// Does the live sim aircraft (its MSFS title) plausibly match the career tail the player picked? NeoFly's
+// Does the live sim aircraft (its MSFS title) plausibly match the career tail the player picked? the sim
 // "matching plane" check. Fuzzy on purpose: MSFS titles carry livery/variant suffixes ("… SF", "… G1000"),
 // so we match when the tail's model/type tokens are present in the sim title rather than demanding equality.
 function matchesSimTitle(simTitle: string | undefined, ac: OwnedAircraft | null): boolean {
@@ -2094,7 +2094,7 @@ function matchesSimTitle(simTitle: string | undefined, ac: OwnedAircraft | null)
 }
 
 // A deterministic passenger manifest for a cabin — the same assignment always yields the same souls aboard
-// (NeoFly's cabin list). Pure client-side flavour: no money, no server, seeded off the assignment id so it's
+// (the cabin list). Pure client-side flavour: no money, no server, seeded off the assignment id so it's
 // stable across reloads. Names are a fixed, deliberately innocuous international pool.
 const PAX_FIRST = ['Amir', 'Sofia', 'Liam', 'Noah', 'Emma', 'Yuki', 'Chen', 'Priya', 'Omar', 'Lucas', 'Mia', 'Aisha', 'Diego', 'Elena', 'Kwame', 'Ingrid', 'Hana', 'Tariq', 'Nadia', 'Marco', 'Freya', 'Ravi', 'Zara', 'Kenji', 'Lucia', 'Sven', 'Amara', 'Tom', 'Ana', 'Leo']
 const PAX_LAST = ['Nguyen', 'Okafor', 'Kowalski', 'Rossi', 'Haddad', 'Andersson', 'Yamamoto', 'Silva', 'Patel', 'Kim', 'Muller', 'Costa', 'Ivanov', 'Dubois', 'Larsen', 'Tanaka', 'Reyes', 'Novak', 'Hassan', 'Bauer', 'Sato', 'Moreau', 'Petrov', 'Singh', 'Weber', 'Lindqvist', 'Mensah', 'Fischer', 'Adams', 'Romano']
@@ -2122,7 +2122,7 @@ function planeIcon(hdg: number): L.DivIcon {
   })
 }
 
-// What THIS leg is graded on (NeoFly's flight objectives) — the scoring rubric made visible so the player
+// What THIS leg is graded on (the flight objectives) — the scoring rubric made visible so the player
 // knows the targets before they fly. Derived from the mission type; the actual grading happens at settlement.
 function missionObjectives(type: string, hasDeadline: boolean): { label: string; hint: string }[] {
   const t = type.toLowerCase()
@@ -2155,7 +2155,7 @@ function ObjectivesCard({ leg }: { leg: Assignment }) {
   )
 }
 
-// The cabin manifest for a passenger leg (NeoFly's Cabin list) — who's aboard, their seat and age. Purely
+// The cabin manifest for a passenger leg (the Cabin list) — who's aboard, their seat and age. Purely
 // cosmetic flavour, generated deterministically from the assignment so it's stable for the whole flight.
 function CabinCard({ leg }: { leg: Assignment }) {
   const pax = useMemo(() => cabinManifest(leg.id, leg.pax), [leg.id, leg.pax])
@@ -2179,7 +2179,7 @@ function CabinCard({ leg }: { leg: Assignment }) {
 //
 // Until a leg is ARMED (begun), the map shows the selected aircraft PARKED AT ITS OWN FIELD (`home`) and
 // ignores telemetry entirely — so an always-streaming synthetic source, or a real sim sitting at some
-// unrelated spot, never paints a phantom "flight" before you've actually started one (the NeoFly rule:
+// unrelated spot, never paints a phantom "flight" before you've actually started one (the rule:
 // your aircraft lives where it is; the moving map only comes alive once you fly the leg).
 function FlightMap({ tele, leg, home, live }: { tele: Telemetry | null; leg?: Assignment | null; home?: { lat: number; lon: number; label: string } | null; live?: boolean }) {
   const host = useRef<HTMLDivElement>(null)
@@ -2491,7 +2491,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
   // readiness check below.
   const selAc = fleet.find(f => f.id === aircraftId) ?? null
   const home = selAc && (selAc.lat !== 0 || selAc.lon !== 0) ? { lat: selAc.lat, lon: selAc.lon, label: selAc.locationIcao } : null
-  // Can the chosen aircraft physically carry the job? Seats for the pax, useful load for the cargo (NeoFly's
+  // Can the chosen aircraft physically carry the job? Seats for the pax, useful load for the cargo (the sim
   // "missing lbs" check). Unknown specs (null) don't block.
   const payloadFit = (ac: OwnedAircraft | null, pax: number, weightLbs: number): { ok: boolean; msg?: string } => {
     if (!ac) return { ok: true }
@@ -2573,7 +2573,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
           const Row = ({ ok, wait, label }: { ok: boolean; wait?: boolean; label: string }) =>
             <span className={`r-item ${ok ? 'ok' : wait ? 'wait' : 'no'}`}><span className="r-dot" />{label}</span>
           return (
-            <div className="readiness" title="NeoFly-style check: the leg comes alive when your aircraft and you are at the field and the sim is flying the right plane.">
+            <div className="readiness" title="The leg comes alive when your aircraft and you are at the field and the sim is flying the right plane.">
               <span className="r-title">Matching plane &amp; location</span>
               <Row ok={simOn} wait={!simOn} label={simOn ? 'Simulator connected' : 'Waiting for simulator'} />
               <Row ok={acHere} label={acHere ? `${selAc?.tail} with you at ${state.currentIcao}` : selAc ? `${selAc.tail} is at ${selAc.locationIcao}, not ${state.currentIcao}` : 'No aircraft selected'} />
@@ -4726,7 +4726,7 @@ const LAND_BANDS: LandBand[] = [
   { label: 'Rough >600', test: f => f > 600, tone: 'neg' },
 ]
 
-// Selectable statistics for the logbook chart (NeoFly's Career → Statistics picker): a metric over a window
+// Selectable statistics for the logbook chart (a career statistics picker): a metric over a window
 // of recent flights, oldest-first.
 const STAT_METRICS: { key: string; label: string; tone: 'pos' | 'accent' | 'warn'; get: (f: FlightLog) => number | null; fmt: (v: number) => string }[] = [
   { key: 'score', label: 'Flight score', tone: 'pos', get: f => f.overallScore, fmt: v => `${v}` },

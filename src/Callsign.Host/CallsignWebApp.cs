@@ -1860,7 +1860,7 @@ public static class CallsignWebApp
                 if (inst is not null && dealer.Airworthiness(inst) is { Airworthy: false } aw)
                     return Results.BadRequest(new { error = $"{inst.Tail} is grounded: {aw.Reason}." });
 
-                // Payload gate (Phase 12 — NeoFly's load check): the tail must fit the job. A PASSENGER job is
+                // Payload gate (Phase 12 — the load check): the tail must fit the job. A PASSENGER job is
                 // gated on SEATS, a CARGO job on USEFUL LOAD — the same split the settlement bonus uses. (Gating a
                 // pax job on useful load too was double-jeopardy — a 4-seat plane failed a 4-pax job by 2 lb.)
                 if (type is not null && assignment is not null)
@@ -1875,7 +1875,7 @@ public static class CallsignWebApp
                 }
             }
 
-            // Location gate (Phase 12 — the NeoFly rule: you fly a job FROM where you and the aircraft actually
+            // Location gate (Phase 12 — the rule: you fly a job FROM where you and the aircraft actually
             // are). Both you and the chosen airframe must be at the job's departure field; if not, reposition
             // (ferry the aircraft / fly yourself there) first. Origin is empty only on legacy data — skip then.
             if (pilot is not null && assignment is not null && !string.IsNullOrWhiteSpace(assignment.OriginIcao))
@@ -1958,7 +1958,7 @@ public static class CallsignWebApp
         });
 
         // Test centres (Phase 12): the nearby fields where you can sit a check-ride for a class, each with the
-        // rating's test aircraft, the fee, and how far it is (NeoFly's "choose your test location"). Deterministic
+        // rating's test aircraft, the fee, and how far it is (the "choose your test location"). Deterministic
         // — the nearest suitable airports to where you are now.
         app.MapGet("/api/checkflights/centres", async (string cls, CallsignDbContext db, EconomyConfig cfg) =>
         {
@@ -2072,7 +2072,7 @@ public static class CallsignWebApp
         });
 
         // --- Career highlights (Phase 12): the "your record" readout — most-used aircraft, best XP/reward,
-        // smoothest landing — computed straight off the flight log (NeoFly's Career highlights). ---
+        // smoothest landing — computed straight off the flight log (the Career highlights). ---
         app.MapGet("/api/career/highlights", async (CallsignDbContext db) =>
         {
             var flights = await db.Flights.ToListAsync();
