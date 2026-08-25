@@ -300,6 +300,10 @@ input { font: inherit; }
 .inc-gate.met { border-color: color-mix(in srgb, var(--pos) 45%, var(--line)); background: color-mix(in srgb, var(--pos) 7%, transparent); }
 .ig-check { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; flex: none; color: var(--muted); background: var(--panel-2); }
 .inc-gate.met .ig-check { color: #fff; background: var(--pos); }
+.hq-hero { border-width: 1px; }
+.hq-top { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
+.hq-id .airline-name { font-size: 22px; }
+.hq-stats { margin: 0; }
 .assign-meta { display: flex; gap: 14px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .leg { font-size: 15px; }
 

@@ -949,6 +949,14 @@ export interface AirlineData {
   reputation: AirlineReputation
   emblems: string[]
   incorporation: AirlineIncorporation
+  hq: AirlineHq
+}
+export interface AirlineHq {
+  fleetCount: number
+  baseCount: number
+  routeCount: number
+  scheduledCount: number
+  netWorthCents: number
 }
 export interface AirlineIncorporation {
   incorporated: boolean

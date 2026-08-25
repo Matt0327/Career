@@ -5255,7 +5255,24 @@ function Airline({ onSaved }: { onSaved: () => void }) {
             <p className="hint muted">Meet both milestones above to found your airline. The founding fee will be {money(inc.foundingFeeCents)}.</p>
           )}
         </section>
-      ) : (
+      ) : (<>
+        <section className="card hq-hero" style={{ borderColor: `color-mix(in srgb, ${color} 40%, var(--line))` }}>
+          <div className="hq-top">
+            <Emblem emblem={emblem} color={color} size={72} />
+            <div className="hq-id">
+              <div className="airline-name">{name || 'Your airline'}</div>
+              <div className="muted"><span className="loc">{code || '—'}</span> · {st.stageName} · incorporated{inc.incorporatedAt ? ` ${new Date(inc.incorporatedAt).toLocaleDateString()}` : ''}</div>
+            </div>
+          </div>
+          <div className="hero-stats hq-stats">
+            <HeroStat label="Fleet" value={String(data.hq.fleetCount)} accent />
+            <HeroStat label="Bases" value={String(data.hq.baseCount)} />
+            <HeroStat label="Routes" value={String(data.hq.routeCount)} />
+            {data.hq.scheduledCount > 0 && <HeroStat label="Scheduled" value={String(data.hq.scheduledCount)} />}
+            <HeroStat label="Operating rep" value={`${Math.round(data.reputation.operatingReputationMilli / 1000)}`} />
+            <HeroStat label="Net worth" value={money(data.hq.netWorthCents)} tone={data.hq.netWorthCents >= 0 ? 'pos' : 'neg'} />
+          </div>
+        </section>
         <section className="card">
           <h2>Airline identity</h2>
           <div className="airline-head">
@@ -5279,7 +5296,7 @@ function Airline({ onSaved }: { onSaved: () => void }) {
           </div>
           <button className="primary" disabled={busy} onClick={save}>Save identity</button>
         </section>
-      )}
+      </>)}
 
       <section className="card">
         <div className="row-head"><h2>Career ladder</h2><span className="tier-badge" style={{ background: `color-mix(in srgb, ${color} 16%, transparent)`, color }}>{st.stageName}</span></div>

@@ -2100,12 +2100,19 @@ public static class CallsignWebApp
         });
 
         // --- Airline identity + standing (Phase 5c) ---
-        app.MapGet("/api/airline", async (CallsignDbContext db, AirlineService airline) =>
+        app.MapGet("/api/airline", async (CallsignDbContext db, AirlineService airline, FinanceService finance) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             var id = await airline.GetIdentityAsync(pilot.CompanyId);
             var st = await airline.GetStandingAsync(pilot.CompanyId, pilot.Id);
+            // Phase 13 — the HQ at-a-glance: the airline's real scale (owned fleet, active bases, routes, scheduled
+            // services) + net worth, for the post-incorporation overview.
+            int fleetCount = await db.AircraftInstances.CountAsync(a => a.CompanyId == pilot.CompanyId && !a.IsDeleted && a.Ownership == OwnershipKind.Owned);
+            int baseCount = await db.Bases.CountAsync(b => b.CompanyId == pilot.CompanyId && !b.IsDeleted && b.IsActive);
+            int routeCount = await db.Routes.CountAsync(r => r.CompanyId == pilot.CompanyId && r.Active && !r.IsDeleted);
+            int scheduledCount = await db.Routes.CountAsync(r => r.CompanyId == pilot.CompanyId && r.Active && !r.IsDeleted && r.SeatCapacity != null);
+            long netWorth = (await finance.NetWorthAsync(pilot.CompanyId)).NetWorthCents;
             // Phase 11a — the operating-reputation figure + a two-source ("your flying / your crew") split over the
             // recent log, so the tab can show what's moving the name and coach a fall (never a red penalty).
             var company = await db.Companies.FirstOrDefaultAsync(c => c.Id == pilot.CompanyId);
@@ -2128,7 +2135,8 @@ public static class CallsignWebApp
                     st.NextMove is { } nm ? new NextMoveDto(nm.StageIndex, nm.StageName, nm.MetCount, nm.TotalCount, nm.ProgressPct, nm.Metric, nm.Label, nm.Display) : null),
                 reputation,
                 AirlineEmblems.All,
-                await MapIncorporationAsync(airline, pilot.CompanyId, pilot.Id)));
+                await MapIncorporationAsync(airline, pilot.CompanyId, pilot.Id),
+                new AirlineHqDto(fleetCount, baseCount, routeCount, scheduledCount, netWorth)));
         });
 
         // Phase 13 — formally incorporate as an airline (gated: Regional rung + a valid AOC + the founding fee).
