@@ -59,10 +59,18 @@ public static class CuratedAircraftImages
     {
         try
         {
-            var path = Path.Combine(LocalDir, key.Trim().ToUpperInvariant() + ".jpg");
+            var path = LocalPath(key);
             return File.Exists(path) ? File.ReadAllBytes(path) : null;
         }
         catch { return null; }
+    }
+
+    private static string LocalPath(string key) => Path.Combine(LocalDir, key.Trim().ToUpperInvariant() + ".jpg");
+
+    /// <summary>True if a photo for this key is bundled with the app.</summary>
+    public static bool HasLocal(string key)
+    {
+        try { return File.Exists(LocalPath(key)); } catch { return false; }
     }
 
     /// <summary>Fetch the curated image bytes from the source URL (a last-resort fallback if the bundled file is
