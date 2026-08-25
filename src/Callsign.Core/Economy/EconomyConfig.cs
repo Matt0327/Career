@@ -476,6 +476,19 @@ public sealed record EconomyConfig
     public int MinScheduledFareMilli { get; init; } = 700;                    // discount to fill (70% of market fare)
     public int MaxScheduledFareMilli { get; init; } = 1600;                   // premium (160%) — past the sweet spot, revenue falls
 
+    // --- Phase 14b: competition & market share. Invented rival carriers contest each scheduled route; your share
+    // (from reputation + fare) flexes the cabin fill, bounded so it flavours demand without dominating it. Same
+    // pump-safety as 14a: it only ever scales an already-bounded, income-only load factor. ---
+    public int CompetitionMinRivals { get; init; } = 1;
+    public int CompetitionMaxRivals { get; init; } = 3;
+    /// <summary>The reputation "pull" a no-name carrier still has (0..1) — so price can win share even at low rep.</summary>
+    public double CompetitionRepFloor { get; init; } = 0.35;
+    /// <summary>How sharply a lower fare wins passengers (exponent on market/yourFare). Gentle, so reputation matters too.</summary>
+    public double CompetitionPriceExponent { get; init; } = 1.3;
+    /// <summary>How far your market share can swing the cabin fill (±fraction) vs an even split — winning share fills
+    /// more seats, losing it bleeds them, but always bounded.</summary>
+    public double CompetitionLoadSwing { get; init; } = 0.15;
+
     // --- Used-aircraft market (Phase 7g): buy pre-owned airframes cheaper, at the cost of hours + condition ---
     public int UsedMarketCount { get; init; } = 6;                            // listings on the used lot at a time
     /// <summary>The condition-0 INTERCEPT of <see cref="UsedPriceFactor"/>, as a fraction of new — NOT the

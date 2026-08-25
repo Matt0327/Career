@@ -3882,6 +3882,12 @@ function Ops({ onChanged }: { onChanged: () => void }) {
             <tbody>{routes.routes.map(r => (
               <tr key={r.id}>
                 <td>{r.name} <span className="muted">· {r.seatCapacity != null ? `scheduled · ${r.seatCapacity} seats · ${Math.round((r.loadFactorMilli ?? 0) / 10)}% load` : r.mission}</span>
+                  {r.seatCapacity != null && r.marketShareMilli != null && r.rivals != null && (
+                    <span className={`share-badge ${r.marketShareMilli >= (1000 / (r.rivals.length + 1)) ? 'lead' : 'trail'}`}
+                      title={`Your share of this market: ${(r.marketShareMilli / 10).toFixed(0)}%.\nRivals:\n${r.rivals.map(v => `• ${v.name} — rep ${Math.round(v.reputationMilli / 1000)}, fare ${v.fareMultiplierMilli >= 1000 ? '+' : ''}${Math.round(v.fareMultiplierMilli / 10 - 100)}%`).join('\n')}\nWin share by out-reputing and under-pricing them.`}>
+                      {(r.marketShareMilli / 10).toFixed(0)}% market · {r.rivals.length} rival{r.rivals.length === 1 ? '' : 's'}
+                    </span>
+                  )}
                   <div className="route-crew">{r.crewName} · <span className="num">{r.aircraftTail}</span></div>
                 </td>
                 <td><span className="loc">{r.origin}</span> → <span className="loc">{r.dest}</span> <span className="muted">· {Math.round(r.distanceNm)} nm</span></td>

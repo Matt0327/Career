@@ -29,10 +29,10 @@ public static class ScheduledDemand
 
     /// <summary>The live seat load factor (thousandths) for a scheduled route this pass: the reputation-driven base
     /// fill, flexed by the season and the fare, hard-bounded to [min, max].</summary>
-    public static int LoadFactorMilli(EconomyConfig cfg, int operatingRepMilli, double seasonMult, int fareMultiplierMilli)
+    public static int LoadFactorMilli(EconomyConfig cfg, int operatingRepMilli, double seasonMult, int fareMultiplierMilli, double competitionMult = 1.0)
     {
         int repLoad = cfg.ScheduledLoadFactorMilli(operatingRepMilli);       // base + rep bonus, already capped
-        int load = (int)Math.Round(repLoad * seasonMult * FareLoadMultiplier(cfg, fareMultiplierMilli));
+        int load = (int)Math.Round(repLoad * seasonMult * FareLoadMultiplier(cfg, fareMultiplierMilli) * competitionMult);
         return Math.Clamp(load, cfg.ScheduledMinLoadFactorMilli, cfg.ScheduledMaxLoadFactorMilli);
     }
 

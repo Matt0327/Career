@@ -1481,26 +1481,32 @@ public static class CallsignWebApp
                 {
                     long effReward;
                     int fillPct; // for a scheduled route this is the live cabin load factor; for a plain route, the client fill probability
+                    int? liveLoadMilli;
+                    int? marketShareMilli = null;
+                    IReadOnlyList<RivalDto>? rivals = null;
                     if (r.SeatCapacity is int seatsR && r.SeatYieldCents is long yieldR)
                     {
-                        int liveLoad = Callsign.Core.Economy.ScheduledDemand.LoadFactorMilli(cfg, repMilliR, seasonR, r.PriceMultiplierMilli);
+                        // Phase 14b — your market share vs the route's rivals flexes the live cabin fill.
+                        var comp = Callsign.Core.Economy.RouteCompetition.Evaluate(cfg, r.Id, repMilliR, r.PriceMultiplierMilli);
+                        int liveLoad = Callsign.Core.Economy.ScheduledDemand.LoadFactorMilli(cfg, repMilliR, seasonR, r.PriceMultiplierMilli, comp.LoadMultiplier);
                         effReward = Callsign.Core.Economy.ScheduledDemand.RevenuePerTripCents(seatsR, liveLoad, yieldR, r.PriceMultiplierMilli);
                         fillPct = (int)Math.Round(liveLoad / 10.0);
+                        liveLoadMilli = liveLoad;
+                        marketShareMilli = (int)Math.Round(comp.YourShareMilli);
+                        rivals = comp.Rivals.Select(rv => new RivalDto(rv.Name, rv.ReputationMilli, rv.FareMultiplierMilli)).ToList();
                     }
                     else
                     {
                         effReward = (long)Math.Round(r.RewardPerTripCents * (r.PriceMultiplierMilli / 1000.0));
                         fillPct = (int)Math.Round(cfg.ContractFillProbability(r.PriceMultiplierMilli) * 100);
+                        liveLoadMilli = r.LoadFactorMilli;
                     }
                     int pending = cfg.AutonomousTripsFlown((nowR - r.LastReconciledAt).TotalHours, r.RoundTripHours); // trips ready to bank
-                    int? liveLoadMilli = r.SeatCapacity is int s2 && r.SeatYieldCents is long
-                        ? Callsign.Core.Economy.ScheduledDemand.LoadFactorMilli(cfg, repMilliR, seasonR, r.PriceMultiplierMilli)
-                        : r.LoadFactorMilli;
                     return new RouteDto(r.Id, r.Name, r.OriginIcao, r.DestIcao, r.Mission.ToString(),
                         r.DistanceNm, r.RoundTripHours, effReward, r.PriceMultiplierMilli, fillPct, r.RewardPerTripCents,
                         r.SeatCapacity, liveLoadMilli,
                         routeStaff.GetValueOrDefault(r.StaffId, "?"), routeTails.GetValueOrDefault(r.AircraftInstanceId, "?"),
-                        pending, pending * effReward);
+                        pending, pending * effReward, marketShareMilli, rivals);
                 }),
                 bases = baseViews.Select(b => new RouteBaseDto(b.Icao, b.Name)),
                 missions,

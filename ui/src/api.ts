@@ -606,7 +606,9 @@ export interface RouteInfo {
   fillPct: number // Phase 7g — expected share of trips the client actually ships at this price
   fairRewardPerTripCents: number // Phase 7g — the frozen fair rate the markup rides on
   seatCapacity: number | null   // Phase 11f — non-null on a scheduled-passenger route
-  loadFactorMilli: number | null // Phase 11f — frozen seat fill (thousandths)
+  loadFactorMilli: number | null // Phase 14a — LIVE seat fill (thousandths): rides reputation, season, fare, competition
+  marketShareMilli?: number | null // Phase 14b — your share of the route's market (thousandths), scheduled only
+  rivals?: { name: string; reputationMilli: number; fareMultiplierMilli: number }[] | null // Phase 14b — invented rival carriers
   crewName: string      // the pilot flying this route
   aircraftTail: string  // the tail flying this route
   pendingTrips: number  // trips accrued since the last reconcile, ready to bank

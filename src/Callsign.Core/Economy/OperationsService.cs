@@ -924,7 +924,9 @@ public sealed class OperationsService
             if (route.SeatCapacity is int rtSeats && route.SeatYieldCents is long rtYield)
             {
                 double season = ScheduledDemand.SeasonMultiplier(_cfg, now);
-                int liveLoad = ScheduledDemand.LoadFactorMilli(_cfg, repStartMilli, season, route.PriceMultiplierMilli);
+                // Phase 14b — your share of the route's market (vs its rivals) flexes the cabin fill.
+                var comp = RouteCompetition.Evaluate(_cfg, route.Id, repStartMilli, route.PriceMultiplierMilli);
+                int liveLoad = ScheduledDemand.LoadFactorMilli(_cfg, repStartMilli, season, route.PriceMultiplierMilli, comp.LoadMultiplier);
                 perTripReward = ScheduledDemand.RevenuePerTripCents(rtSeats, liveLoad, rtYield, route.PriceMultiplierMilli);
                 rollMarkup = 1000;
             }
