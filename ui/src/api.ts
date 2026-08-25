@@ -631,6 +631,8 @@ export interface Loans {
   loans: Loan[]
   offers: LoanOffer[]
   credit: Credit
+  borrowCapCents: number      // Phase 13 — total you can owe at your rank + reputation
+  borrowAvailableCents: number // cap minus what you already owe
 }
 
 export interface NetWorth {

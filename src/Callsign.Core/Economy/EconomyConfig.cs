@@ -683,6 +683,23 @@ public sealed record EconomyConfig
     /// <summary>Repayment horizon for a new loan (straight-line principal over this many days).</summary>
     public int LoanTermDays { get; init; } = 90;
 
+    /// <summary>Phase 13 — the TOTAL a company can owe at once, scaled by the pilot's rank and reputation. A bank
+    /// won't hand a trainee a fleet's worth of credit: a Trainee tops out near $50k, climbing to $50M for a Chief
+    /// Pilot, and a strong reputation lifts the ceiling up to +50%. New borrowing plus existing balance must fit.</summary>
+    public long LoanBorrowCapCents(PilotRank rank, int reputationMilli)
+    {
+        long baseCap = rank switch
+        {
+            PilotRank.Trainee => 5_000_000,          // $50k
+            PilotRank.Copilot => 25_000_000,         // $250k
+            PilotRank.Captain => 200_000_000,        // $2M
+            PilotRank.SeniorCaptain => 1_000_000_000,// $10M
+            _ => 5_000_000_000,                       // Chief Pilot — $50M
+        };
+        double repLift = 1.0 + 0.5 * Math.Clamp(reputationMilli / 100_000.0, 0, 1); // up to +50% at full reputation
+        return (long)Math.Round(baseCap * repLift);
+    }
+
     // --- Credit rating (Phase 7g): your track record sets your borrowing terms ---
     /// <summary>The neutral credit score — a company with no history borrows at the tier's listed APR; above
     /// it earns a discount, below it a premium. A fresh company scores exactly this (no adjustment).</summary>

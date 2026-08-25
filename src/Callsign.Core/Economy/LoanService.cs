@@ -1,5 +1,6 @@
 using Callsign.Core.Data;
 using Callsign.Core.Domain;
+using Callsign.Core.Progression;
 using Callsign.Core.Time;
 using Microsoft.EntityFrameworkCore;
 
@@ -82,6 +83,20 @@ public sealed class LoanService
         var tier = LoanCatalog.TierFor(principalCents)
                    ?? throw new InvalidOperationException(
                        $"{principalCents / 100m:C0} is outside the lending range ({LoanCatalog.MinPrincipalCents / 100m:C0}–{LoanCatalog.MaxPrincipalCents / 100m:C0}).");
+
+        // Phase 13 — borrowing ceiling by rank + reputation: a bank won't over-extend a junior operator. The new
+        // principal plus everything already outstanding must fit under the cap; otherwise rank up or repay first.
+        var pilot = await _db.Pilots.FirstOrDefaultAsync(p => p.CompanyId == companyId, ct);
+        if (pilot is not null)
+        {
+            long cap = _cfg.LoanBorrowCapCents(pilot.Rank, pilot.ReputationMilli);
+            long owed = await _db.Loans.Where(l => l.CompanyId == companyId && l.Status == LoanStatus.Active)
+                .SumAsync(l => l.OutstandingCents, ct);
+            if (owed + principalCents > cap)
+                throw new InvalidOperationException(owed > 0
+                    ? $"Your borrowing limit is {cap / 100m:C0} at {RankTiers.Def(pilot.Rank).DisplayName} — you already owe {owed / 100m:C0}. Repay or rank up to borrow more."
+                    : $"Your borrowing limit is {cap / 100m:C0} at {RankTiers.Def(pilot.Rank).DisplayName} — rank up (and build reputation) to borrow more.");
+        }
 
         // Price the loan for this company's credit standing: the rate is snapshot at draw-down (Phase 7g).
         var credit = await AssessCreditAsync(companyId, ct);

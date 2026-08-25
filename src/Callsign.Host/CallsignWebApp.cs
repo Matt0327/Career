@@ -1287,18 +1287,22 @@ public static class CallsignWebApp
         });
 
         // --- Loans (Phase 4a) ---
-        app.MapGet("/api/loans", async (CallsignDbContext db, LoanService loans) =>
+        app.MapGet("/api/loans", async (CallsignDbContext db, LoanService loans, EconomyConfig cfg) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
             var active = await loans.GetActiveAsync(pilot.CompanyId);
             var (credit, offers) = await loans.OffersForAsync(pilot.CompanyId);
+            long owed = active.Sum(l => l.OutstandingCents);
+            long cap = cfg.LoanBorrowCapCents(pilot.Rank, pilot.ReputationMilli); // Phase 13 — rank/rep borrowing ceiling
             return Results.Ok(new
             {
                 loans = active.Select(l => new LoanDto(l.Id, l.Tier, l.PrincipalCents, l.OutstandingCents,
                     l.AprBps, l.TermDays, l.Status.ToString(), l.TakenAt)),
                 offers = offers.Select(o => new LoanOfferDto(o.Tier.Tier, o.Tier.Name, o.Tier.MinPrincipalCents, o.Tier.MaxPrincipalCents, o.Tier.AprBps, o.EffectiveAprBps)),
                 credit = new CreditDto(credit.Score, credit.Grade, credit.AprDeltaBps),
+                borrowCapCents = cap,
+                borrowAvailableCents = Math.Max(0, cap - owed),
             });
         });
 

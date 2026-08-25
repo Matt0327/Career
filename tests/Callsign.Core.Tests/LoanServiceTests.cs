@@ -33,6 +33,24 @@ public class LoanServiceTests
         => Assert.Equal(tier, LoanCatalog.TierFor(principal)!.Tier);
 
     [Fact]
+    public async Task Take_RefusedAboveRankBorrowCap_AllowedUnder()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var companyId = await SeedCompanyAsync(tdb, clock, 100_000_000);
+        using (var db = tdb.NewContext())
+        {
+            db.Pilots.Add(new Pilot { Id = Guid.NewGuid(), CompanyId = companyId, Name = "T", HomeIcao = "EGKB", CurrentIcao = "EGKB", Rank = PilotRank.Trainee, ReputationMilli = 0 });
+            await db.SaveChangesAsync();
+        }
+        // A trainee's ceiling is $50k — $200k is refused, $40k is fine.
+        using (var db = tdb.NewContext())
+            await Assert.ThrowsAsync<InvalidOperationException>(() => Loans(db, clock).TakeAsync(companyId, 20_000_000));
+        using (var db = tdb.NewContext())
+            Assert.Equal(4_000_000, (await Loans(db, clock).TakeAsync(companyId, 4_000_000)).OutstandingCents);
+    }
+
+    [Fact]
     public void Amortize_DecliningInterest_AndStraightLinePrincipal()
     {
         var (interest, principal) = LoanCatalog.Amortize(10_000_000, 10_000_000, 1_000, 90, 30); // $100k @10%, 30 of 90 days
