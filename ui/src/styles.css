@@ -226,6 +226,20 @@ input { font: inherit; }
 .facility.on .fac-benefit { color: var(--pos); }
 .fac-btn { justify-self: start; }
 .fac-maxed { font-size: 12px; color: var(--muted); font-style: italic; }
+/* Crew list */
+.crew-list { display: grid; gap: 8px; }
+.crew-row { display: grid; grid-template-columns: 1.4fr 1fr auto auto; align-items: center; gap: 16px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.cr-id { display: flex; flex-direction: column; gap: 3px; }
+.cr-name { font-weight: 600; }
+.cr-status { font-size: 12px; }
+.cr-status.flying { color: var(--accent); }
+.cr-status.idle { color: var(--muted); }
+.cr-skill { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.cr-skill-bar { flex: 1; height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; min-width: 60px; }
+.cr-skill-fill { height: 100%; background: var(--accent); border-radius: 3px; }
+.cr-wage { font-size: 13px; white-space: nowrap; }
+.cr-actions { display: flex; gap: 10px; white-space: nowrap; }
+@media (max-width: 640px) { .crew-row { grid-template-columns: 1fr auto; } .cr-skill, .cr-wage { grid-column: 1 / -1; } }
 /* Flight-tab readiness ("matching plane and location") */
 .readiness { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: color-mix(in srgb, var(--panel) 60%, transparent); font-size: 13px; }
 .readiness .r-title { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }

@@ -3674,26 +3674,40 @@ function Ops({ onChanged }: { onChanged: () => void }) {
 
       <section className="card">
         <h2>Your crew</h2>
+        {pilots.length > 0 && (
+          <div className="hero-stats tab-summary">
+            <HeroStat label="Pilots" value={String(pilots.length)} accent />
+            <HeroStat label="Flying now" value={String(pilots.filter(s => s.flying).length)} />
+            <HeroStat label="Idle" value={String(pilots.filter(s => !s.flying).length)} />
+            <HeroStat label="Daily wages" value={money(pilots.reduce((n, s) => n + s.wagePerDayCents, 0))} tone="neg" />
+          </div>
+        )}
         {pilots.length === 0 ? <div className="empty">No pilots hired yet.</div> : (
-          <div className="tbl-wrap"><table className="tbl">
-            <thead><tr><th>Name</th><th>Based</th><th className="r">Skill</th><th className="r">Wage / day</th><th className="r"></th></tr></thead>
-            <tbody>{pilots.map(s => (
-              <tr key={s.id}>
-                <td>{s.name}</td>
-                <td className="loc">{s.flying ? <span className="muted">flying a line</span> : (s.currentIcao ?? '—')}</td>
-                <td className="r num">{Math.round(s.skillMilli / 1000)}%</td>
-                <td className="r num neg">{money(s.wagePerDayCents)}</td>
-                <td className="r">
+          <div className="crew-list">
+            {pilots.map(s => (
+              <div className="crew-row" key={s.id}>
+                <div className="cr-id">
+                  <span className="cr-name">{s.name}</span>
+                  {s.flying
+                    ? <span className="cr-status flying">Flying a line</span>
+                    : <span className="cr-status idle">Idle · <span className="loc">{s.currentIcao ?? '—'}</span></span>}
+                </div>
+                <div className="cr-skill" title={`Skill ${Math.round(s.skillMilli / 1000)}%`}>
+                  <div className="cr-skill-bar"><div className="cr-skill-fill" style={{ width: `${Math.round(s.skillMilli / 1000)}%` }} /></div>
+                  <span className="num">{Math.round(s.skillMilli / 1000)}%</span>
+                </div>
+                <div className="cr-wage num neg">{money(s.wagePerDayCents)}/day</div>
+                <div className="cr-actions">
                   {s.flying
                     ? <span className="muted hint">busy</span>
                     : <>
                         <button className="linky" disabled={busy} onClick={() => relocateCrew(s)}>Reposition</button>
                         <button className="linky" disabled={busy} onClick={() => dismiss(s)}>Let go</button>
                       </>}
-                </td>
-              </tr>
-            ))}</tbody>
-          </table></div>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
         <h3 className="sub-h">Hire a pilot</h3>
         <div className="jobs">
