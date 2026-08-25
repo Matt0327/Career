@@ -1103,8 +1103,8 @@ export const api = {
   statement: (days: number) => fetch(`/api/finances/statement?days=${days}`).then(ok<StatementRow[]>),
   insurance: () => fetch('/api/insurance').then(ok<Insurance>),
   routes: () => fetch('/api/routes').then(ok<RouteData>),
-  createScheduledRoute: (body: { name?: string; originIcao: string; destIcao: string; aircraftInstanceId: string; staffId: string }) =>
-    POST('/api/routes/scheduled', body).then(ok<{ id: string; name: string; rewardPerTripCents: number; seatCapacity: number; loadFactorMilli: number }>),
+  createScheduledRoute: (body: { name?: string; originIcao: string; destIcao: string; aircraftInstanceId: string; staffId: string; fareMultiplierMilli?: number }) =>
+    POST('/api/routes/scheduled', body).then(ok<{ id: string; name: string; rewardPerTripCents: number; seatCapacity: number; loadFactorMilli: number; fareMultiplierMilli: number }>),
   createRoute: (body: { name?: string; originIcao: string; destIcao: string; aircraftInstanceId: string; staffId: string; mission: string; priceMultiplierMilli?: number }) =>
     POST('/api/routes', body).then(ok),
   setRoutePrice: (id: string, priceMultiplierMilli: number) =>

@@ -1470,16 +1470,35 @@ public static class CallsignWebApp
                 .Select(d => d.Type.ToString()).ToList();
             // Phase 11f — whether we hold a valid Air Operator Certificate, so the UI can offer scheduled service.
             bool hasAoc = await db.OperatingCertificates.AnyAsync(c => c.CompanyId == pilot.CompanyId && c.Kind == CertificateKind.AirOperator && c.ExpiresAt > clock.UtcNow);
+            // Phase 14a — a scheduled route's demand is LIVE now: the cabin fill + per-trip revenue are recomputed
+            // from CURRENT operating reputation + the season + the fare, so the board shows what the route earns
+            // today, not the value frozen at creation.
+            int repMilliR = await db.Companies.Where(c => c.Id == pilot.CompanyId).Select(c => c.OperatingReputationMilli).FirstOrDefaultAsync();
+            double seasonR = Callsign.Core.Economy.ScheduledDemand.SeasonMultiplier(cfg, nowR);
             return Results.Ok(new
             {
                 routes = active.Select(r =>
                 {
-                    long effReward = (long)Math.Round(r.RewardPerTripCents * (r.PriceMultiplierMilli / 1000.0));
-                    int fillPct = (int)Math.Round(cfg.ContractFillProbability(r.PriceMultiplierMilli) * 100);
+                    long effReward;
+                    int fillPct; // for a scheduled route this is the live cabin load factor; for a plain route, the client fill probability
+                    if (r.SeatCapacity is int seatsR && r.SeatYieldCents is long yieldR)
+                    {
+                        int liveLoad = Callsign.Core.Economy.ScheduledDemand.LoadFactorMilli(cfg, repMilliR, seasonR, r.PriceMultiplierMilli);
+                        effReward = Callsign.Core.Economy.ScheduledDemand.RevenuePerTripCents(seatsR, liveLoad, yieldR, r.PriceMultiplierMilli);
+                        fillPct = (int)Math.Round(liveLoad / 10.0);
+                    }
+                    else
+                    {
+                        effReward = (long)Math.Round(r.RewardPerTripCents * (r.PriceMultiplierMilli / 1000.0));
+                        fillPct = (int)Math.Round(cfg.ContractFillProbability(r.PriceMultiplierMilli) * 100);
+                    }
                     int pending = cfg.AutonomousTripsFlown((nowR - r.LastReconciledAt).TotalHours, r.RoundTripHours); // trips ready to bank
+                    int? liveLoadMilli = r.SeatCapacity is int s2 && r.SeatYieldCents is long
+                        ? Callsign.Core.Economy.ScheduledDemand.LoadFactorMilli(cfg, repMilliR, seasonR, r.PriceMultiplierMilli)
+                        : r.LoadFactorMilli;
                     return new RouteDto(r.Id, r.Name, r.OriginIcao, r.DestIcao, r.Mission.ToString(),
                         r.DistanceNm, r.RoundTripHours, effReward, r.PriceMultiplierMilli, fillPct, r.RewardPerTripCents,
-                        r.SeatCapacity, r.LoadFactorMilli,
+                        r.SeatCapacity, liveLoadMilli,
                         routeStaff.GetValueOrDefault(r.StaffId, "?"), routeTails.GetValueOrDefault(r.AircraftInstanceId, "?"),
                         pending, pending * effReward);
                 }),
@@ -1510,8 +1529,8 @@ public static class CallsignWebApp
             if (pilot is null) return Results.NotFound();
             try
             {
-                var r = await routes.CreateScheduledServiceAsync(pilot.CompanyId, req.Name, req.OriginIcao, req.DestIcao, req.AircraftInstanceId, req.StaffId);
-                return Results.Ok(new { id = r.Id, name = r.Name, rewardPerTripCents = r.RewardPerTripCents, seatCapacity = r.SeatCapacity, loadFactorMilli = r.LoadFactorMilli });
+                var r = await routes.CreateScheduledServiceAsync(pilot.CompanyId, req.Name, req.OriginIcao, req.DestIcao, req.AircraftInstanceId, req.StaffId, req.FareMultiplierMilli ?? 1000);
+                return Results.Ok(new { id = r.Id, name = r.Name, rewardPerTripCents = r.RewardPerTripCents, seatCapacity = r.SeatCapacity, loadFactorMilli = r.LoadFactorMilli, fareMultiplierMilli = r.PriceMultiplierMilli });
             }
             catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });

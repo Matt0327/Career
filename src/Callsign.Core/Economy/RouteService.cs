@@ -123,7 +123,8 @@ public sealed class RouteService
     /// at creation — so it is booked by the SAME reconcile route loop as any route, with NO new settlement path.
     /// </summary>
     public async Task<Route> CreateScheduledServiceAsync(
-        Guid companyId, string? name, string originIcao, string destIcao, Guid aircraftId, Guid staffId, CancellationToken ct = default)
+        Guid companyId, string? name, string originIcao, string destIcao, Guid aircraftId, Guid staffId,
+        int fareMultiplierMilli = 1000, CancellationToken ct = default)
     {
         NameGuard.Validate(name, "route name"); // Phase 12 — keep offensive names off a scheduled service too
         if (string.Equals(originIcao, destIcao, StringComparison.OrdinalIgnoreCase))
@@ -170,11 +171,16 @@ public sealed class RouteService
         double cruise = type?.CruiseKtas ?? 150;
         double rtHours = 2 * dist / Math.Max(60, cruise);
 
-        // Frozen scheduled economics: seats × load × per-seat yield. Load factor rides the operating reputation.
+        // Scheduled economics: seats × load × per-seat yield. Phase 14a — the load factor is no longer frozen; the
+        // reconcile pass recomputes it live from CURRENT reputation, the season, and the fare. We still store the
+        // at-creation values (a sensible baseline for display and pre-14 back-compat), and the fare in
+        // PriceMultiplierMilli (was fixed at 1000). SeatYield stays the frozen per-seat price.
         int repMilli = await _db.Companies.Where(c => c.Id == companyId).Select(c => c.OperatingReputationMilli).FirstOrDefaultAsync(ct);
-        int loadFactorMilli = _cfg.ScheduledLoadFactorMilli(repMilli);
         long seatYield = _cfg.ScheduledSeatYieldCents(dist);
-        long reward = (long)Math.Round(seats * (loadFactorMilli / 1000.0) * seatYield);
+        int fare = ScheduledDemand.ClampFare(_cfg, fareMultiplierMilli);
+        double season = ScheduledDemand.SeasonMultiplier(_cfg, _clock.UtcNow);
+        int loadFactorMilli = ScheduledDemand.LoadFactorMilli(_cfg, repMilli, season, fare);
+        long reward = ScheduledDemand.RevenuePerTripCents(seats, loadFactorMilli, seatYield, fare);
 
         var now = _clock.UtcNow;
         var route = new Route
@@ -182,7 +188,7 @@ public sealed class RouteService
             Id = Guid.NewGuid(), CompanyId = companyId,
             Name = string.IsNullOrWhiteSpace(name) ? $"{originIcao}–{destIcao} scheduled" : name!.Trim(),
             OriginIcao = originIcao, DestIcao = destIcao, Mission = MissionType.Passenger, DistanceNm = dist,
-            RoundTripHours = rtHours, RewardPerTripCents = reward, PriceMultiplierMilli = 1000, // load factor IS the demand — no markup
+            RoundTripHours = rtHours, RewardPerTripCents = reward, PriceMultiplierMilli = fare, // Phase 14a — the fare lever
             AircraftInstanceId = aircraftId, StaffId = staffId,
             SeatCapacity = seats, LoadFactorMilli = loadFactorMilli, SeatYieldCents = seatYield,
             Active = true, StartedAt = now, LastReconciledAt = now, UpdatedAt = now,

@@ -64,7 +64,7 @@ public class ScheduledServiceTests
     }
 
     [Fact]
-    public async Task CreateScheduledService_WithAOC_FreezesPaxEconomics()
+    public async Task CreateScheduledService_WithAOC_SetsLiveDemandBaseline()
     {
         using var tdb = new TestDb();
         var clock = new FakeClock();
@@ -75,12 +75,15 @@ public class ScheduledServiceTests
             r = await new RouteService(db, clock, Cfg).CreateScheduledServiceAsync(companyId, "LHR shuttle", "EHAM", "EGLL", aircraftId, staffId);
 
         Assert.Equal(50, r.SeatCapacity);
-        Assert.Equal(Cfg.ScheduledLoadFactorMilli(100_000), r.LoadFactorMilli);   // a flawless name at max load
-        Assert.Equal(Cfg.ScheduledSeatYieldCents(r.DistanceNm), r.SeatYieldCents);
-        // Reward is exactly the frozen seats × load × yield — booked by the existing route loop.
-        Assert.Equal((long)Math.Round(r.SeatCapacity!.Value * (r.LoadFactorMilli!.Value / 1000.0) * r.SeatYieldCents!.Value), r.RewardPerTripCents);
-        Assert.Equal(1000, r.PriceMultiplierMilli); // load factor IS the demand — no markup
+        Assert.Equal(Cfg.ScheduledSeatYieldCents(r.DistanceNm), r.SeatYieldCents);   // per-seat yield still frozen
+        Assert.Equal(1000, r.PriceMultiplierMilli);                                  // default fare = the market fare
         Assert.Equal(MissionType.Passenger, r.Mission);
+        // Phase 14a — the at-creation load + reward are the LIVE demand baseline (current rep, the season, the fare),
+        // not a permanent freeze: the reconcile pass recomputes them each time.
+        double season = ScheduledDemand.SeasonMultiplier(Cfg, clock.UtcNow);
+        int expectedLoad = ScheduledDemand.LoadFactorMilli(Cfg, 100_000, season, 1000);
+        Assert.Equal(expectedLoad, r.LoadFactorMilli);
+        Assert.Equal(ScheduledDemand.RevenuePerTripCents(50, expectedLoad, r.SeatYieldCents!.Value, 1000), r.RewardPerTripCents);
     }
 
     [Fact]
@@ -168,7 +171,7 @@ public class ScheduledServiceTests
     }
 
     [Fact]
-    public async Task ScheduledRoute_CannotBeRepriced()
+    public async Task ScheduledRoute_FareIsRepriceable_ClampedToTheBand()
     {
         using var tdb = new TestDb();
         var clock = new FakeClock();
@@ -177,10 +180,40 @@ public class ScheduledServiceTests
         using (var db = tdb.NewContext())
             routeId = (await new RouteService(db, clock, Cfg).CreateScheduledServiceAsync(companyId, "LHR shuttle", "EHAM", "EGLL", aircraftId, staffId)).Id;
 
+        // Phase 14a — a scheduled route's price IS a lever now (the fare), clamped to the allowed band.
         using (var db = tdb.NewContext())
         {
             var ops = new OperationsService(db, new LedgerService(db, clock), clock, Cfg);
-            await Assert.ThrowsAsync<InvalidOperationException>(() => ops.SetRoutePriceAsync(companyId, routeId, 1500)); // no markup on scheduled service
+            int stored = await ops.SetRoutePriceAsync(companyId, routeId, 1300);
+            Assert.Equal(1300, stored);                            // an in-band fare stores as asked
+            int clamped = await ops.SetRoutePriceAsync(companyId, routeId, 9000);
+            Assert.Equal(Cfg.MaxScheduledFareMilli, clamped);       // an absurd fare clamps to the ceiling
         }
+        using (var db = tdb.NewContext())
+            Assert.Equal(Cfg.MaxScheduledFareMilli, (await db.Routes.FindAsync(routeId))!.PriceMultiplierMilli);
+    }
+
+    [Fact]
+    public void LivingDemand_HigherFareThinsTheCabin_ButHasARevenueSweetSpot()
+    {
+        // Yield management: as the fare climbs, the load factor falls; revenue rises then falls, peaking near +33%.
+        long RevAt(int fareMilli)
+        {
+            int load = ScheduledDemand.LoadFactorMilli(Cfg, 60_000, seasonMult: 1.0, fareMilli);
+            return ScheduledDemand.RevenuePerTripCents(100, load, seatYieldCents: 20_000, fareMilli);
+        }
+        Assert.True(ScheduledDemand.LoadFactorMilli(Cfg, 60_000, 1.0, 1400) < ScheduledDemand.LoadFactorMilli(Cfg, 60_000, 1.0, 1000)); // premium thins the cabin
+        long peak = RevAt(1330), below = RevAt(1000), above = RevAt(1600);
+        Assert.True(peak > below);   // a modest premium out-earns the market fare
+        Assert.True(peak > above);   // but too steep a fare over-thins it — the sweet spot is in between
+    }
+
+    [Fact]
+    public void LivingDemand_LoadFactor_IsHardBounded_AndRidesReputation()
+    {
+        // Pump-safe: the load factor never escapes its band whatever the inputs, and a stronger name fills more.
+        Assert.True(ScheduledDemand.LoadFactorMilli(Cfg, 100_000, 2.0, 700) <= Cfg.ScheduledMaxLoadFactorMilli);   // even a discount in a boom is capped
+        Assert.True(ScheduledDemand.LoadFactorMilli(Cfg, 0, 0.5, 1600) >= Cfg.ScheduledMinLoadFactorMilli);        // even a weak name in a slump has a floor
+        Assert.True(ScheduledDemand.LoadFactorMilli(Cfg, 90_000, 1.0, 1000) > ScheduledDemand.LoadFactorMilli(Cfg, 10_000, 1.0, 1000)); // reputation fills seats
     }
 }

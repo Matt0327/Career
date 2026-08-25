@@ -460,6 +460,22 @@ public sealed record EconomyConfig
         => Math.Min(ScheduledMaxLoadFactorMilli,
                     ScheduledBaseLoadFactorMilli + (int)Math.Round(ScheduledLoadFactorRepBonusMilli * HubReputationRamp(reputationMilli)));
 
+    // --- Phase 14a: living demand & yield management. The scheduled load factor is no longer frozen at creation;
+    // each reconcile it breathes with your CURRENT reputation, the season, and the fare you set. Structurally
+    // pump-free: revenue is income-only (a one-way passenger fare, no counterparty), the load factor is hard-
+    // bounded, and none of this touches the two-sided commodity market. ---
+    /// <summary>How far the calendar season swings scheduled demand (±fraction) — a summer leisure peak and a
+    /// winter trough. Bounded and gentle, so it flavours revenue without making it lurch.</summary>
+    public double ScheduledSeasonSwing { get; init; } = 0.10;                 // ±10% over the year
+    /// <summary>A floor under the live load factor, so even a weak name in a low season still flies a real cabin
+    /// rather than an absurdly empty one.</summary>
+    public int ScheduledMinLoadFactorMilli { get; init; } = 300;             // never reads below 30%
+    /// <summary>Fare price-elasticity: each +1.0 of fare over market thins the cabin by this fraction. Chosen so
+    /// the revenue-maximizing fare sits near +33% (m* = (1+e)/(2e)) — a real yield-management sweet spot.</summary>
+    public double ScheduledFareElasticity { get; init; } = 0.6;
+    public int MinScheduledFareMilli { get; init; } = 700;                    // discount to fill (70% of market fare)
+    public int MaxScheduledFareMilli { get; init; } = 1600;                   // premium (160%) — past the sweet spot, revenue falls
+
     // --- Used-aircraft market (Phase 7g): buy pre-owned airframes cheaper, at the cost of hours + condition ---
     public int UsedMarketCount { get; init; } = 6;                            // listings on the used lot at a time
     /// <summary>The condition-0 INTERCEPT of <see cref="UsedPriceFactor"/>, as a fraction of new — NOT the

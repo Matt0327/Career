@@ -148,7 +148,7 @@ public record RouteDto(Guid Id, string Name, string Origin, string Dest, string 
     string CrewName = "?", string AircraftTail = "?", int PendingTrips = 0, long PendingIncomeCents = 0); // who flies it + trips ready to bank
 public record RouteBaseDto(string Icao, string Name);
 public record CreateRouteRequest(string? Name, string OriginIcao, string DestIcao, Guid AircraftInstanceId, Guid StaffId, string Mission, int? PriceMultiplierMilli);
-public record ScheduledRouteRequest(string? Name, string OriginIcao, string DestIcao, Guid AircraftInstanceId, Guid StaffId); // Phase 11f
+public record ScheduledRouteRequest(string? Name, string OriginIcao, string DestIcao, Guid AircraftInstanceId, Guid StaffId, int? FareMultiplierMilli = null); // Phase 11f + 14a fare
 
 // --- Phase 4c: insurance ---
 public record InsurancePolicyDto(Guid Id, string Tail, string AircraftName, int ConditionMilli, int CoverageMilli,

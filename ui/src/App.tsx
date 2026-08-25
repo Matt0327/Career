@@ -3557,6 +3557,10 @@ function Hangar({ state, onChanged }: { state: State; onChanged: () => void }) {
 const MARKUP_OPTS = [1000, 1100, 1250, 1400, 1500]
 const markupLabel = (m: number) => (m === 1000 ? 'Fair' : `+${Math.round(m / 10 - 100)}%`)
 const fillFor = (m: number) => (m <= 1000 ? 100 : Math.max(25, Math.round((1 - 0.6 * (m / 1000 - 1)) * 100)))
+// Phase 14a — scheduled-route FARE options (yield management). A higher fare earns more per seat but thins the
+// cabin; +33% is the revenue sweet spot (m* = (1+e)/(2e), e=0.6). Mirrors EconomyConfig's scheduled fare band.
+const FARE_OPTS = [700, 850, 1000, 1150, 1330, 1500, 1600]
+const fareLabel = (m: number) => (m === 1000 ? 'Market' : m === 1330 ? '+33% ★' : `${m > 1000 ? '+' : ''}${Math.round(m / 10 - 100)}%`)
 
 function Ops({ onChanged }: { onChanged: () => void }) {
   const [staff, setStaff] = useState<Staff[]>([])
@@ -3580,6 +3584,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
   const [rAircraft, setRAircraft] = useState('')
   const [rMission, setRMission] = useState('Cargo')
   const [rMarkup, setRMarkup] = useState(1000)
+  const [rFare, setRFare] = useState(1000) // Phase 14a — scheduled-route opening fare
   const [rScheduled, setRScheduled] = useState(false) // Phase 11f — open a scheduled-passenger route instead
 
   const load = useCallback(async () => {
@@ -3601,7 +3606,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
     setBusy(true); setMsg(null)
     try {
       if (rScheduled) {
-        const r = await api.createScheduledRoute({ name: rName.trim() || undefined, originIcao: rOrigin, destIcao: rDest, aircraftInstanceId: rAircraft, staffId: rStaff })
+        const r = await api.createScheduledRoute({ name: rName.trim() || undefined, originIcao: rOrigin, destIcao: rDest, aircraftInstanceId: rAircraft, staffId: rStaff, fareMultiplierMilli: rFare })
         setMsg(`Scheduled service opened — ${r.seatCapacity} seats at ${Math.round(r.loadFactorMilli / 10)}% load.`)
       } else {
         await api.createRoute({ name: rName.trim() || undefined, originIcao: rOrigin, destIcao: rDest, aircraftInstanceId: rAircraft, staffId: rStaff, mission: rMission, priceMultiplierMilli: rMarkup })
@@ -3884,7 +3889,12 @@ function Ops({ onChanged }: { onChanged: () => void }) {
                 <td className="r num">{r.roundTripHours.toFixed(1)} h</td>
                 <td className="r">
                   {r.seatCapacity != null
-                    ? <span className="muted">fixed</span>
+                    ? <>
+                        <select className="markup-sel" value={r.priceMultiplierMilli} disabled={busy} onChange={e => repriceRoute(r.id, Number(e.target.value))} title="Set the fare — a higher fare earns more per seat but thins the cabin; +33% is the revenue sweet spot. Applies to future trips.">
+                          {FARE_OPTS.map(m => <option key={m} value={m}>{fareLabel(m)}</option>)}
+                        </select>
+                        <span className="fill-hint" title="live cabin load — rides your reputation, the season, and the fare">{r.fillPct}% load</span>
+                      </>
                     : <>
                         <select className="markup-sel" value={r.priceMultiplierMilli} disabled={busy} onChange={e => repriceRoute(r.id, Number(e.target.value))} title="Re-price this route — applies to future trips only">
                           {MARKUP_OPTS.map(m => <option key={m} value={m}>{markupLabel(m)}</option>)}
@@ -3909,7 +3919,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
               <select value={rStaff} onChange={e => setRStaff(e.target.value)}><option value="">Pilot…</option>{pilots.map(s => <option key={s.id} value={s.id} disabled={s.flying}>{s.name}{s.currentIcao ? ` · ${s.currentIcao}` : ''}{s.flying ? ' · busy' : ''}</option>)}</select>
               <select value={rAircraft} onChange={e => setRAircraft(e.target.value)}><option value="">Aircraft…</option>{fleet.map(f => <option key={f.id} value={f.id}>{f.name} · {f.tail} — {f.locationIcao}</option>)}</select>
               {rScheduled
-                ? <span className="hint" style={{ alignSelf: 'center' }}>Scheduled: seats × load × yield, frozen at creation — your name fills the seats.</span>
+                ? <select value={rFare} onChange={e => setRFare(Number(e.target.value))} title="Opening fare — a higher fare earns more per seat but thins the cabin; +33% is the revenue sweet spot. Change it any time.">{FARE_OPTS.map(m => <option key={m} value={m}>Fare {fareLabel(m)}</option>)}</select>
                 : <>
                     <select value={rMission} onChange={e => setRMission(e.target.value)}>{routes.missions.map(m => <option key={m} value={m}>{m}</option>)}</select>
                     <select value={rMarkup} onChange={e => setRMarkup(Number(e.target.value))} title="Demand a premium over the fair rate — more per filled trip, but the client ships fewer">{MARKUP_OPTS.map(m => <option key={m} value={m}>{markupLabel(m)} · {fillFor(m)}% fill</option>)}</select>

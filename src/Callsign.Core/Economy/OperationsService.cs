@@ -199,23 +199,23 @@ public sealed class OperationsService
     }
 
     /// <summary>
-    /// Re-price an active route. Reconciles first so trips already flown book at the OLD price (the new markup
-    /// applies to future trips only). Returns the clamped markup actually stored.
+    /// Re-price an active route. Reconciles first so trips already flown book at the OLD price (the new price
+    /// applies to future trips only). For a plain cargo/charter route this is the markup over the fair rate; for a
+    /// scheduled passenger route (Phase 14a) it is the FARE — a real, price-elastic lever (raise the fare to earn
+    /// more per seat but thin the cabin, discount it to fill). Returns the clamped price actually stored.
     /// </summary>
     public async Task<int> SetRoutePriceAsync(Guid companyId, Guid routeId, int priceMultiplierMilli, CancellationToken ct = default)
     {
         await ReconcileAsync(companyId, ct); // book pending trips at the current price before it changes
         var route = await _db.Routes.FirstOrDefaultAsync(r => r.Id == routeId && r.CompanyId == companyId && r.Active && !r.IsDeleted, ct)
                     ?? throw new InvalidOperationException("Route not found.");
-        // A scheduled-passenger route (Phase 11f) has no markup lever — the frozen load factor IS its demand model,
-        // so a markup would double-count it. Keep it fixed at the fair rate.
-        if (route.SeatCapacity != null)
-            throw new InvalidOperationException("Scheduled passenger service has no markup — the load factor is the demand.");
-        int markup = Math.Clamp(priceMultiplierMilli, 1000, _cfg.MaxContractMarkupMilli);
-        route.PriceMultiplierMilli = markup;
+        int price = route.SeatCapacity != null
+            ? ScheduledDemand.ClampFare(_cfg, priceMultiplierMilli)                 // scheduled fare (Phase 14a)
+            : Math.Clamp(priceMultiplierMilli, 1000, _cfg.MaxContractMarkupMilli);  // plain-route markup
+        route.PriceMultiplierMilli = price;
         route.UpdatedAt = _clock.UtcNow;
         await _db.SaveChangesAsync(ct);
-        return markup;
+        return price;
     }
 
     /// <summary>Cancel a standing order and free its aircraft.</summary>
@@ -914,7 +914,21 @@ public sealed class OperationsService
             var rtOrigin = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == route.OriginIcao, ct);
             int scrubbed = WeatheredTrips(rtOrigin, route.LastReconciledAt, trips, route.RoundTripHours);
             int flown = trips - scrubbed;
-            var rtRoll = RollTrips(_cfg, route.Id, route.LastReconciledAt.UtcTicks, flown, rtCrew?.SkillMilli ?? 50_000, route.RewardPerTripCents, route.PriceMultiplierMilli);
+            // Phase 14a — living demand: a scheduled passenger route no longer earns its frozen per-trip rate.
+            // Each pass the cabin fill is recomputed from the airline's CURRENT operating reputation, the season,
+            // and the fare the player set, and the per-trip revenue follows. The fare's demand effect lives in the
+            // load factor, so the markup pFill is neutralised (a scheduled seat never "declines the job"). A plain
+            // cargo/charter route (SeatCapacity null) is unchanged — its frozen rate and markup ride as before (L10).
+            long perTripReward = route.RewardPerTripCents;
+            int rollMarkup = route.PriceMultiplierMilli;
+            if (route.SeatCapacity is int rtSeats && route.SeatYieldCents is long rtYield)
+            {
+                double season = ScheduledDemand.SeasonMultiplier(_cfg, now);
+                int liveLoad = ScheduledDemand.LoadFactorMilli(_cfg, repStartMilli, season, route.PriceMultiplierMilli);
+                perTripReward = ScheduledDemand.RevenuePerTripCents(rtSeats, liveLoad, rtYield, route.PriceMultiplierMilli);
+                rollMarkup = 1000;
+            }
+            var rtRoll = RollTrips(_cfg, route.Id, route.LastReconciledAt.UtcTicks, flown, rtCrew?.SkillMilli ?? 50_000, perTripReward, rollMarkup);
             long income = rtRoll.Income;
             if (flown > 0)
             {
