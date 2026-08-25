@@ -168,6 +168,44 @@ public sealed class AirlineService
         return await GetIdentityAsync(companyId, ct);
     }
 
+    /// <summary>"The Flotation" (Phase 13): read the airline's enterprise value as a share price, and — for an
+    /// incorporated airline — mark a fresh value snapshot into the history at most once per configured interval,
+    /// pruning the tail. The returned history is the share-price ticker. Money-neutral (no ledger), gates nothing.</summary>
+    public async Task<AirlineMarket.Readout> GetMarketAsync(Guid companyId, long valuationCents, bool incorporated, CancellationToken ct = default)
+    {
+        var cfg = _cfg ?? Callsign.Core.Economy.EconomyConfig.Default;
+        var now = _clock?.UtcNow ?? DateTimeOffset.UtcNow;
+
+        if (incorporated)
+        {
+            var last = await _db.AirlineValueSnapshots.Where(s => s.CompanyId == companyId)
+                .OrderByDescending(s => s.AtUtc).FirstOrDefaultAsync(ct);
+            if (last is null || (now - last.AtUtc).TotalHours >= cfg.AirlineValueSnapshotIntervalHours)
+            {
+                _db.AirlineValueSnapshots.Add(new Callsign.Core.Domain.AirlineValueSnapshot
+                {
+                    CompanyId = companyId, AtUtc = now, ValuationCents = valuationCents,
+                });
+                await _db.SaveChangesAsync(ct);
+
+                // Keep only the most recent window of marks (the ticker), so the table can't grow without bound.
+                int count = await _db.AirlineValueSnapshots.CountAsync(s => s.CompanyId == companyId, ct);
+                if (count > cfg.AirlineValueHistoryMax)
+                {
+                    var stale = await _db.AirlineValueSnapshots.Where(s => s.CompanyId == companyId)
+                        .OrderByDescending(s => s.AtUtc).Skip(cfg.AirlineValueHistoryMax).ToListAsync(ct);
+                    _db.AirlineValueSnapshots.RemoveRange(stale);
+                    await _db.SaveChangesAsync(ct);
+                }
+            }
+        }
+
+        var rows = await _db.AirlineValueSnapshots.Where(s => s.CompanyId == companyId)
+            .OrderBy(s => s.AtUtc).ToListAsync(ct);
+        var history = rows.Select(r => (r.AtUtc, r.ValuationCents)).ToList();
+        return AirlineMarket.Compute(cfg, valuationCents, history);
+    }
+
     public async Task<AirlineStanding> GetStandingAsync(Guid companyId, Guid pilotId, CancellationToken ct = default)
     {
         var m = await _metrics.SnapshotAsync(companyId, pilotId, ct);

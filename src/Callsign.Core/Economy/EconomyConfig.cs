@@ -708,6 +708,17 @@ public sealed record EconomyConfig
     /// <summary>How much of lifetime earnings counts as demonstrated-earnings goodwill.</summary>
     public double AirlineEarningsValuationFactor { get; init; } = 0.30;
 
+    // "The Flotation" (Phase 13): the enterprise value read as an investor share price. Purely a re-framing of the
+    // valuation above — market cap == enterprise value, so no new money is minted (money-neutral, gates nothing).
+    /// <summary>Notional shares outstanding for the incorporated airline. Share price = enterprise value / shares.
+    /// 1,000,000 makes a $50M airline trade near $50.00 a share.</summary>
+    public long AirlineSharesOutstanding { get; init; } = 1_000_000;
+    /// <summary>How often (hours) the HQ marks a fresh enterprise-value snapshot into the history — ~daily, so the
+    /// share-price ticker builds a legible series as the player operates without flooding the table.</summary>
+    public double AirlineValueSnapshotIntervalHours { get; init; } = 20;
+    /// <summary>How many value snapshots to keep per company (the ticker window); older marks are pruned.</summary>
+    public int AirlineValueHistoryMax { get; init; } = 120;
+
     // --- Loans (Phase 4a) ---
     /// <summary>Repayment horizon for a new loan (straight-line principal over this many days).</summary>
     public int LoanTermDays { get; init; } = 90;

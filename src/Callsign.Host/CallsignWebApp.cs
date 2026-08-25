@@ -2118,6 +2118,10 @@ public static class CallsignWebApp
             long netWorth = (await finance.NetWorthAsync(pilot.CompanyId)).NetWorthCents;
             long lifetimeEarnings = await db.Flights.SumAsync(f => f.PayoutCents);
             var valuation = Callsign.Core.Airline.AirlineValuation.Compute(cfg, netWorth, company.OperatingReputationMilli, routeCount, scheduledCount, lifetimeEarnings);
+            // "The Flotation" (Phase 13) — the same enterprise value read as a share price, and (once incorporated)
+            // marked into a value history so the HQ shows a share-price ticker with growth since flotation.
+            bool incorporated = company.AirlineIncorporatedAt is not null || !string.IsNullOrWhiteSpace(company.AirlineName);
+            var market = await airline.GetMarketAsync(pilot.CompanyId, valuation.TotalCents, incorporated);
             // Phase 11a — the operating-reputation figure + a two-source ("your flying / your crew") split over the
             // recent log, so the tab can show what's moving the name and coach a fall (never a red penalty).
             var recent = await db.AirlineReputationEvents
@@ -2140,7 +2144,10 @@ public static class CallsignWebApp
                 AirlineEmblems.All,
                 await MapIncorporationAsync(airline, pilot.CompanyId, pilot.Id),
                 new AirlineHqDto(fleetCount, baseCount, routeCount, scheduledCount, netWorth,
-                    valuation.TotalCents, valuation.Breakdown.Select(l => new ValuationLineDto(l.Label, l.Cents)).ToList())));
+                    valuation.TotalCents, valuation.Breakdown.Select(l => new ValuationLineDto(l.Label, l.Cents)).ToList(),
+                    new AirlineMarketDto(market.SharePriceCents, market.MarketCapCents, market.SharesOutstanding,
+                        market.FlotationSharePriceCents, market.GrowthSinceFlotationPct,
+                        market.History.Select(p => new ValuePointDto(p.AtUtc, p.SharePriceCents)).ToList()))));
         });
 
         // Phase 13 — formally incorporate as an airline (gated: Regional rung + a valid AOC + the founding fee).

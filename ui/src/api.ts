@@ -978,6 +978,16 @@ export interface AirlineHq {
   netWorthCents: number
   valuationCents: number
   valuationBreakdown: { label: string; cents: number }[]
+  market: AirlineMarket
+}
+/** "The Flotation": the enterprise value read as a share price, with the value history behind it. */
+export interface AirlineMarket {
+  sharePriceCents: number
+  marketCapCents: number
+  sharesOutstanding: number
+  flotationSharePriceCents: number
+  growthSinceFlotationPct: number
+  history: { atUtc: string; sharePriceCents: number }[]
 }
 export interface AirlineIncorporation {
   incorporated: boolean

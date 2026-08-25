@@ -31,6 +31,7 @@ public sealed class CallsignDbContext : DbContext
     public DbSet<PilotQualification> PilotQualifications => Set<PilotQualification>();
     public DbSet<ReputationEvent> ReputationEvents => Set<ReputationEvent>();
     public DbSet<AirlineReputationEvent> AirlineReputationEvents => Set<AirlineReputationEvent>();
+    public DbSet<AirlineValueSnapshot> AirlineValueSnapshots => Set<AirlineValueSnapshot>();
     public DbSet<Loan> Loans => Set<Loan>();
     public DbSet<InsurancePolicy> InsurancePolicies => Set<InsurancePolicy>();
     public DbSet<Route> Routes => Set<Route>();
@@ -292,6 +293,13 @@ public sealed class CallsignDbContext : DbContext
         airRep.Property(e => e.Reason).IsRequired().HasMaxLength(120);
         airRep.HasIndex(e => new { e.CompanyId, e.At });
         airRep.HasOne<Company>().WithMany().HasForeignKey(e => e.CompanyId).OnDelete(DeleteBehavior.Cascade);
+
+        // --- Airline enterprise-value history (Phase 13 — "The Flotation"), append-only, company-scoped ---
+        var airVal = model.Entity<AirlineValueSnapshot>();
+        airVal.HasKey(e => e.Id);
+        airVal.Property(e => e.Id).ValueGeneratedOnAdd();
+        airVal.HasIndex(e => new { e.CompanyId, e.AtUtc });
+        airVal.HasOne<Company>().WithMany().HasForeignKey(e => e.CompanyId).OnDelete(DeleteBehavior.Cascade);
 
         // --- Loans (Phase 4a): a liability, distinct from the cash ledger ---
         var loan = model.Entity<Loan>();

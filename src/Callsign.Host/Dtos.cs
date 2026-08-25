@@ -282,8 +282,12 @@ public record AirlineReputationDto(int OperatingReputationMilli, int RecentPlaye
 public record AirlineDto(AirlineIdentityDto Identity, AirlineStandingDto Standing, AirlineReputationDto Reputation, IReadOnlyList<string> Emblems,
     AirlineIncorporationDto Incorporation, AirlineHqDto Hq); // Phase 13 — the "become an airline" gate + the HQ at-a-glance
 public record AirlineHqDto(int FleetCount, int BaseCount, int RouteCount, int ScheduledCount, long NetWorthCents,
-    long ValuationCents, IReadOnlyList<ValuationLineDto> ValuationBreakdown); // Phase 13 — the airline's enterprise value
+    long ValuationCents, IReadOnlyList<ValuationLineDto> ValuationBreakdown, AirlineMarketDto Market); // Phase 13 — enterprise value + the flotation ticker
 public record ValuationLineDto(string Label, long Cents);
+// "The Flotation" (Phase 13): the enterprise value read as an investor share price, with the value history behind it.
+public record AirlineMarketDto(long SharePriceCents, long MarketCapCents, long SharesOutstanding,
+    long FlotationSharePriceCents, double GrowthSinceFlotationPct, IReadOnlyList<ValuePointDto> History);
+public record ValuePointDto(DateTimeOffset AtUtc, long SharePriceCents);
 public record AirlineIncorporationDto(bool Incorporated, DateTimeOffset? IncorporatedAt, int Stage, bool RegionalReached, bool HasAoc, bool Eligible, long FoundingFeeCents);
 public record IncorporateRequest(string? Name, string? TailCode, string? AccentColorHex, string? EmblemKey);
 public record SetAirlineRequest(string? Name, string? TailCode, string? AccentColorHex, string? EmblemKey);

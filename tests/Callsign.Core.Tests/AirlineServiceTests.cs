@@ -3,6 +3,7 @@ using Callsign.Core.Data;
 using Callsign.Core.Domain;
 using Callsign.Core.Economy;
 using Callsign.Core.Progression;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace Callsign.Core.Tests;
@@ -35,6 +36,55 @@ public class AirlineServiceTests
         db.Companies.Add(company);
         db.Pilots.Add(pilot);
         return (company, pilot);
+    }
+
+    // "The Flotation" (Phase 13): GetMarketAsync marks a value snapshot at most once per interval for an
+    // incorporated airline, building the share-price ticker; an operator (not incorporated) records nothing.
+    [Fact]
+    public async Task Market_RecordsOnePerInterval_ForAnIncorporatedAirline_AndPricesTheHistory()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var cfg = EconomyConfig.Default;
+        Guid companyId;
+        using (var db = tdb.NewContext())
+        {
+            var (c, _) = Seed(db);
+            companyId = c.Id;
+            await db.SaveChangesAsync();
+        }
+
+        AirlineService Svc(CallsignDbContext db) => new(db, new ProgressMetricsService(db, new FinanceService(db, clock, cfg)),
+            clock: clock, cfg: cfg);
+
+        // Not incorporated → no marks, but the share price still reads.
+        using (var db = tdb.NewContext())
+        {
+            var r = await Svc(db).GetMarketAsync(companyId, 5_000_000_000, incorporated: false);
+            Assert.Equal(5_000, r.SharePriceCents);
+            Assert.Empty(r.History);
+            Assert.Equal(0, await db.AirlineValueSnapshots.CountAsync());
+        }
+
+        // Incorporated: first read marks the flotation baseline.
+        using (var db = tdb.NewContext())
+            await Svc(db).GetMarketAsync(companyId, 4_000_000_000, incorporated: true);
+        // A second read moments later is inside the interval → no new mark.
+        clock.UtcNow = clock.UtcNow.AddHours(1);
+        using (var db = tdb.NewContext())
+            await Svc(db).GetMarketAsync(companyId, 4_200_000_000, incorporated: true);
+        using (var db = tdb.NewContext())
+            Assert.Equal(1, await db.AirlineValueSnapshots.CountAsync());
+
+        // A day later, past the interval → a second mark; growth is measured off the baseline.
+        clock.UtcNow = clock.UtcNow.AddHours(24);
+        using (var db = tdb.NewContext())
+        {
+            var r = await Svc(db).GetMarketAsync(companyId, 5_000_000_000, incorporated: true);
+            Assert.Equal(2, await db.AirlineValueSnapshots.CountAsync());
+            Assert.Equal(0.25, r.GrowthSinceFlotationPct, 3);   // $40M floated → $50M now = +25%
+            Assert.Equal(4_000, r.FlotationSharePriceCents);
+        }
     }
 
     [Fact]

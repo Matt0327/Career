@@ -5248,6 +5248,43 @@ function AirlineReputationCard({ rep, color }: { rep: AirlineData['reputation'];
   )
 }
 
+// "The Flotation" (Phase 13): the enterprise value read as a share price — a ticker with market cap, growth
+// since flotation, and a sparkline of the value history that builds as you operate. Purely a re-framing of the
+// enterprise value (market cap == enterprise value), so it mints no money.
+function ShareTicker({ market, color }: { market: AirlineData['hq']['market']; color: string }) {
+  const price = (c: number) => (c / 100).toLocaleString(undefined, { style: 'currency', currency: 'USD', minimumFractionDigits: 2 })
+  const g = market.growthSinceFlotationPct
+  const gPct = `${g >= 0 ? '▲' : '▼'} ${(Math.abs(g) * 100).toFixed(1)}%`
+  const pts = market.history.map(h => h.sharePriceCents)
+  // A tidy sparkline: scale the price series into a 0..100 × 0..28 box; a flat/short series draws a baseline.
+  const spark = (() => {
+    if (pts.length < 2) return null
+    const min = Math.min(...pts), max = Math.max(...pts), span = max - min || 1
+    const w = 100, h = 28
+    const d = pts.map((p, i) => `${(i / (pts.length - 1)) * w},${h - ((p - min) / span) * h}`).join(' ')
+    return (
+      <svg className="share-spark" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden="true">
+        <polyline points={d} fill="none" stroke={color} strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
+      </svg>
+    )
+  })()
+  return (
+    <section className="card share-ticker">
+      <div className="row-head"><h2>Share price</h2><span className="hint">enterprise value ÷ {market.sharesOutstanding.toLocaleString()} shares</span></div>
+      <div className="share-row">
+        <div className="share-price num" style={{ color }}>{price(market.sharePriceCents)}</div>
+        <div className="share-meta">
+          <span className={`share-growth ${g >= 0 ? 'pos' : 'neg'}`}>{gPct} <span className="muted">since flotation</span></span>
+          <span className="muted">Market cap {money(market.marketCapCents)}</span>
+        </div>
+        <div className="share-spark-wrap">
+          {spark ?? <span className="hint">building the ticker — check back after a day of operating</span>}
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function Airline({ onSaved }: { onSaved: () => void }) {
   const [data, setData] = useState<AirlineData | null>(null)
   const [name, setName] = useState('')
@@ -5354,6 +5391,7 @@ function Airline({ onSaved }: { onSaved: () => void }) {
             ))}
           </div>
         </section>
+        {data.hq.market && <ShareTicker market={data.hq.market} color={color} />}
         <section className="card">
           <h2>Airline identity</h2>
           <div className="airline-head">
