@@ -25,6 +25,14 @@ public sealed record EconomyConfig
     // --- Generation bounds ---
     public int MinCargoWeightLbs { get; init; } = 200;
     public int MaxCargoWeightLbs { get; init; } = 3_000;
+    // Phase 13 — a fuller board with a realistic mix: many small loads (parcels, a couple of passengers) and
+    // fewer big ones, so even a Cessna 152 always has jobs it can actually fly. The bias exponent (>1) skews
+    // cargo weight + passenger count toward the SMALL end; the board size sets how many offers appear per field.
+    public int DefaultJobBoardSize { get; init; } = 36;
+    public double JobLoadBiasExponent { get; init; } = 2.6;
+    /// <summary>Scale a 0..1 roll toward the low end (JobLoadBiasExponent) and map it onto [min,max] — small loads
+    /// common, big loads rare.</summary>
+    public int BiasedLoad(double roll01, int min, int max) => min + (int)Math.Round((max - min) * Math.Pow(Math.Clamp(roll01, 0, 1), JobLoadBiasExponent));
     public double MinJobDistanceNm { get; init; } = 5;       // short regional hops are welcome (quick legs to fly)
     public double MaxJobDistanceNm { get; init; } = 400;
     public double JobDistanceBiasExponent { get; init; } = 3; // >1 favours nearer airports so short hops reliably appear

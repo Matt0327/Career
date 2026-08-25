@@ -39,7 +39,7 @@ public sealed class PassengerJobSource : IJobSource
             int idx = JobRng.NearBiasedIndex(rng, available.Count, _cfg.JobDistanceBiasExponent);
             var dest = available[idx];
             available.RemoveAt(idx);
-            int pax = rng.Next(_cfg.MinPax, _cfg.MaxPax + 1);
+            int pax = _cfg.BiasedLoad(rng.NextDouble(), _cfg.MinPax, _cfg.MaxPax); // smaller groups common — a 2-seater always has charters
             var group = Groups[rng.Next(Groups.Length)];
 
             jobs.Add(new GeneratedJob(

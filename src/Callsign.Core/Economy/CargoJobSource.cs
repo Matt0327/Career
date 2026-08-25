@@ -37,7 +37,7 @@ public sealed class CargoJobSource : IJobSource
             int idx = JobRng.NearBiasedIndex(rng, available.Count, _cfg.JobDistanceBiasExponent);
             var dest = available[idx];
             available.RemoveAt(idx);
-            int weight = rng.Next(_cfg.MinCargoWeightLbs, _cfg.MaxCargoWeightLbs + 1);
+            int weight = _cfg.BiasedLoad(rng.NextDouble(), _cfg.MinCargoWeightLbs, _cfg.MaxCargoWeightLbs); // small loads common (light aircraft always have work)
             var commodity = Commodities[rng.Next(Commodities.Length)];
 
             jobs.Add(new GeneratedJob(
