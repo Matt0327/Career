@@ -2436,20 +2436,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
       addLog('info', `Armed ${jobs.length} jobs → ${primary.dest} — fly it; all settle together on landing.`)
     } catch (e) { setBeginErr(cleanErr(e)) }
   }
-  // Auto-arm on takeoff (Phase 13): if you start rolling with exactly one flyable job and the right aircraft
-  // loaded, arm it for you — so the flight "just starts when you go" instead of needing a button press. Tightly
-  // guarded (connected, on ground at the origin, the matching aircraft, a real takeoff-roll speed) and fires once.
   const autoArmed = useRef(false)
-  useEffect(() => { if (!begun) autoArmed.current = false }, [begun])
-  useEffect(() => {
-    if (begun || freeFlight || who || autoArmed.current) return // 'who' set = you're handing it to a crew, not flying
-    if (link !== 'Connected' || !tele || tele.onGround !== true || tele.gs < 35) return
-    const flyable = assignments.filter(a =>
-      state.currentIcao === a.origin && selAc?.locationIcao === a.origin && !!aircraftId
-      && payloadFit(selAc, a.pax, a.weightLbs).ok && matchesSimTitle(tele.title, selAc))
-    if (flyable.length === 1) { autoArmed.current = true; void begin(flyable[0]) }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tele, link, begun, freeFlight, who, assignments, aircraftId, selAc, state.currentIcao])
   const startFreeFlight = async () => {
     setSettled(null); setDiverted(null); setBeginErr(null); setBegun(null)
     try { await api.beginFreeFlight(); setFreeFlight(true); addLog('info', 'Free flight armed — fly anywhere; it\'s tracked and logged, no job attached.') }
@@ -2474,6 +2461,20 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
       return { ok: false, msg: `${ac.tail} carries ${ac.usefulLoadLbs.toLocaleString()} lb — needs ${weightLbs.toLocaleString()} (missing ${(weightLbs - ac.usefulLoadLbs).toLocaleString()} lb)` }
     return { ok: true }
   }
+
+  // Auto-arm on takeoff (Phase 13): if you start rolling with exactly one flyable job and the right aircraft
+  // loaded, arm it for you — so the flight "just starts when you go" instead of needing a button press. Placed
+  // AFTER selAc + payloadFit are declared so the deps array can safely reference them (no temporal-dead-zone).
+  useEffect(() => { if (!begun) autoArmed.current = false }, [begun])
+  useEffect(() => {
+    if (begun || freeFlight || who || autoArmed.current) return // 'who' set = you're handing it to a crew, not flying
+    if (link !== 'Connected' || !tele || tele.onGround !== true || tele.gs < 35) return
+    const flyable = assignments.filter(a =>
+      state.currentIcao === a.origin && selAc?.locationIcao === a.origin && !!aircraftId
+      && payloadFit(selAc, a.pax, a.weightLbs).ok && matchesSimTitle(tele.title, selAc))
+    if (flyable.length === 1) { autoArmed.current = true; void begin(flyable[0]) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tele, link, begun, freeFlight, who, assignments, aircraftId, selAc, state.currentIcao])
 
   return (
     <div className="grid">
