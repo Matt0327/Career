@@ -3884,6 +3884,25 @@ function SatelliteMap({ points }: { points: MapPoint[] }) {
 
 // ─── Bases ───────────────────────────────────────────────────────────────────
 
+// One base facility (maintenance / fuel / hub) as a labelled level ladder with its benefit + next upgrade.
+function Facility({ label, level, max, benefit, nextCents, verb, busy, onUpgrade }:
+  { label: string; level: number; max: number; benefit: string; nextCents: number; verb: string; busy: boolean; onUpgrade: () => void }) {
+  return (
+    <div className={`facility ${level > 0 ? 'on' : ''}`}>
+      <div className="fac-top">
+        <span className="fac-label">{label}</span>
+        <span className="fac-pips" aria-label={`level ${level} of ${max}`}>
+          {Array.from({ length: max }, (_, i) => <span key={i} className={`pip ${i < level ? 'fill' : ''}`} />)}
+        </span>
+      </div>
+      <div className="fac-benefit">{benefit}</div>
+      {nextCents > 0
+        ? <button className="small fac-btn" disabled={busy} onClick={onUpgrade}>{verb} · {money(nextCents)}</button>
+        : <span className="fac-maxed">Fully upgraded</span>}
+    </div>
+  )
+}
+
 function Bases({ state, onChanged }: { state: State; onChanged: () => void }) {
   const [bases, setBases] = useState<BaseView[]>([])
   const [offers, setOffers] = useState<BaseOffer[]>([])
@@ -3939,43 +3958,29 @@ function Bases({ state, onChanged }: { state: State; onChanged: () => void }) {
       <section className="card">
         <h2>Your bases</h2>
         {bases.length === 0 ? <div className="empty">No bases.</div> : (
-          <div className="tbl-wrap"><table className="tbl">
-            <thead><tr><th>Airport</th><th>Name</th><th className="r">Rent / day</th><th>Maintenance shop</th><th>Fuel farm</th><th>Hub</th></tr></thead>
-            <tbody>{bases.map(b => (
-              <tr key={b.id}>
-                <td><span className="loc">{b.icao}</span>{b.isHome && <span className="tag" style={{ marginLeft: 8 }}>home</span>}</td>
-                <td>{b.name}</td>
-                <td className="r num muted">{b.rentPerDayCents ? money(b.rentPerDayCents) : 'free'}</td>
-                <td className="shop-cell">
-                  {b.maintenanceLevel > 0
-                    ? <span className="shop-lvl">L{b.maintenanceLevel} <span className="muted">· {Math.round(b.maintenanceDiscountPct * 100)}% off servicing</span></span>
-                    : <span className="muted">none</span>}
-                  {b.nextShopUpgradeCents > 0 &&
-                    <button className="small" disabled={busy} onClick={() => upgradeShop(b)}>
-                      {b.maintenanceLevel > 0 ? 'Upgrade' : 'Build'} · {money(b.nextShopUpgradeCents)}
-                    </button>}
-                </td>
-                <td className="shop-cell">
-                  {b.fuelFarmLevel > 0
-                    ? <span className="shop-lvl">L{b.fuelFarmLevel} <span className="muted">· {Math.round(b.fuelDiscountPct * 100)}% off fuel</span></span>
-                    : <span className="muted">none</span>}
-                  {b.nextFuelFarmUpgradeCents > 0 &&
-                    <button className="small" disabled={busy} onClick={() => upgradeFuelFarm(b)}>
-                      {b.fuelFarmLevel > 0 ? 'Upgrade' : 'Build'} · {money(b.nextFuelFarmUpgradeCents)}
-                    </button>}
-                </td>
-                <td className="shop-cell">
-                  {b.hubLevel > 0
-                    ? <span className="shop-lvl">L{b.hubLevel} <span className="muted">· ×{b.hubDemandAmplification.toFixed(1)} demand lift</span></span>
-                    : <span className="muted">none</span>}
-                  {b.nextHubUpgradeCents > 0 &&
-                    <button className="small" disabled={busy} onClick={() => upgradeHub(b)}>
-                      {b.hubLevel > 0 ? 'Upgrade' : 'Promote'} · {money(b.nextHubUpgradeCents)}
-                    </button>}
-                </td>
-              </tr>
-            ))}</tbody>
-          </table></div>
+          <div className="base-grid">
+            {bases.map(b => (
+              <div className={`base-card ${b.isHome ? 'home' : ''}`} key={b.id}>
+                <div className="bc-head">
+                  <span className="loc bc-icao">{b.icao}</span>
+                  {b.isHome && <span className="tag">home</span>}
+                  <span className="bc-name">{b.name}</span>
+                  <span className="bc-rent">{b.rentPerDayCents ? `${money(b.rentPerDayCents)}/day` : 'no rent'}</span>
+                </div>
+                <div className="bc-facilities">
+                  <Facility label="Maintenance shop" level={b.maintenanceLevel} max={3}
+                    benefit={b.maintenanceLevel > 0 ? `${Math.round(b.maintenanceDiscountPct * 100)}% off servicing` : 'cheaper servicing for based tails'}
+                    nextCents={b.nextShopUpgradeCents} verb={b.maintenanceLevel > 0 ? 'Upgrade' : 'Build'} busy={busy} onUpgrade={() => upgradeShop(b)} />
+                  <Facility label="Fuel farm" level={b.fuelFarmLevel} max={3}
+                    benefit={b.fuelFarmLevel > 0 ? `${Math.round(b.fuelDiscountPct * 100)}% off fuel` : 'cheaper fuel on legs from here'}
+                    nextCents={b.nextFuelFarmUpgradeCents} verb={b.fuelFarmLevel > 0 ? 'Upgrade' : 'Build'} busy={busy} onUpgrade={() => upgradeFuelFarm(b)} />
+                  <Facility label="Hub" level={b.hubLevel} max={3}
+                    benefit={b.hubLevel > 0 ? `×${b.hubDemandAmplification.toFixed(1)} demand lift` : 'amplify your reputation demand here'}
+                    nextCents={b.nextHubUpgradeCents} verb={b.hubLevel > 0 ? 'Upgrade' : 'Promote'} busy={busy} onUpgrade={() => upgradeHub(b)} />
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </section>
 
