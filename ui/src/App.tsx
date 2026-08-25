@@ -4735,7 +4735,12 @@ function Logbook({ state }: { state: State }) {
           {totals.scoredFlights > 0 && <HeroStat label="Best score" value={`${totals.bestScore}`} />}
           <HeroStat label="Hours flown" value={totals.totalHours.toFixed(1)} unit="h" />
           <HeroStat label="Distance" value={Math.round(totals.totalDistanceNm).toLocaleString()} unit="nm" />
+          <HeroStat label="Longest leg" value={Math.round(totals.longestLegNm).toLocaleString()} unit="nm" />
           <HeroStat label="Avg landing" value={`${Math.round(totals.avgTouchdownFpm)}`} unit="fpm" />
+          {totals.bestTouchdownFpm !== 0 && <HeroStat label="Softest landing" value={`${Math.round(Math.abs(totals.bestTouchdownFpm))}`} unit="fpm" />}
+          <HeroStat label="Fuel burned" value={Math.round(totals.totalFuelLbs).toLocaleString()} unit="lb" />
+          <HeroStat label="Total XP" value={totals.totalXp.toLocaleString()} />
+          <HeroStat label="Best payout" value={money(totals.bestPayoutCents)} tone="pos" />
           <HeroStat label="Lifetime earnings" value={money(totals.lifetimeEarningsCents)} />
         </div>
       )}
