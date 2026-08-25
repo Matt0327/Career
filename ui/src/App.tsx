@@ -5263,6 +5263,10 @@ function Airline({ onSaved }: { onSaved: () => void }) {
               <div className="airline-name">{name || 'Your airline'}</div>
               <div className="muted"><span className="loc">{code || '—'}</span> · {st.stageName} · incorporated{inc.incorporatedAt ? ` ${new Date(inc.incorporatedAt).toLocaleDateString()}` : ''}</div>
             </div>
+            <div className="hq-valuation" title={data.hq.valuationBreakdown.map(l => `${l.label}: ${money(l.cents)}`).join('\n')}>
+              <span className="hqv-label">Enterprise value</span>
+              <span className="hqv-num" style={{ color }}>{money(data.hq.valuationCents)}</span>
+            </div>
           </div>
           <div className="hero-stats hq-stats">
             <HeroStat label="Fleet" value={String(data.hq.fleetCount)} accent />
@@ -5271,6 +5275,11 @@ function Airline({ onSaved }: { onSaved: () => void }) {
             {data.hq.scheduledCount > 0 && <HeroStat label="Scheduled" value={String(data.hq.scheduledCount)} />}
             <HeroStat label="Operating rep" value={`${Math.round(data.reputation.operatingReputationMilli / 1000)}`} />
             <HeroStat label="Net worth" value={money(data.hq.netWorthCents)} tone={data.hq.netWorthCents >= 0 ? 'pos' : 'neg'} />
+          </div>
+          <div className="hqv-breakdown">
+            {data.hq.valuationBreakdown.map(l => (
+              <span key={l.label} className="hqv-line"><span className="muted">{l.label}</span> <span className="num">{money(l.cents)}</span></span>
+            ))}
           </div>
         </section>
         <section className="card">

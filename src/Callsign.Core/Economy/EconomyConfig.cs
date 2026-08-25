@@ -698,6 +698,16 @@ public sealed record EconomyConfig
     /// is a real commitment, not a free rename. $500,000.</summary>
     public long AirlineFoundingFeeCents { get; init; } = 50_000_000;
 
+    // Enterprise-valuation goodwill weights (informational; the airline's "worth" as a going concern). Retunable.
+    /// <summary>Brand value per point of operating reputation — a fully-reputed airline (100) is worth $5M of brand.</summary>
+    public long AirlineRepValuationCents { get; init; } = 5_000_000;
+    /// <summary>Going-concern value of each open route.</summary>
+    public long AirlineRouteValuationCents { get; init; } = 15_000_000;   // $150k
+    /// <summary>Extra value of each scheduled passenger service (a real network asset).</summary>
+    public long AirlineScheduledValuationCents { get; init; } = 40_000_000; // $400k
+    /// <summary>How much of lifetime earnings counts as demonstrated-earnings goodwill.</summary>
+    public double AirlineEarningsValuationFactor { get; init; } = 0.30;
+
     // --- Loans (Phase 4a) ---
     /// <summary>Repayment horizon for a new loan (straight-line principal over this many days).</summary>
     public int LoanTermDays { get; init; } = 90;

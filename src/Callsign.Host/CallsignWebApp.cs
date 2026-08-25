@@ -2100,23 +2100,25 @@ public static class CallsignWebApp
         });
 
         // --- Airline identity + standing (Phase 5c) ---
-        app.MapGet("/api/airline", async (CallsignDbContext db, AirlineService airline, FinanceService finance) =>
+        app.MapGet("/api/airline", async (CallsignDbContext db, AirlineService airline, FinanceService finance, EconomyConfig cfg) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
+            var company = await db.Companies.FirstOrDefaultAsync(c => c.Id == pilot.CompanyId);
+            if (company is null) return Results.NotFound(new { error = "Career data is incomplete (no account)." });
             var id = await airline.GetIdentityAsync(pilot.CompanyId);
             var st = await airline.GetStandingAsync(pilot.CompanyId, pilot.Id);
             // Phase 13 — the HQ at-a-glance: the airline's real scale (owned fleet, active bases, routes, scheduled
-            // services) + net worth, for the post-incorporation overview.
+            // services) + net worth + its enterprise valuation, for the post-incorporation overview.
             int fleetCount = await db.AircraftInstances.CountAsync(a => a.CompanyId == pilot.CompanyId && !a.IsDeleted && a.Ownership == OwnershipKind.Owned);
             int baseCount = await db.Bases.CountAsync(b => b.CompanyId == pilot.CompanyId && !b.IsDeleted && b.IsActive);
             int routeCount = await db.Routes.CountAsync(r => r.CompanyId == pilot.CompanyId && r.Active && !r.IsDeleted);
             int scheduledCount = await db.Routes.CountAsync(r => r.CompanyId == pilot.CompanyId && r.Active && !r.IsDeleted && r.SeatCapacity != null);
             long netWorth = (await finance.NetWorthAsync(pilot.CompanyId)).NetWorthCents;
+            long lifetimeEarnings = await db.Flights.SumAsync(f => f.PayoutCents);
+            var valuation = Callsign.Core.Airline.AirlineValuation.Compute(cfg, netWorth, company.OperatingReputationMilli, routeCount, scheduledCount, lifetimeEarnings);
             // Phase 11a — the operating-reputation figure + a two-source ("your flying / your crew") split over the
             // recent log, so the tab can show what's moving the name and coach a fall (never a red penalty).
-            var company = await db.Companies.FirstOrDefaultAsync(c => c.Id == pilot.CompanyId);
-            if (company is null) return Results.NotFound(new { error = "Career data is incomplete (no account)." });
             var recent = await db.AirlineReputationEvents
                 .Where(e => e.CompanyId == pilot.CompanyId)
                 .OrderByDescending(e => e.Id).Take(8).ToListAsync();
@@ -2136,7 +2138,8 @@ public static class CallsignWebApp
                 reputation,
                 AirlineEmblems.All,
                 await MapIncorporationAsync(airline, pilot.CompanyId, pilot.Id),
-                new AirlineHqDto(fleetCount, baseCount, routeCount, scheduledCount, netWorth)));
+                new AirlineHqDto(fleetCount, baseCount, routeCount, scheduledCount, netWorth,
+                    valuation.TotalCents, valuation.Breakdown.Select(l => new ValuationLineDto(l.Label, l.Cents)).ToList())));
         });
 
         // Phase 13 — formally incorporate as an airline (gated: Regional rung + a valid AOC + the founding fee).

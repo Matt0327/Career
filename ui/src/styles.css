@@ -304,6 +304,12 @@ input { font: inherit; }
 .hq-top { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
 .hq-id .airline-name { font-size: 22px; }
 .hq-stats { margin: 0; }
+.hq-valuation { margin-left: auto; text-align: right; display: flex; flex-direction: column; gap: 2px; }
+.hqv-label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.hqv-num { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.hqv-breakdown { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 12.5px; }
+.hqv-line { display: inline-flex; gap: 6px; }
+@media (max-width: 560px) { .hq-valuation { margin: 8px 0 0 0; text-align: left; } .hq-top { flex-wrap: wrap; } }
 .assign-meta { display: flex; gap: 14px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .leg { font-size: 15px; }
 

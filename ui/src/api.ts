@@ -957,6 +957,8 @@ export interface AirlineHq {
   routeCount: number
   scheduledCount: number
   netWorthCents: number
+  valuationCents: number
+  valuationBreakdown: { label: string; cents: number }[]
 }
 export interface AirlineIncorporation {
   incorporated: boolean

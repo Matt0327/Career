@@ -281,7 +281,9 @@ public record AirlineRepEventDto(int DeltaMilli, int BalanceMilli, string Source
 public record AirlineReputationDto(int OperatingReputationMilli, int RecentPlayerDeltaMilli, int RecentCrewDeltaMilli, IReadOnlyList<AirlineRepEventDto> Recent);
 public record AirlineDto(AirlineIdentityDto Identity, AirlineStandingDto Standing, AirlineReputationDto Reputation, IReadOnlyList<string> Emblems,
     AirlineIncorporationDto Incorporation, AirlineHqDto Hq); // Phase 13 — the "become an airline" gate + the HQ at-a-glance
-public record AirlineHqDto(int FleetCount, int BaseCount, int RouteCount, int ScheduledCount, long NetWorthCents);
+public record AirlineHqDto(int FleetCount, int BaseCount, int RouteCount, int ScheduledCount, long NetWorthCents,
+    long ValuationCents, IReadOnlyList<ValuationLineDto> ValuationBreakdown); // Phase 13 — the airline's enterprise value
+public record ValuationLineDto(string Label, long Cents);
 public record AirlineIncorporationDto(bool Incorporated, DateTimeOffset? IncorporatedAt, int Stage, bool RegionalReached, bool HasAoc, bool Eligible, long FoundingFeeCents);
 public record IncorporateRequest(string? Name, string? TailCode, string? AccentColorHex, string? EmblemKey);
 public record SetAirlineRequest(string? Name, string? TailCode, string? AccentColorHex, string? EmblemKey);
