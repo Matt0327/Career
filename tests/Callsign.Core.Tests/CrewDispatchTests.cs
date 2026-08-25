@@ -80,6 +80,26 @@ public class CrewDispatchTests
     }
 
     [Fact]
+    public async Task Dispatch_OnReconcile_UpdatesTheClient_ButLessThanFlyingYourself()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var (companyId, aircraftId, staffId, jobId) = await SeedAsync(tdb, clock);
+
+        using (var db = tdb.NewContext()) await Ops(db, clock).DispatchJobAsync(companyId, jobId, staffId, aircraftId);
+        clock.UtcNow = clock.UtcNow.AddHours(8);
+        using (var db = tdb.NewContext()) await Ops(db, clock).ReconcileAsync(companyId);
+
+        using (var db = tdb.NewContext())
+        {
+            var client = await db.Clients.SingleOrDefaultAsync(c => c.ClientKey == "c:test");
+            Assert.NotNull(client);                                                 // the client heard about the crew delivery
+            Assert.Equal(EconomyConfig.Default.CrewLegClientLoyaltyMilli, client!.LoyaltyMilli); // a smaller lift than a player leg
+            Assert.True(client.LoyaltyMilli < EconomyConfig.Default.ClientLoyaltyFullMilli);      // less impressed than if you flew
+        }
+    }
+
+    [Fact]
     public async Task Dispatch_RemovesTheJobFromTheBoard()
     {
         using var tdb = new TestDb();

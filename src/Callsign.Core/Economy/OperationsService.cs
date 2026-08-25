@@ -716,7 +716,9 @@ public sealed class OperationsService
             int legSkill = legCrew?.SkillMilli ?? 50_000;
             // One leg at the fair rate (markup 1000 → pFill 1.0: an accepted job never flies empty). Crew skill
             // still decides clean / minor scuff / diversion (half pay) / lost trip, seeded off the leg id.
-            var roll = RollTrips(_cfg, leg.Id, leg.DispatchedAt.UtcTicks, 1, legSkill, leg.RewardCents);
+            // Phase 13 — a hired pilot earns less than you flying it yourself (you skipped the seat).
+            long crewReward = (long)Math.Round(leg.RewardCents * _cfg.CrewLegPayFactor);
+            var roll = RollTrips(_cfg, leg.Id, leg.DispatchedAt.UtcTicks, 1, legSkill, crewReward);
             var oAir = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == leg.OriginIcao, ct);
             var dAir = await _db.Airports.FirstOrDefaultAsync(a => a.Ident == leg.DestIcao, ct);
             long fees = (oAir is not null && !baseIcaos.Contains(leg.OriginIcao) ? _cfg.LandingFeeCents(oAir.Kind) : 0)
@@ -746,6 +748,27 @@ public sealed class OperationsService
                 legAircraft.UpdatedAt = now;                                   // freed below — only once its whole itinerary is flown
             }
             if (legCrew is not null) { legCrew.CurrentIcao = leg.DestIcao; legCrew.UpdatedAt = now; } // the crew flew there too
+
+            // Phase 13 — the client hears about a hired-pilot delivery too, just with a smaller lift than if YOU
+            // flew it. Only on a delivery that actually earned (a lost trip pleases no one). Starts the relationship
+            // if this is a new client. (Autonomous legs used to update no client at all.)
+            if (leg.ClientKey is { } legClientKey && roll.Income > 0)
+            {
+                var client = await _db.Clients.FirstOrDefaultAsync(c => c.CompanyId == companyId && c.ClientKey == legClientKey, ct);
+                if (client is null)
+                {
+                    client = new Client
+                    {
+                        Id = Guid.NewGuid(), CompanyId = companyId, ClientKey = legClientKey,
+                        Name = leg.ClientName ?? legClientKey, HomeIcao = leg.OriginIcao,
+                        LoyaltyMilli = 0, FirstSeenAt = now, UpdatedAt = now,
+                    };
+                    _db.Clients.Add(client);
+                }
+                client.LoyaltyMilli = Math.Clamp(client.LoyaltyMilli + _cfg.CrewLegClientLoyaltyMilli, 0, EconomyConfig.LoyaltyMax);
+                client.LastJobAt = now;
+                client.UpdatedAt = now;
+            }
             SharpenCrew(legCrew, 1, now);
             repPullRaw += _cfg.OperatingRepCrewPullMilli(repStartMilli, legSkill, 1); // legSkill captured BEFORE SharpenCrew
             repFracSum += _cfg.OperatingRepConvergeFrac(1);

@@ -546,6 +546,12 @@ public sealed record EconomyConfig
     /// <summary>Loyalty lost when the player CANCELS an accepted job before flying it — a tiny nick (you gave the
     /// job back rather than botching it), far gentler than a failed delivery. Keeps cancelling low-stakes.</summary>
     public int ClientLoyaltyCancelMilli { get; init; } = -400;
+    /// <summary>Phase 13 — a hired pilot flying a job earns LESS than flying it yourself (you skipped the seat). At
+    /// 0.85 a dispatched leg pays 15% under its frozen rate.</summary>
+    public double CrewLegPayFactor { get; init; } = 0.85;
+    /// <summary>Phase 13 — the client still notices a hired-pilot delivery, but is LESS impressed than when you fly
+    /// it yourself: a delivered crew leg lifts loyalty by this (vs the full +2500 for a clean player delivery).</summary>
+    public int CrewLegClientLoyaltyMilli { get; init; } = 1_000;
 
     // --- Load check (Phase 13): pay less if you didn't actually load the job's cargo/passengers in the sim ---
     /// <summary>What the base reward is multiplied by when the leg was flown UNDERLOADED (0.85 = 15% less). A warn,
