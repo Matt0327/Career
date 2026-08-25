@@ -14,7 +14,9 @@ public sealed record ProgressMetrics(
     int Flights, int SmoothLandings, int RankIndex, int Qualifications, int ReputationMilli,
     int Aircraft, int Bases, int Routes, int LoansPaidOff, int Policies, long NetWorthCents,
     // Phase 11a — the airline's own operating reputation (0–100000), distinct from the pilot's ReputationMilli.
-    int OperatingReputationMilli = 0);
+    int OperatingReputationMilli = 0,
+    // Phase 13 — lifetime flying totals + relationships, so the achievement roster can be varied without new plumbing.
+    long TotalDistanceNm = 0, long LifetimeEarningsCents = 0, long LongestLegNm = 0, int BestScore = 0, int Clients = 0);
 
 public sealed class ProgressMetricsService
 {
@@ -43,6 +45,12 @@ public sealed class ProgressMetricsService
         var policies = await _db.InsurancePolicies.CountAsync(p => p.CompanyId == companyId, ct); // "ever insured"
         var quals = pilot is null ? 0 : await _db.PilotQualifications.CountAsync(q => q.PilotId == pilot.Id, ct);
         var netWorth = (await _finance.NetWorthAsync(companyId, ct)).NetWorthCents;
+        // Phase 13 — lifetime flying totals + client count, for the wider achievement roster.
+        var totalDist = flights == 0 ? 0 : (long)Math.Round(await _db.Flights.SumAsync(f => f.DistanceNm, ct));
+        var lifetimeEarn = flights == 0 ? 0 : await _db.Flights.SumAsync(f => f.PayoutCents, ct);
+        var longestLeg = flights == 0 ? 0 : (long)Math.Round(await _db.Flights.MaxAsync(f => f.DistanceNm, ct));
+        var bestScore = await _db.Flights.Where(f => f.OverallScore != null).Select(f => f.OverallScore!.Value).OrderByDescending(s => s).FirstOrDefaultAsync(ct);
+        var clients = await _db.Clients.CountAsync(c => c.CompanyId == companyId, ct);
 
         return new ProgressMetrics(
             Flights: flights,
@@ -56,6 +64,11 @@ public sealed class ProgressMetricsService
             LoansPaidOff: loansPaid,
             Policies: policies,
             NetWorthCents: netWorth,
-            OperatingReputationMilli: company?.OperatingReputationMilli ?? 0);
+            OperatingReputationMilli: company?.OperatingReputationMilli ?? 0,
+            TotalDistanceNm: totalDist,
+            LifetimeEarningsCents: lifetimeEarn,
+            LongestLegNm: longestLeg,
+            BestScore: bestScore,
+            Clients: clients);
     }
 }
