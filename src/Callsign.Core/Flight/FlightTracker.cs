@@ -17,7 +17,7 @@ namespace Callsign.Core.Flight;
 public sealed class FlightTracker
 {
     private const double TaxiSpeedKts = 3;       // above this, on the ground = taxiing
-    private const double TaxiOverspeedKts = 30;  // brief §2.3 rough-handling: fast taxi is penalised
+    private const double StoppedDwellSeconds = 4; // landed and stopped this long at the destination = the leg logs (brake/engine SimVars are unreliable, so a full stop is what completes it)
     private const double ClimbVsFpm = 200;
     private const double DescentVsFpm = -200;
     private const double LevelVsFpm = 100;       // |VS| below this is clearly level (Cruise); the band 100–200 fpm HOLDS the
@@ -66,7 +66,8 @@ public sealed class FlightTracker
     private readonly List<FlightEvent> _events = [];
 
     private bool _wasAirborne;
-    private bool _taxiWarned;
+    private DateTimeOffset? _stoppedSince; // when the aircraft first came to a full stop after landing (the dwell timer)
+    private bool _shutdownNudged;          // the one-time "logging the flight…" line has been shown
 
     // Phase 12 flight lifecycle: a takeoff only counts once we've actually seen the aircraft ON THE GROUND
     // (no air-spawn / mid-flight-start counts as a departure); a landing only completes once the aircraft is
@@ -74,7 +75,6 @@ public sealed class FlightTracker
     // running, so the synthetic source, a glider, and pre-Phase-12 tests still complete on the stop (L10).
     private bool _sawGround;
     private bool _sawEngineRunning;
-    private string? _secureNeed; // the last "what's left to secure" nudge, so we re-coach only when the step changes
 
     private bool _inFlight;
     private bool _landed;
@@ -113,7 +113,6 @@ public sealed class FlightTracker
     // accrued damage (max − baseline) is priced into engine wear at settlement. _engDmgPrev holds the previous
     // raw reading so a rise must be confirmed across two samples before it bills (single-frame spike guard).
     private double _engDmgBaseline = -1, _engDmgMax, _engDmgPrev;
-    private bool _engStressCoached;
     // Phase 12 — in-flight emergency detection. If the engine quits ALOFT (was running, now isn't, above the
     // gate so a normal short-final power-off / touchdown shutdown doesn't count), it's a genuine failure. If the
     // pilot then completes the leg with a valid score, it's a HANDLED emergency — recognised airmanship (L9).
@@ -169,18 +168,14 @@ public sealed class FlightTracker
                 _engDmgMax = confirmed;
             _engDmgPrev = dmg;
         }
-        if (_engDmgMax - _engDmgBaseline >= EngStressDeadbandPct && !_engStressCoached)
-        {
-            _engStressCoached = true;
-            _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Coaching,
-                "Engine stress registering — ease the power and watch your temps"));
-        }
+        // Playtest feedback: MSFS's own damage model reads noisy and fires on aircraft that were never abused,
+        // so the engine-stress coaching nudge and the wear it billed are BOTH retired. We still baseline/track the
+        // reading harmlessly (cheap, and keeps the telemetry contract), but it no longer coaches or costs anything.
     }
 
-    // The leg's accrued engine damage, past the noise deadband (0 below it, or when the sim never reported).
-    private double EngineDamageAccrued()
-        => _engDmgBaseline >= 0 && _engDmgMax - _engDmgBaseline >= EngStressDeadbandPct
-            ? _engDmgMax - _engDmgBaseline : 0;
+    // Engine-damage wear is disabled (see MeterEngineStress) — a leg never accrues billed damage from the sim's
+    // model. Kept as a method so the settlement path (EngineDamagePctAccrued) is untouched; it simply reads 0.
+    private double EngineDamageAccrued() => 0;
 
     private void ObserveAirborne(TelemetrySnapshot t)
     {
@@ -284,12 +279,6 @@ public sealed class FlightTracker
     private bool IsSecured(TelemetrySnapshot t)
         => !_sawEngineRunning || (t.ParkingBrakeSet && !t.EngineRunning);
 
-    // What's still keeping the flight from logging, so the nudge names exactly the remaining step.
-    private static string SecureRemaining(TelemetrySnapshot t)
-        => !t.ParkingBrakeSet && t.EngineRunning ? "set the parking brake and shut the engine down"
-        : !t.ParkingBrakeSet ? "set the parking brake"
-        : "shut the engine down";
-
     private void ObserveOnGround(TelemetrySnapshot t)
     {
         _sawGround = true; // Phase 12 — we've now seen the aircraft on the ground; a later liftoff is a real takeoff
@@ -350,33 +339,24 @@ public sealed class FlightTracker
         if (t.GroundSpeedKts >= TaxiSpeedKts)
         {
             Phase = _inFlight && _landed ? FlightPhase.Landing : FlightPhase.Taxi;
-            if (t.GroundSpeedKts > TaxiOverspeedKts && !_taxiWarned)
-            {
-                _taxiWarned = true;
-                _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Warning,
-                    $"Taxi speed {t.GroundSpeedKts:F0} kt exceeds {TaxiOverspeedKts:F0} kt"));
-            }
+            _stoppedSince = null; // moving again — the come-to-a-stop timer resets
         }
         else if (_inFlight && _landed)
         {
-            // Down and stopped at the destination. Phase 12: the flight is only LOGGED once the aircraft is
-            // secured — parking brake set, or the engine shut down — the way a flight actually ends. Until then
-            // we hold in Shutdown and nudge once. Legacy sources that never report engine state secure on the
-            // stop (IsSecured true immediately), so their behaviour is unchanged (L10).
+            // Down and STOPPED at the destination — the flight logs here. The parking brake + engine-off SimVars
+            // read unreliably across MSFS aircraft (some spawn with the brake "set"; ENG COMBUSTION lags a manual
+            // shutdown), so we no longer REQUIRE them: coming to a full stop after landing completes the leg. A
+            // real shutdown (brake set AND engine off) still completes instantly as a fast path.
             Phase = FlightPhase.Shutdown;
-            if (IsSecured(t))
+            _stoppedSince ??= t.CapturedAt;
+            bool dwellDone = (t.CapturedAt - _stoppedSince.Value).TotalSeconds >= StoppedDwellSeconds;
+            if (IsSecured(t) || dwellDone)
                 Complete();
-            else
+            else if (!_shutdownNudged)
             {
-                // Nudge with EXACTLY what's left — and re-nudge only when that changes (e.g. brake now set,
-                // engine still running), so it guides the shutdown without spamming a line every frame.
-                string need = SecureRemaining(t);
-                if (need != _secureNeed)
-                {
-                    _secureNeed = need;
-                    _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Coaching,
-                        $"Down and stopped — {need} to log the flight."));
-                }
+                _shutdownNudged = true;
+                _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Info,
+                    "Down and stopped at the destination — logging the flight…"));
             }
         }
         else
@@ -498,20 +478,18 @@ public sealed class FlightTracker
     {
         _liftoffTotalLbs = t.TotalWeightLbs;       // captured for the load check at settlement (0 if unreported → check skipped)
         _liftoffMaxGrossLbs = t.MaxGrossWeightLbs;
-        if (t.MaxGrossWeightLbs > 0 && t.TotalWeightLbs > 0)
+        // Playtest feedback: the sim's TOTAL/MAX-GROSS weight SimVars read wildly on some aircraft (a C152 reported
+        // "1663 lb over MTOW"), so the SCORED overweight warning is retired — a bad read must never dock a score or
+        // cry overload on a clean flight. Loading is enforced up front in the app (the payload gate) instead. We
+        // keep at most ONE gentle, unscored nudge, and only when BOTH readings are plausible (total within 3× of
+        // max-gross — past that it's a garbage read, not a real overload).
+        if (t.MaxGrossWeightLbs > 0 && t.TotalWeightLbs > 0
+            && t.TotalWeightLbs <= t.MaxGrossWeightLbs * 3.0)
         {
             double overLbs = t.TotalWeightLbs - t.MaxGrossWeightLbs;
-            if (t.TotalWeightLbs > t.MaxGrossWeightLbs * OverweightGrossFactor) // gross overload — a real, warned consequence
-            {
-                _violationPoints += PtsOverweight;
-                _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Warning,
-                    $"Overweight takeoff — {overLbs:F0} lb over MTOW"));
-            }
-            else if (overLbs > 0) // a hair over — a nudge, not a straf
-            {
+            if (t.TotalWeightLbs > t.MaxGrossWeightLbs * OverweightGrossFactor)
                 _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Coaching,
-                    $"A touch over MTOW — {overLbs:F0} lb; watch the loading"));
-            }
+                    $"Heavy load — about {overLbs:F0} lb over the book MTOW; watch the climb"));
         }
 
         if (t.CgAftLimit > t.CgFwdLimit) // a real envelope reported

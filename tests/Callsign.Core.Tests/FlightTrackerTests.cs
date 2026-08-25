@@ -166,13 +166,15 @@ public class FlightTrackerTests
     }
 
     [Fact]
-    public void Warns_On_Taxi_Overspeed()
+    public void FastGroundRoll_DoesNotWarn()
     {
+        // Playtest feedback: MSFS auto-spawns you ON the runway, so a takeoff roll through 30 kt was firing a
+        // spurious "taxi speed exceeds" warning. The taxi-overspeed warning is retired — a ground roll never warns.
         var t = new FlightTracker();
         t.Observe(Snap(0, 0, 0, 0, onGround: true));
-        t.Observe(Snap(5, 0, 40, 0, onGround: true)); // 40 kt taxi
+        t.Observe(Snap(5, 0, 40, 0, onGround: true)); // 40 kt on the ground
 
-        Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Warning && e.Message.Contains("Taxi speed"));
+        Assert.DoesNotContain(t.Events, e => e.Message.Contains("Taxi speed"));
     }
 
     // ── The Fun Dial (Phase 9, law L9): coach the small stuff, never penalise it ──────────────────
@@ -273,20 +275,32 @@ public class FlightTrackerTests
     }
 
     [Fact]
-    public void WeightBalance_GrossOverweight_WarnsAndScores()
+    public void WeightBalance_Overweight_OnlyCoaches_NeverScores()
     {
-        var t = WbLeg(totalWt: 2700, maxGross: 2500); // 8% over MTOW — a real overload
-        Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Warning && e.Message.Contains("Overweight"));
-        Assert.True(t.Result!.ViolationPoints > 0);
+        // Playtest feedback: the sim's TOTAL/MAX-GROSS weight SimVars read wildly on some aircraft (a C152 cried
+        // "1663 lb over MTOW"), so the SCORED overweight warning is retired. A plausibly-heavy load gets one
+        // gentle nudge and NEVER docks the score — loading is enforced up front in the app instead (L9).
+        var t = WbLeg(totalWt: 2700, maxGross: 2500); // 8% over MTOW, a plausible read (within 3×)
+        Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Coaching && e.Message.Contains("Heavy load"));
+        Assert.DoesNotContain(t.Events, e => e.Severity == FlightEventSeverity.Warning && e.Message.Contains("Overweight"));
+        Assert.Equal(0, t.Result!.ViolationPoints);
     }
 
     [Fact]
-    public void WeightBalance_SlightlyOver_Coaches_WithNoPenalty()
+    public void WeightBalance_GarbageWeightRead_IsIgnored()
     {
-        var t = WbLeg(totalWt: 2560, maxGross: 2500); // ~2% over — a nudge only
-        Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Coaching && e.Message.Contains("MTOW"));
-        Assert.DoesNotContain(t.Events, e => e.Severity == FlightEventSeverity.Warning && e.Message.Contains("Overweight"));
-        Assert.Equal(0, t.Result!.ViolationPoints); // a hair over is never a straf (L9)
+        // A read where total is more than 3× max-gross is a garbage SimVar, not a real overload — say nothing.
+        var t = WbLeg(totalWt: 9000, maxGross: 1670); // the kind of nonsense the C152 reported
+        Assert.DoesNotContain(t.Events, e => e.Message.Contains("MTOW") || e.Message.Contains("Overweight") || e.Message.Contains("Heavy load"));
+        Assert.Equal(0, t.Result!.ViolationPoints);
+    }
+
+    [Fact]
+    public void WeightBalance_SlightlyOver_IsSilent()
+    {
+        var t = WbLeg(totalWt: 2560, maxGross: 2500); // ~2% over — under the 5% nudge line now, so nothing fires
+        Assert.DoesNotContain(t.Events, e => e.Message.Contains("MTOW") || e.Message.Contains("Heavy load"));
+        Assert.Equal(0, t.Result!.ViolationPoints);
     }
 
     [Fact]
@@ -328,19 +342,22 @@ public class FlightTrackerTests
     }
 
     [Fact]
-    public void EngineAbuse_SustainedDamage_CoachesAndAccrues_WithoutScoring()
+    public void EngineDamage_IsRetired_NeverCoachesNorAccrues()
     {
-        var t = EngLeg(baseline: 0, peak: 8); // the sim recorded 8% of fresh engine damage this leg
-        Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Coaching && e.Message.Contains("Engine stress"));
-        Assert.Equal(8.0, t.Result!.EngineDamagePctAccrued, 3);
-        Assert.Equal(0, t.Result!.ViolationPoints); // it bills through engine wear, never the flight score (L9)
+        // Playtest feedback: MSFS's own damage model reads noisy and fired "engine stress" on aircraft that were
+        // never abused, so the coaching nudge AND the wear it billed are both retired. A leg the sim scored 8%
+        // of fresh damage on now accrues nothing and says nothing — the score and the wallet are untouched (L9).
+        var t = EngLeg(baseline: 0, peak: 8);
+        Assert.Equal(0.0, t.Result!.EngineDamagePctAccrued);
+        Assert.DoesNotContain(t.Events, e => e.Message.Contains("Engine stress"));
+        Assert.Equal(0, t.Result!.ViolationPoints);
     }
 
     [Fact]
-    public void EngineAbuse_PreExistingDamage_IsNotRebilled()
+    public void EngineDamage_PreExistingDamage_IsNeverBilled()
     {
-        var t = EngLeg(baseline: 30, peak: 33); // already-worn engine; only THIS leg's 3% is the pilot's to answer for
-        Assert.Equal(3.0, t.Result!.EngineDamagePctAccrued, 3);
+        var t = EngLeg(baseline: 30, peak: 33); // a worn engine, worked hard — still nothing accrues now
+        Assert.Equal(0.0, t.Result!.EngineDamagePctAccrued);
     }
 
     [Fact]
@@ -686,39 +703,55 @@ public class FlightTrackerTests
     // ── Phase 12: the flight lifecycle — start from the ground, complete only when secured ─────────────
 
     [Fact]
-    public void Lifecycle_LandsButNotSecured_HoldsInShutdown_AndNudges_ThenCompletesOnBrakeAndShutdown()
+    public void Lifecycle_LandsAndStops_CompletesOnDwell_EvenWithoutSecuring()
     {
+        // Playtest feedback: MSFS's parking-brake + engine-off SimVars read unreliably (some aircraft spawn with
+        // the brake "set"; ENG COMBUSTION lags a manual shutdown), so the leg could never be logged. The flight
+        // now completes on coming to a full STOP at the destination and holding it for the dwell — brake/engine
+        // are no longer required. That's the reliable "the flight is over" signal.
         var t = new FlightTracker();
         t.Observe(Snap(0, 0, 0, 0, onGround: true, engineRunning: true));        // parked, engine running
         t.Observe(Snap(10, 50, 70, 500, onGround: false, engineRunning: true));  // takeoff
         t.Observe(Snap(60, 30, 60, -120, onGround: false, engineRunning: true)); // final
         t.Observe(Snap(61, 0, 55, 0, onGround: true, engineRunning: true));      // touchdown, rolling out
-        t.Observe(Snap(70, 0, 0, 0, onGround: true, engineRunning: true));       // stopped — engine still running, no brake
+        t.Observe(Snap(63, 0, 0, 0, onGround: true, engineRunning: true));       // just stopped — engine still running, no brake
 
-        Assert.Null(t.Result);                                                   // NOT logged: the aircraft isn't secured
+        Assert.Null(t.Result);                                                   // dwell not elapsed yet
         Assert.Equal(FlightPhase.Shutdown, t.Phase);
-        Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Coaching && e.Message.Contains("parking brake"));
+        Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Info && e.Message.Contains("logging the flight"));
 
-        // Phase 13: brake set but engine STILL running is not enough — a proper shutdown needs both.
-        t.Observe(Snap(80, 0, 0, 0, onGround: true, engineRunning: true, parkingBrake: true));
-        Assert.Null(t.Result);
-        t.Observe(Snap(90, 0, 0, 0, onGround: true, engineRunning: false, parkingBrake: true)); // brake set AND engine off → secured
-        Assert.NotNull(t.Result);                                                // now the flight is logged
+        t.Observe(Snap(70, 0, 0, 0, onGround: true, engineRunning: true));       // still stopped 7s later → the dwell logs it
+        Assert.NotNull(t.Result);                                                // completed with NO brake and the engine still running
     }
 
     [Fact]
-    public void Lifecycle_EngineOffButNoBrake_HoldsUntilBrakeSet()
+    public void Lifecycle_ProperShutdown_CompletesInstantly_AsAFastPath()
     {
+        // A real shutdown — stopped, brake set AND engine off — still logs at once, without waiting out the dwell.
         var t = new FlightTracker();
         t.Observe(Snap(0, 0, 0, 0, onGround: true, engineRunning: true));
         t.Observe(Snap(10, 50, 70, 500, onGround: false, engineRunning: true));
         t.Observe(Snap(60, 30, 60, -120, onGround: false, engineRunning: true));
-        t.Observe(Snap(61, 0, 55, 0, onGround: true, engineRunning: true));
-        t.Observe(Snap(70, 0, 0, 0, onGround: true, engineRunning: true));   // stopped, engine running → holds
-        Assert.Null(t.Result);
-        t.Observe(Snap(80, 0, 0, 0, onGround: true, engineRunning: false));  // engine off, brake NOT set → STILL holds (Phase 13)
-        Assert.Null(t.Result);
-        t.Observe(Snap(90, 0, 0, 0, onGround: true, engineRunning: false, parkingBrake: true)); // brake set too → secured
+        t.Observe(Snap(61, 0, 55, 0, onGround: true, engineRunning: true));                          // touchdown, rolling
+        t.Observe(Snap(62, 0, 0, 0, onGround: true, engineRunning: false, parkingBrake: true));      // stopped + secured the same second
+        Assert.NotNull(t.Result);                                                                     // logged immediately (no dwell wait)
+    }
+
+    [Fact]
+    public void Lifecycle_TaxiingAfterLanding_DoesNotComplete_UntilItStops()
+    {
+        // The dwell only starts once the aircraft is truly stopped: taxiing to the gate keeps resetting it, so a
+        // long roll-out never logs the flight mid-taxi. It logs when you finally park.
+        var t = new FlightTracker();
+        t.Observe(Snap(0, 0, 0, 0, onGround: true, engineRunning: true));
+        t.Observe(Snap(10, 50, 70, 500, onGround: false, engineRunning: true));
+        t.Observe(Snap(60, 30, 60, -120, onGround: false, engineRunning: true));
+        t.Observe(Snap(61, 0, 55, 0, onGround: true, engineRunning: true));   // touchdown
+        t.Observe(Snap(70, 0, 12, 0, onGround: true, engineRunning: true));   // taxiing at 12 kt
+        t.Observe(Snap(80, 0, 10, 0, onGround: true, engineRunning: true));   // still taxiing
+        Assert.Null(t.Result);                                               // moving → never completes
+        t.Observe(Snap(85, 0, 0, 0, onGround: true, engineRunning: true));   // stops
+        t.Observe(Snap(92, 0, 0, 0, onGround: true, engineRunning: true));   // holds the stop past the dwell → logs
         Assert.NotNull(t.Result);
     }
 

@@ -38,6 +38,11 @@ public sealed class FlightSessionService : IDisposable
     private bool _freeFlight;          // a free flight (Phase 12): tracked + logged, but no job to settle
     private bool _settling; // guards the async settle so one landing is resolved at a time
     private int _sentEventCount; // how many of the tracker's events have already been streamed live (Phase 7a)
+    // The armed leg's destination, resolved once when the flight begins, so every telemetry frame can report the
+    // live distance to it and whether we're inside the arrival sector (Phase 13 — a VISIBLE geofence, NeoFly-style).
+    private string _destIcao = "";
+    private double _destLat, _destLon;
+    private bool _destHasCoords;
 
     public TelemetrySnapshot? Latest { get; private set; }
     public FlightPhase Phase { get; private set; } = FlightPhase.Parked;
@@ -89,7 +94,30 @@ public sealed class FlightSessionService : IDisposable
             _aircraftInstanceId = aircraftInstanceId;
             _checkClass = null; // a job flight and a check-flight are mutually exclusive
             _freeFlight = false;
+            _destIcao = ""; _destHasCoords = false; // resolved just below, off the DB
         }
+        _ = ResolveDestinationAsync(assignmentId); // fire-and-forget: fills the sector coords within a frame or two
+    }
+
+    /// <summary>Resolve the armed leg's destination airport coordinates once, so FeedAsync can broadcast the live
+    /// distance-to-destination and in-sector flag every frame (a visible arrival geofence). Best-effort.</summary>
+    private async Task ResolveDestinationAsync(Guid assignmentId)
+    {
+        try
+        {
+            using var scope = _scopes.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<CallsignDbContext>();
+            var a = await db.JobAssignments.FirstOrDefaultAsync(x => x.Id == assignmentId);
+            if (a is null) return;
+            var dest = await db.Airports.FirstOrDefaultAsync(x => x.Ident == a.DestIcao);
+            lock (_gate)
+            {
+                if (_assignmentId != assignmentId) return; // a different leg was armed meanwhile
+                _destIcao = a.DestIcao;
+                if (dest is not null) { _destLat = dest.Latitude; _destLon = dest.Longitude; _destHasCoords = true; }
+            }
+        }
+        catch { /* the sector readout is best-effort; settlement's own CheckArrivalAsync is the source of truth */ }
     }
 
     /// <summary>Begin a check-flight for a licence class (Phase 3d): the next landing is graded, not settled.</summary>
@@ -102,6 +130,7 @@ public sealed class FlightSessionService : IDisposable
             _aircraftInstanceId = null;
             _checkClass = cls;
             _freeFlight = false;
+            _destIcao = ""; _destHasCoords = false; // a check-flight has no job destination sector
         }
     }
 
@@ -116,6 +145,7 @@ public sealed class FlightSessionService : IDisposable
             _aircraftInstanceId = null;
             _checkClass = null;
             _freeFlight = true;
+            _destIcao = ""; _destHasCoords = false; // a free flight has no job destination sector
         }
     }
 
@@ -129,10 +159,12 @@ public sealed class FlightSessionService : IDisposable
         bool freeToLog = false;
         List<FlightEvent> newEvents = [];
         bool active;
+        string destIcaoLocal = ""; bool destHasCoordsLocal = false; double destLatLocal = 0, destLonLocal = 0;
 
         lock (_gate)
         {
             Latest = t;
+            destIcaoLocal = _destIcao; destHasCoordsLocal = _destHasCoords; destLatLocal = _destLat; destLonLocal = _destLon;
             // The tracker — the moving map, the coaching, the scoring — only runs while a flight or check is
             // ARMED. Idle, we don't feed it: no phantom flight, no out-of-nowhere coaching, no map wandering
             // off across the sea from the synthetic source that's always streaming (Phase 12). The HUD still
@@ -181,11 +213,24 @@ public sealed class FlightSessionService : IDisposable
         // position and gauges so the map shows no aircraft and the HUD reads parked. A real sim's live position
         // is genuine, so it's passed through even when idle (you can see your aircraft on the ramp).
         bool showLive = active || !_source.IsSynthetic;
+        // Live distance to the destination airport + whether we're inside the arrival sector, so the Flight tab can
+        // draw the geofence and only say "on approach" when we're genuinely near the field (Phase 13, bugs #7/#8).
+        double? distToDestNm = null;
+        bool inSector = false;
+        if (active && destHasCoordsLocal && showLive && (t.LatitudeDeg != 0 || t.LongitudeDeg != 0))
+        {
+            distToDestNm = GeoMath.DistanceNm(t.LatitudeDeg, t.LongitudeDeg, destLatLocal, destLonLocal);
+            inSector = distToDestNm <= _config.ArrivalRadiusNm;
+        }
         await BroadcastAsync(new
         {
             type = "telemetry",
             phase = Phase.ToString(),
             connection = Connection.ToString(),
+            destIcao = destIcaoLocal,
+            distToDestNm,
+            inSector,
+            arrivalRadiusNm = _config.ArrivalRadiusNm,
             alt = showLive ? t.AltitudeFt : 0.0,
             ias = showLive ? t.IndicatedAirspeedKts : 0.0,
             gs = showLive ? t.GroundSpeedKts : 0.0,
