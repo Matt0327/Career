@@ -5,7 +5,7 @@ import {
   type FinancesData, type FinanceDetail, type AttributionLine, type CashPoint, type StatementRow, type FlightLog, type FlightDetail, type FlightTotals, type Insurance, type Inventory, type Job, type LeaderboardRow, type LedgerEntry, type LiveEvent, type Loan, type LoanOffer, type Loans,
   type MarketQuote, type OwnedAircraft, type QualClass, type RankTier, type ReconcileResult, type Reputation,
   type DispatchLeg, type RouteData, type Settled, type Staff, type StaffCandidate, type StandingOrder, type State, type Telemetry, type UsedListing, type VersionInfo, type Weather, type WorldState, type WsEvent,
-  type RentalOffer, type ActiveRental, type ActiveLease,
+  type RentalOffer, type ActiveRental, type ActiveLease, type Org, type ExecutiveCandidate,
 } from './api'
 import { loadPrefs, savePrefs, type Prefs, type Theme } from './prefs'
 import * as L from 'leaflet'
@@ -5478,6 +5478,68 @@ function ShareTicker({ market, color }: { market: AirlineData['hq']['market']; c
   )
 }
 
+// Phase 16c — "The org": hire a C-suite, one per seat. A stronger, fuller org lifts how well the autonomous
+// operation runs (its management strength adds crew skill to your away-flown legs), for a real daily salary.
+function OrgPanel({ org, color, onChanged }: { org: Org; color: string; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [marketRole, setMarketRole] = useState<string | null>(null)
+  const [candidates, setCandidates] = useState<ExecutiveCandidate[]>([])
+
+  const openMarket = useCallback(async (role: string) => {
+    setMarketRole(role); setCandidates([])
+    try { const m = await api.executiveMarket(); setCandidates(m.filter(c => c.role === role)) } catch { setCandidates([]) }
+  }, [])
+  const hire = useCallback(async (c: ExecutiveCandidate) => {
+    setBusy(true)
+    try { await api.hireExecutive({ seed: c.seed, role: c.role }); setMarketRole(null); onChanged() }
+    catch (e) { notify(String(e), 'error') } finally { setBusy(false) }
+  }, [onChanged])
+  const dismiss = useCallback(async (id: string, nm: string) => {
+    if (!await confirmDialog({ title: `Let ${nm} go?`, message: 'Their final salary is settled now, and the seat reopens.', confirmLabel: 'Dismiss', tone: 'default' })) return
+    setBusy(true)
+    try { await api.dismissExecutive(id); onChanged() }
+    catch (e) { notify(String(e), 'error') } finally { setBusy(false) }
+  }, [onChanged])
+
+  const strength = Math.round(org.strengthMilli / 1000)
+  const boost = Math.round(org.opsSkillBoostMilli / 1000)
+  return (
+    <section className="card org-panel">
+      <div className="row-head"><h2>The org</h2><span className="muted">{org.rolesFilled}/{org.roleCount} seats · {money(org.dailySalaryCents)}/day</span></div>
+      <p className="muted org-intro">Build a C-suite and the airline runs itself. A stronger org gets more out of your crews on the autonomous line — so you can head back to the cockpit and leave the desk to them.</p>
+      <div className="org-strength">
+        <div className="os-bar"><span style={{ width: `${strength}%`, background: color }} /></div>
+        <div className="os-read"><b>{strength}</b><span className="muted"> / 100 management strength</span>{boost > 0 && <span className="os-boost" style={{ color }}>+{boost} crew skill on autonomous ops</span>}</div>
+      </div>
+      <div className="org-seats">
+        {org.seats.map(s => (
+          <div key={s.role} className={`org-seat ${s.holder ? 'filled' : ''}`}>
+            <div className="oseat-role"><b>{s.title}</b><span className="muted">{s.mandate}</span></div>
+            {s.holder ? (
+              <div className="oseat-holder">
+                <span><span className="oh-name">{s.holder.name}</span><span className="muted"> · {Math.round(s.holder.competenceMilli / 1000)}% · {money(s.holder.salaryPerDayCents)}/day</span></span>
+                <button className="ghost small" disabled={busy} onClick={() => dismiss(s.holder!.id, s.holder!.name)}>Let go</button>
+              </div>
+            ) : marketRole === s.role ? (
+              <div className="oseat-market">
+                {candidates.length === 0 ? <span className="muted">Finding candidates…</span> : candidates.map(c => (
+                  <div key={c.seed} className="ocand">
+                    <span>{c.name} · <b>{Math.round(c.competenceMilli / 1000)}%</b> · {money(c.salaryPerDayCents)}/day</span>
+                    <button className="primary small" disabled={busy} onClick={() => hire(c)}>Hire</button>
+                  </div>
+                ))}
+                <button className="ghost small" onClick={() => setMarketRole(null)}>Cancel</button>
+              </div>
+            ) : (
+              <button className="ghost small" onClick={() => openMarket(s.role)}>Vacant · Hire</button>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 function Airline({ onSaved, hatMode, onSwitchHat }: { onSaved: () => void; hatMode: OpMode | null; onSwitchHat: (m: OpMode) => void }) {
   const [data, setData] = useState<AirlineData | null>(null)
   const [name, setName] = useState('')
@@ -5591,6 +5653,7 @@ function Airline({ onSaved, hatMode, onSwitchHat }: { onSaved: () => void; hatMo
           </div>
         </section>
         {data.hq.market && <ShareTicker market={data.hq.market} color={color} />}
+        <OrgPanel org={data.org} color={color} onChanged={onSaved} />
         <NetworkOps color={color} />
         <section className="card">
           <h2>Airline identity</h2>

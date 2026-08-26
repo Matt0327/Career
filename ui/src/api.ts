@@ -989,6 +989,38 @@ export interface AirlineData {
   emblems: string[]
   incorporation: AirlineIncorporation
   hq: AirlineHq
+  org: Org // Phase 16c — the executive suite
+}
+// Phase 16c — the org (executive suite)
+export interface Executive {
+  id: string
+  role: string
+  title: string
+  name: string
+  competenceMilli: number
+  salaryPerDayCents: number
+}
+export interface ExecutiveSeat {
+  role: string
+  title: string
+  mandate: string
+  holder: Executive | null
+}
+export interface Org {
+  strengthMilli: number
+  rolesFilled: number
+  roleCount: number
+  dailySalaryCents: number
+  opsSkillBoostMilli: number
+  seats: ExecutiveSeat[]
+}
+export interface ExecutiveCandidate {
+  seed: number
+  role: string
+  title: string
+  name: string
+  salaryPerDayCents: number
+  competenceMilli: number
 }
 export interface AirlineHq {
   fleetCount: number
@@ -1237,6 +1269,9 @@ export const api = {
     POST('/api/airline', body).then(ok<AirlineIdentity>),
   incorporate: (body: { name: string; tailCode: string; accentColorHex: string; emblemKey: string }) =>
     POST('/api/airline/incorporate', body).then(ok<AirlineIdentity>),
+  executiveMarket: () => fetch('/api/airline/executives/market').then(ok<ExecutiveCandidate[]>),
+  hireExecutive: (body: { seed: number; role: string }) => POST('/api/airline/executives/hire', body).then(ok<Executive>),
+  dismissExecutive: (id: string) => POST(`/api/airline/executives/${id}/dismiss`, {}).then(ok<{ ok: boolean }>),
   version: () => fetch('/api/version').then(ok<VersionInfo>),
   backups: () => fetch('/api/save/backups').then(ok<BackupFile[]>),
   backup: () => POST('/api/save/backup').then(ok<BackupFile>),

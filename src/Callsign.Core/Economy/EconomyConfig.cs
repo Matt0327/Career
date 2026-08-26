@@ -754,6 +754,21 @@ public sealed record EconomyConfig
     /// <summary>Operating reputation (0–100000) required — a demonstrably proven operator.</summary>
     public int FounderMinOperatingRepMilli { get; init; } = 60_000; // 60 / 100
 
+    // --- The executive suite (Phase 16c) ---
+    // Once incorporated you build a C-suite: five roles, one hire each. Together the filled seats are the
+    // org's "management strength" — the spine of the endgame ("the org is the difficulty dial"): a strong org
+    // runs the autonomous operation better, so you can step back into the cockpit. Salary is a real cost.
+    /// <summary>Number of C-suite roles (the org chart) — full coverage = every seat filled.</summary>
+    public int ExecutiveRoleCount { get; init; } = 5;
+    /// <summary>How much a full, fully-competent org (strength 100000) lifts the effective crew skill on
+    /// autonomous legs — the org gets more out of the crews, so operating reputation converges higher. The rep
+    /// is still hard-capped at 100 and the pull never overshoots its target, so this can only ever help, bounded.</summary>
+    public double ExecOrgSkillBoostFactor { get; init; } = 0.15; // strength 100 → +15 effective skill points
+    /// <summary>Base executive salary floor per day (a green exec), before the competence premium.</summary>
+    public long ExecutiveBaseSalaryCentsPerDay { get; init; } = 40_000;   // $400/day
+    /// <summary>Extra daily salary per competence point (0–100) — an ace C-suite hire is dear.</summary>
+    public long ExecutiveSalaryCentsPerCompetencePoint { get; init; } = 1_400; // +$14/day per point → ~$1,800/day at 100
+
     // Enterprise-valuation goodwill weights (informational; the airline's "worth" as a going concern). Retunable.
     /// <summary>Brand value per point of operating reputation — a fully-reputed airline (100) is worth $5M of brand.</summary>
     public long AirlineRepValuationCents { get; init; } = 5_000_000;

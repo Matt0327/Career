@@ -23,6 +23,7 @@ public sealed class CallsignDbContext : DbContext
     public DbSet<FlightEventRecord> FlightEvents => Set<FlightEventRecord>();
     public DbSet<AircraftInstance> AircraftInstances => Set<AircraftInstance>();
     public DbSet<Staff> Staff => Set<Staff>();
+    public DbSet<Executive> Executives => Set<Executive>();
     public DbSet<StandingOrder> StandingOrders => Set<StandingOrder>();
     public DbSet<DispatchLeg> DispatchLegs => Set<DispatchLeg>();
     public DbSet<Base> Bases => Set<Base>();
@@ -195,6 +196,14 @@ public sealed class CallsignDbContext : DbContext
         staff.Property(s => s.CurrentIcao).HasMaxLength(12); // Phase 12 — soft FK to Airports.Ident; nullable = un-positioned
         staff.HasIndex(s => s.CompanyId);
         staff.HasOne<Company>().WithMany().HasForeignKey(s => s.CompanyId).OnDelete(DeleteBehavior.Restrict);
+
+        // Phase 16c — the executive suite: senior company-level hires, one per role.
+        var exec = model.Entity<Executive>();
+        exec.HasKey(e => e.Id);
+        exec.Property(e => e.Name).IsRequired().HasMaxLength(80);
+        exec.Property(e => e.Role).HasConversion<string>().HasMaxLength(24);
+        exec.HasIndex(e => e.CompanyId);
+        exec.HasOne<Company>().WithMany().HasForeignKey(e => e.CompanyId).OnDelete(DeleteBehavior.Restrict);
 
         var order = model.Entity<StandingOrder>();
         order.HasKey(o => o.Id);

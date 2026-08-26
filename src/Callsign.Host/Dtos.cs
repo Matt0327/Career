@@ -295,7 +295,13 @@ public record AirlineStandingDto(int Stage, string StageName, int Score, IReadOn
 public record AirlineRepEventDto(int DeltaMilli, int BalanceMilli, string Source, string Reason, DateTimeOffset At);
 public record AirlineReputationDto(int OperatingReputationMilli, int RecentPlayerDeltaMilli, int RecentCrewDeltaMilli, IReadOnlyList<AirlineRepEventDto> Recent);
 public record AirlineDto(AirlineIdentityDto Identity, AirlineStandingDto Standing, AirlineReputationDto Reputation, IReadOnlyList<string> Emblems,
-    AirlineIncorporationDto Incorporation, AirlineHqDto Hq); // Phase 13 — the "become an airline" gate + the HQ at-a-glance
+    AirlineIncorporationDto Incorporation, AirlineHqDto Hq, OrgDto Org); // Phase 13 gate + HQ; Phase 16c org
+// Phase 16c — the executive suite (the org). Seats are the whole org chart; a null Holder = a vacant seat.
+public record ExecutiveDto(Guid Id, string Role, string Title, string Name, int CompetenceMilli, long SalaryPerDayCents);
+public record ExecutiveSeatDto(string Role, string Title, string Mandate, ExecutiveDto? Holder);
+public record OrgDto(int StrengthMilli, int RolesFilled, int RoleCount, long DailySalaryCents, int OpsSkillBoostMilli, IReadOnlyList<ExecutiveSeatDto> Seats);
+public record ExecutiveCandidateDto(int Seed, string Role, string Title, string Name, long SalaryPerDayCents, int CompetenceMilli);
+public record HireExecutiveRequest(int Seed, string Role);
 public record AirlineHqDto(int FleetCount, int BaseCount, int RouteCount, int ScheduledCount, long NetWorthCents,
     long ValuationCents, IReadOnlyList<ValuationLineDto> ValuationBreakdown, AirlineMarketDto Market); // Phase 13 — enterprise value + the flotation ticker
 public record ValuationLineDto(string Label, long Cents);

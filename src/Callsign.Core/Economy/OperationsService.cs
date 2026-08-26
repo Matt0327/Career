@@ -599,6 +599,15 @@ public sealed class OperationsService
         long repPullRaw = 0;    // summed crew pull (milli); step-capped, then bounded to the target, before the terminal save
         double repFracSum = 0;  // summed convergence fraction — the denominator of the trip-weighted crew-skill target
 
+        // Phase 16c — the executive suite. A strong org runs the autonomous operation better: its management
+        // strength adds to every crew's EFFECTIVE skill for the operating-rep pull below, so ops converge toward a
+        // higher name. Read once. 0 when there's no C-suite → the pulls are byte-identical to pre-16c. The pull is
+        // still step-capped, never overshoots its target, and is hard-bounded to 100 — so this only ever helps,
+        // within those rails. Executives are also paid a daily salary in the wage loop further down.
+        var execs = await _db.Executives.Where(e => e.CompanyId == companyId && e.IsActive && !e.IsDeleted).ToListAsync(ct);
+        int orgSkillBoostMilli = ExecutiveService.OrgSkillBoostMilli(_cfg, ExecutiveService.OrgStrengthMilli(execs, _cfg.ExecutiveRoleCount));
+        int Managed(int crewSkillMilli) => Math.Min(100_000, crewSkillMilli + orgSkillBoostMilli);
+
         foreach (var o in await _db.StandingOrders.Where(o => o.CompanyId == companyId && o.IsActive && !o.IsDeleted).ToListAsync(ct))
         {
             double elapsedH = (now - o.LastReconciledAt).TotalHours;
@@ -681,7 +690,7 @@ public sealed class OperationsService
             if (dutyCapped) dutyMaxed.Add(soAircraft?.Tail ?? $"{o.OriginIcao}↔{o.DestIcao}");
             int soCrewSkillFlown = soCrew?.SkillMilli ?? 50_000; // capture BEFORE SharpenCrew — L12 converges toward the competence that actually FLEW these trips, not the post-trip skill bump
             SharpenCrew(soCrew, flown, now);
-            repPullRaw += _cfg.OperatingRepCrewPullMilli(repStartMilli, soCrewSkillFlown, flown); // Phase 11a
+            repPullRaw += _cfg.OperatingRepCrewPullMilli(repStartMilli, Managed(soCrewSkillFlown), flown); // Phase 11a; Managed = +org (16c)
             repFracSum += _cfg.OperatingRepConvergeFrac(flown);
         }
 
@@ -770,7 +779,7 @@ public sealed class OperationsService
                 client.UpdatedAt = now;
             }
             SharpenCrew(legCrew, 1, now);
-            repPullRaw += _cfg.OperatingRepCrewPullMilli(repStartMilli, legSkill, 1); // legSkill captured BEFORE SharpenCrew
+            repPullRaw += _cfg.OperatingRepCrewPullMilli(repStartMilli, Managed(legSkill), 1); // legSkill captured BEFORE SharpenCrew; Managed = +org (16c)
             repFracSum += _cfg.OperatingRepConvergeFrac(1);
 
             leg.Status = DispatchStatus.Flown;
@@ -806,6 +815,23 @@ public sealed class OperationsService
             s.LastPaidAt = now;
             s.UpdatedAt = now;
             totalWages += wage;
+        }
+
+        // Phase 16c — executive salaries accrue like wages, on the same ledger path (the real cost of the org).
+        foreach (var e in execs)
+        {
+            double execDays = (now - e.LastPaidAt).TotalDays;
+            long salary = (long)Math.Round(execDays * e.SalaryPerDayCents);
+            if (salary <= 0)
+                continue;
+            await _ledger.StageBatchAsync(companyId, new[]
+            {
+                new LedgerPosting(LedgerCategory.StaffWage, -(salary / 100m), $"Salary — {e.Name}",
+                    DedupeKey: $"execwage:{e.Id}:{e.LastPaidAt.UtcTicks}"),
+            }, ct);
+            e.LastPaidAt = now;
+            e.UpdatedAt = now;
+            totalWages += salary;
         }
 
         // Base managers (Phase 12): each manager keeps the OWNED fleet parked AT THEIR FIELD airworthy —
@@ -981,7 +1007,7 @@ public sealed class OperationsService
             if (dutyCapped) dutyMaxed.Add(rtAircraft?.Tail ?? route.Name);
             int rtCrewSkillFlown = rtCrew?.SkillMilli ?? 50_000; // capture BEFORE SharpenCrew (see the standing-order loop) — L12 target is the competence that flew
             SharpenCrew(rtCrew, flown, now);
-            repPullRaw += _cfg.OperatingRepCrewPullMilli(repStartMilli, rtCrewSkillFlown, flown); // Phase 11a
+            repPullRaw += _cfg.OperatingRepCrewPullMilli(repStartMilli, Managed(rtCrewSkillFlown), flown); // Phase 11a; Managed = +org (16c)
             repFracSum += _cfg.OperatingRepConvergeFrac(flown);
         }
 

@@ -106,6 +106,7 @@ public static class CallsignWebApp
         builder.Services.AddScoped<AircraftDealerService>();
         builder.Services.AddScoped<JobBoardService>();
         builder.Services.AddScoped<OperationsService>();
+        builder.Services.AddScoped<ExecutiveService>();
         builder.Services.AddScoped<BaseService>();
         builder.Services.AddScoped<GameSetupService>();
         builder.Services.AddScoped<TradeService>();
@@ -328,6 +329,17 @@ public static class CallsignWebApp
         return new AirlineIncorporationDto(inc.Incorporated, inc.IncorporatedAt,
             inc.Requirements.Select(r => new FounderRequirementDto(r.Key, r.Label, r.Detail, r.Met, r.Current, r.Target)).ToList(),
             inc.MetCount, inc.TotalCount, inc.Eligible, inc.FoundingFeeCents);
+    }
+
+    // Phase 16c — the executive suite for the Airline tab.
+    private static ExecutiveDto MapExec(Callsign.Core.Domain.Executive e) =>
+        new(e.Id, e.Role.ToString(), ExecutiveService.Catalog.First(c => c.Role == e.Role).Title, e.Name, e.CompetenceMilli, e.SalaryPerDayCents);
+
+    private static async Task<OrgDto> MapOrgAsync(ExecutiveService exec, Guid companyId)
+    {
+        var org = await exec.GetOrgAsync(companyId);
+        return new OrgDto(org.StrengthMilli, org.RolesFilled, org.RoleCount, org.DailySalaryCents, org.OpsSkillBoostMilli,
+            org.Seats.Select(s => new ExecutiveSeatDto(s.Role.ToString(), s.Title, s.Mandate, s.Holder is null ? null : MapExec(s.Holder))).ToList());
     }
 
     private static async Task<Dictionary<string, string>> AirportNamesAsync(CallsignDbContext db, IEnumerable<string> idents)
@@ -2189,7 +2201,7 @@ public static class CallsignWebApp
         });
 
         // --- Airline identity + standing (Phase 5c) ---
-        app.MapGet("/api/airline", async (CallsignDbContext db, AirlineService airline, FinanceService finance, EconomyConfig cfg) =>
+        app.MapGet("/api/airline", async (CallsignDbContext db, AirlineService airline, ExecutiveService exec, FinanceService finance, EconomyConfig cfg) =>
         {
             var pilot = await db.Pilots.FirstOrDefaultAsync();
             if (pilot is null) return Results.NotFound();
@@ -2235,7 +2247,8 @@ public static class CallsignWebApp
                     valuation.TotalCents, valuation.Breakdown.Select(l => new ValuationLineDto(l.Label, l.Cents)).ToList(),
                     new AirlineMarketDto(market.SharePriceCents, market.MarketCapCents, market.SharesOutstanding,
                         market.FlotationSharePriceCents, market.GrowthSinceFlotationPct,
-                        market.History.Select(p => new ValuePointDto(p.AtUtc, p.SharePriceCents)).ToList()))));
+                        market.History.Select(p => new ValuePointDto(p.AtUtc, p.SharePriceCents)).ToList())),
+                await MapOrgAsync(exec, pilot.CompanyId)));
         });
 
         // Phase 13 — formally incorporate as an airline (gated: Regional rung + a valid AOC + the founding fee).
@@ -2259,6 +2272,42 @@ public static class CallsignWebApp
             {
                 var id = await airline.SetIdentityAsync(pilot.CompanyId, req.Name, req.TailCode, req.AccentColorHex, req.EmblemKey);
                 return Results.Ok(new AirlineIdentityDto(id.Name, id.TailCode, id.AccentColorHex, id.EmblemKey, id.Customised));
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        // Phase 16c — the executive suite (the org): the hire market for open seats, hire, and dismiss.
+        app.MapGet("/api/airline/executives/market", async (CallsignDbContext db, ExecutiveService exec) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            var market = await exec.GenerateMarketAsync(pilot.CompanyId);
+            return Results.Ok(market.Select(c => new ExecutiveCandidateDto(c.Seed, c.Role.ToString(),
+                ExecutiveService.Catalog.First(x => x.Role == c.Role).Title, c.Name, c.SalaryPerDayCents, c.CompetenceMilli)).ToList());
+        });
+
+        app.MapPost("/api/airline/executives/hire", async (HireExecutiveRequest req, CallsignDbContext db, ExecutiveService exec) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            if (!Enum.TryParse<Callsign.Core.Domain.ExecutiveRole>(req.Role, out var role))
+                return Results.BadRequest(new { error = $"Unknown role '{req.Role}'." });
+            try
+            {
+                var e = await exec.HireAsync(pilot.CompanyId, req.Seed, role);
+                return Results.Ok(MapExec(e));
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        });
+
+        app.MapPost("/api/airline/executives/{id:guid}/dismiss", async (Guid id, CallsignDbContext db, ExecutiveService exec) =>
+        {
+            var pilot = await db.Pilots.FirstOrDefaultAsync();
+            if (pilot is null) return Results.NotFound();
+            try
+            {
+                await exec.DismissAsync(pilot.CompanyId, id);
+                return Results.Ok(new { ok = true });
             }
             catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
