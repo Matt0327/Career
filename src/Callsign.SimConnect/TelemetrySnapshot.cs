@@ -100,6 +100,8 @@ public sealed record TelemetrySnapshot
     public double TotalWeightLbs { get; init; }
     /// <summary>Maximum gross (takeoff) weight, pounds — the MTOW limit to compare against.</summary>
     public double MaxGrossWeightLbs { get; init; }
+    /// <summary>Empty weight, pounds — loaded payload = Total − Empty − fuel (Phase 15 in-sim load check).</summary>
+    public double EmptyWeightLbs { get; init; }
     /// <summary>Longitudinal centre of gravity (percent MAC, sim scale).</summary>
     public double CgPercent { get; init; }
     /// <summary>Forward CG limit (same scale as <see cref="CgPercent"/>). 0 = not reported.</summary>

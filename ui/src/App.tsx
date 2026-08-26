@@ -2458,13 +2458,25 @@ function Flight({ state, onSettled, active }: { state: State; onSettled: () => v
     try { setCentres(await api.checkCentres(cls)) } catch { setCentres([]) }
   }
 
-  // Bug #2 — a real, required "load the aircraft" step (the tablet load), so a leg can't be flown with an empty
-  // hold. A job that carries something must be loaded before it arms; loading is the player's cue to set their
-  // MSFS weight & balance to match. Purely gameplay state the app owns — it never reads the sim's flaky weights.
+  // The load requirement (Phase 15): the cargo/pax must actually be LOADED IN THE SIM (NeoFly-style), verified
+  // against the sim's REAL weights — loaded payload = TOTAL WEIGHT − EMPTY WEIGHT − fuel. When the sim reports
+  // weights that's the source of truth; before the sim is connected, the in-app "Load" confirm stands in as a
+  // pre-flight intent. (The telemetry-alignment fix made the sim weights trustworthy again.)
+  const PAX_WEIGHT_LBS = 180 // a passenger + bags, NeoFly-style
   const loadDesc = (a: Assignment) => a.pax > 0
     ? `${a.pax} passenger${a.pax > 1 ? 's' : ''}`
     : `${a.weightLbs.toLocaleString()} lb of ${(a.commodity || spaced(a.type)).toLowerCase()}`
-  const needsLoad = (a: Assignment) => (a.pax > 0 || a.weightLbs > 0) && !loaded.has(a.id)
+  const requiredPayloadLbs = (a: Assignment) => a.pax > 0 ? a.pax * PAX_WEIGHT_LBS : a.weightLbs
+  const simLoadedPayloadLbs = (): number | null => {
+    const tot = tele?.totalWeightLbs ?? 0, emp = tele?.emptyWeightLbs ?? 0
+    return tot > emp && emp > 0 ? Math.max(0, tot - emp - (tele?.fuel ?? 0)) : null
+  }
+  const needsLoad = (a: Assignment) => {
+    if (a.pax <= 0 && a.weightLbs <= 0) return false // nothing to load
+    const loadedLbs = simLoadedPayloadLbs()
+    if (loadedLbs != null) return loadedLbs < requiredPayloadLbs(a) * 0.85 // the sim is the source of truth
+    return !loaded.has(a.id) // sim not reporting weights yet → the in-app confirm stands in
+  }
   const loadJob = async (a: Assignment) => {
     if (!await confirmDialog({
       title: `Load ${selAc?.tail ?? 'the aircraft'}?`,
@@ -2695,6 +2707,9 @@ function Flight({ state, onSettled, active }: { state: State; onSettled: () => v
               <Row ok={simOn} wait={!simOn} label={simOn ? 'Simulator connected' : 'Waiting for simulator'} />
               <Row ok={acHere} label={acHere ? `${selAc?.name} (${selAc?.tail}) with you at ${state.currentIcao}` : selAc ? `${selAc.name} (${selAc.tail}) is at ${selAc.locationIcao}, not ${state.currentIcao}` : 'No aircraft selected'} />
               <Row ok={acMatch} wait={!simOn} label={!simOn ? 'Sim aircraft — start MSFS' : acMatch ? 'Sim aircraft matches' : `Load your ${selAc?.name ?? 'aircraft'} in MSFS${tele?.title ? ` — the sim has “${tele.title}” loaded` : ''}`} />
+              {simLoadedPayloadLbs() != null && (
+                <Row ok={true} label={`Sim payload aboard: ${Math.round(simLoadedPayloadLbs()!).toLocaleString()} lb (gross ${Math.round(tele!.totalWeightLbs!).toLocaleString()} lb)`} />
+              )}
             </div>
           )
         })()}
@@ -2795,9 +2810,16 @@ function Flight({ state, onSettled, active }: { state: State; onSettled: () => v
                       {isCrew
                         ? <button className="primary" disabled={!!begun || !canSend} onClick={() => handOff(a)} title={why ?? `${crewName} flies it autonomously`}>Send {crewName}</button>
                         : needsLoad(a)
-                          ? <button className="primary" disabled={begun?.id === a.id || !canFly} onClick={() => loadJob(a)} title={why ?? 'Board the payload before you fly — set your MSFS weight & balance to match'}>
-                              Load {a.pax > 0 ? `${a.pax} pax` : `${a.weightLbs.toLocaleString()} lb`}
-                            </button>
+                          ? (simLoadedPayloadLbs() != null
+                              // Sim reports weights: the load is verified against MSFS. Show what's aboard vs needed;
+                              // the player loads it in the sim's weight & balance and this updates live.
+                              ? <button className="primary" disabled title={`Load the payload in MSFS's weight & balance. Aboard ${Math.round(simLoadedPayloadLbs()!).toLocaleString()} lb, need ${Math.round(requiredPayloadLbs(a)).toLocaleString()} lb.`}>
+                                  Load in sim · {Math.round(simLoadedPayloadLbs()!).toLocaleString()}/{Math.round(requiredPayloadLbs(a)).toLocaleString()} lb
+                                </button>
+                              // Sim not connected yet: the in-app confirm stands in as a pre-flight intent.
+                              : <button className="primary" disabled={begun?.id === a.id || !canFly} onClick={() => loadJob(a)} title={why ?? 'Board the payload — set your MSFS weight & balance to match once the sim is up'}>
+                                  Load {a.pax > 0 ? `${a.pax} pax` : `${a.weightLbs.toLocaleString()} lb`}
+                                </button>)
                           : <button className="primary" disabled={begun?.id === a.id || !canFly} onClick={() => begin(a)} title={why ?? 'Loaded — take off and it arms itself, or press to arm now'}>
                               {begun?.id === a.id ? 'In progress…' : 'Fly this job'}
                             </button>}

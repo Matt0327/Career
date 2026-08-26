@@ -409,6 +409,9 @@ export interface Telemetry {
   title: string
   parkingBrake?: boolean
   engineRunning?: boolean
+  totalWeightLbs?: number  // Phase 15 — sim's current gross weight
+  emptyWeightLbs?: number  // Phase 15 — sim's empty weight; loaded payload = total − empty − fuel
+  maxGrossWeightLbs?: number
   destIcao?: string        // the armed leg's destination airport (empty when nothing armed)
   distToDestNm?: number | null // live great-circle distance to that airport (null until resolved / off a real position)
   inSector?: boolean       // within the arrival sector — landing here settles the job

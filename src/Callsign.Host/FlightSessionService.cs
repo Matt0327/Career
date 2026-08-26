@@ -259,6 +259,11 @@ public sealed class FlightSessionService : IDisposable
             // Shutdown-checklist state (Phase 13): lets the Flight tab show land → brake → engine-off live.
             parkingBrake = showLive && t.ParkingBrakeSet,
             engineRunning = showLive && t.EngineRunning,
+            // Phase 15 — the sim's real weights, so the Flight tab can show the NeoFly-style loaded-payload readout
+            // and gate on the cargo/pax actually being loaded in the sim. Loaded payload = Total − Empty − fuel.
+            totalWeightLbs = showLive ? t.TotalWeightLbs : 0.0,
+            emptyWeightLbs = showLive ? t.EmptyWeightLbs : 0.0,
+            maxGrossWeightLbs = showLive ? t.MaxGrossWeightLbs : 0.0,
         });
 
         // Stream the real scored moments as they happen (Phase 7a). Same events that get persisted at

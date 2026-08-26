@@ -71,6 +71,9 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
         public double ApproachCrossTrackMeters;
         // Phase 10d structural icing — order here MUST match the AddToDataDefinition call order below.
         public double StructuralIcePct;
+        // Phase 15 — the aircraft's empty weight, so loaded payload = TOTAL WEIGHT − EMPTY WEIGHT − fuel (the
+        // NeoFly-style "is the cargo/pax actually loaded in the sim" check).
+        public double EmptyWeightLbs;
         // Phase 12 flight lifecycle — order here MUST match the AddToDataDefinition call order below.
         public double ParkingBrakeSet;
         public double EngineRunning;
@@ -279,6 +282,9 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
         // that doesn't model ice → the tracker does nothing (L10).
         sc.AddToDataDefinition(Definitions.AircraftData, "STRUCTURAL ICE PCT", "percent",
             SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
+        // Phase 15 — empty weight, to compute the loaded payload (Total − Empty − fuel) for the in-sim load check.
+        sc.AddToDataDefinition(Definitions.AircraftData, "EMPTY WEIGHT", "pounds",
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
         // Phase 12 — the "aircraft secured" signals for a realistic end-of-flight. Parking brake set, and the
         // primary engine's combustion (running vs shut down). Both bool; 0 = not set / shut down (order matches
         // the struct fields above).
@@ -338,6 +344,7 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
             EngineDamagePercent = d.EngineDamagePercent,
             ApproachCrossTrackFt = d.ApproachCrossTrackMeters * 3.28084, // meters → feet
             StructuralIcePct = d.StructuralIcePct,
+            EmptyWeightLbs = d.EmptyWeightLbs,
             ParkingBrakeSet = d.ParkingBrakeSet != 0,
             EngineRunning = d.EngineRunning != 0,
         });
