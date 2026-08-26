@@ -703,55 +703,52 @@ public class FlightTrackerTests
     // ── Phase 12: the flight lifecycle — start from the ground, complete only when secured ─────────────
 
     [Fact]
-    public void Lifecycle_LandsAndStops_CompletesOnDwell_EvenWithoutSecuring()
+    public void Lifecycle_LandsButNotSecured_HoldsInShutdown_AndNudges()
     {
-        // Playtest feedback: MSFS's parking-brake + engine-off SimVars read unreliably (some aircraft spawn with
-        // the brake "set"; ENG COMBUSTION lags a manual shutdown), so the leg could never be logged. The flight
-        // now completes on coming to a full STOP at the destination and holding it for the dwell — brake/engine
-        // are no longer required. That's the reliable "the flight is over" signal.
+        // The user's finish sequence: land, set the parking brake, shut the engine down → THEN the leg logs. Down
+        // and stopped but with the engine still running does NOT complete — it holds in Shutdown and nudges.
         var t = new FlightTracker();
         t.Observe(Snap(0, 0, 0, 0, onGround: true, engineRunning: true));        // parked, engine running
         t.Observe(Snap(10, 50, 70, 500, onGround: false, engineRunning: true));  // takeoff
         t.Observe(Snap(60, 30, 60, -120, onGround: false, engineRunning: true)); // final
         t.Observe(Snap(61, 0, 55, 0, onGround: true, engineRunning: true));      // touchdown, rolling out
-        t.Observe(Snap(63, 0, 0, 0, onGround: true, engineRunning: true));       // just stopped — engine still running, no brake
+        t.Observe(Snap(70, 0, 0, 0, onGround: true, engineRunning: true));       // stopped — engine still running, no brake
 
-        Assert.Null(t.Result);                                                   // dwell not elapsed yet
+        Assert.Null(t.Result);                                                   // NOT logged: not secured
         Assert.Equal(FlightPhase.Shutdown, t.Phase);
-        Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Info && e.Message.Contains("logging the flight"));
+        Assert.Contains(t.Events, e => e.Severity == FlightEventSeverity.Coaching && e.Message.Contains("parking brake"));
 
-        t.Observe(Snap(70, 0, 0, 0, onGround: true, engineRunning: true));       // still stopped 7s later → the dwell logs it
-        Assert.NotNull(t.Result);                                                // completed with NO brake and the engine still running
+        t.Observe(Snap(80, 0, 0, 0, onGround: true, engineRunning: true, parkingBrake: true)); // brake set but engine still running → still holds
+        Assert.Null(t.Result);
+        t.Observe(Snap(90, 0, 0, 0, onGround: true, engineRunning: false, parkingBrake: true)); // brake set AND engine off → secured
+        Assert.NotNull(t.Result);                                                // now the flight logs
     }
 
     [Fact]
-    public void Lifecycle_ProperShutdown_CompletesInstantly_AsAFastPath()
+    public void Lifecycle_ProperShutdown_CompletesOnBrakeAndEngineOff()
     {
-        // A real shutdown — stopped, brake set AND engine off — still logs at once, without waiting out the dwell.
+        // Stopped, brake set AND engine off → the leg logs.
         var t = new FlightTracker();
         t.Observe(Snap(0, 0, 0, 0, onGround: true, engineRunning: true));
         t.Observe(Snap(10, 50, 70, 500, onGround: false, engineRunning: true));
         t.Observe(Snap(60, 30, 60, -120, onGround: false, engineRunning: true));
         t.Observe(Snap(61, 0, 55, 0, onGround: true, engineRunning: true));                          // touchdown, rolling
-        t.Observe(Snap(62, 0, 0, 0, onGround: true, engineRunning: false, parkingBrake: true));      // stopped + secured the same second
-        Assert.NotNull(t.Result);                                                                     // logged immediately (no dwell wait)
+        t.Observe(Snap(70, 0, 0, 0, onGround: true, engineRunning: false, parkingBrake: true));      // stopped + secured
+        Assert.NotNull(t.Result);
     }
 
     [Fact]
-    public void Lifecycle_TaxiingAfterLanding_DoesNotComplete_UntilItStops()
+    public void Lifecycle_EngineOffButNoBrake_HoldsUntilBrakeSet()
     {
-        // The dwell only starts once the aircraft is truly stopped: taxiing to the gate keeps resetting it, so a
-        // long roll-out never logs the flight mid-taxi. It logs when you finally park.
+        // Engine off but the brake not set is not enough — a proper shutdown needs both.
         var t = new FlightTracker();
         t.Observe(Snap(0, 0, 0, 0, onGround: true, engineRunning: true));
         t.Observe(Snap(10, 50, 70, 500, onGround: false, engineRunning: true));
         t.Observe(Snap(60, 30, 60, -120, onGround: false, engineRunning: true));
-        t.Observe(Snap(61, 0, 55, 0, onGround: true, engineRunning: true));   // touchdown
-        t.Observe(Snap(70, 0, 12, 0, onGround: true, engineRunning: true));   // taxiing at 12 kt
-        t.Observe(Snap(80, 0, 10, 0, onGround: true, engineRunning: true));   // still taxiing
-        Assert.Null(t.Result);                                               // moving → never completes
-        t.Observe(Snap(85, 0, 0, 0, onGround: true, engineRunning: true));   // stops
-        t.Observe(Snap(92, 0, 0, 0, onGround: true, engineRunning: true));   // holds the stop past the dwell → logs
+        t.Observe(Snap(61, 0, 55, 0, onGround: true, engineRunning: true));
+        t.Observe(Snap(70, 0, 0, 0, onGround: true, engineRunning: false));  // engine off, brake NOT set → holds
+        Assert.Null(t.Result);
+        t.Observe(Snap(80, 0, 0, 0, onGround: true, engineRunning: false, parkingBrake: true)); // brake set too → secured
         Assert.NotNull(t.Result);
     }
 

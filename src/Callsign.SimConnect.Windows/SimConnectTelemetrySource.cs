@@ -24,6 +24,11 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
     private enum Definitions { AircraftData }
     private enum Requests { AircraftData }
 
+    // EVERY scalar is FLOAT64 (even the booleans, read back as != 0). SimConnect's data buffer packs each element
+    // by its own size, and mixing INT32 (4 bytes) with FLOAT64 (8 bytes) here misaligned every field AFTER the
+    // first bool (SIM ON GROUND) — so altitude/speed/position (before it) read fine while G-force, weights, engine
+    // damage, the parking brake, and the aircraft TITLE all came back as garbage ("sim has 1000 Passengers",
+    // comfort 0, phantom overweight, engine to 0). An all-FLOAT64 definition is uniform, so it can't misalign.
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi, Pack = 1)]
     private struct AircraftData
     {
@@ -34,7 +39,7 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
         public double LatitudeDeg;
         public double LongitudeDeg;
         public double FuelQuantityLbs;
-        public int OnGround;
+        public double OnGround;
         // Phase 7b substrate — order here MUST match the AddToDataDefinition call order below.
         public double GForce;
         public double PitchDeg;
@@ -43,10 +48,10 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
         public double AltitudeAglFt;
         public double FlapsPercent;
         public double GearPercent;
-        public int StallWarning;
-        public int OverspeedWarning;
+        public double StallWarning;
+        public double OverspeedWarning;
         public double SimRate;
-        public int SlewActive;
+        public double SlewActive;
         // Phase 8 ambient weather — order here MUST match the AddToDataDefinition call order below.
         public double AmbientWindKts;
         public double AmbientWindDirDeg;
@@ -67,8 +72,8 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
         // Phase 10d structural icing — order here MUST match the AddToDataDefinition call order below.
         public double StructuralIcePct;
         // Phase 12 flight lifecycle — order here MUST match the AddToDataDefinition call order below.
-        public int ParkingBrakeSet;
-        public int EngineRunning;
+        public double ParkingBrakeSet;
+        public double EngineRunning;
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
         public string Title;
     }
@@ -216,7 +221,7 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
         sc.AddToDataDefinition(Definitions.AircraftData, "FUEL TOTAL QUANTITY WEIGHT", "pounds",
             SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
         sc.AddToDataDefinition(Definitions.AircraftData, "SIM ON GROUND", "bool",
-            SIMCONNECT_DATATYPE.INT32, 0f, unused);
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
         // Phase 7b substrate — order here MUST match the struct field order above.
         sc.AddToDataDefinition(Definitions.AircraftData, "G FORCE", "GForce",
             SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
@@ -233,13 +238,13 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
         sc.AddToDataDefinition(Definitions.AircraftData, "GEAR TOTAL PCT EXTENDED", "percent",
             SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
         sc.AddToDataDefinition(Definitions.AircraftData, "STALL WARNING", "bool",
-            SIMCONNECT_DATATYPE.INT32, 0f, unused);
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
         sc.AddToDataDefinition(Definitions.AircraftData, "OVERSPEED WARNING", "bool",
-            SIMCONNECT_DATATYPE.INT32, 0f, unused);
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
         sc.AddToDataDefinition(Definitions.AircraftData, "SIMULATION RATE", "number",
             SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
         sc.AddToDataDefinition(Definitions.AircraftData, "IS SLEW ACTIVE", "bool",
-            SIMCONNECT_DATATYPE.INT32, 0f, unused);
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
         sc.AddToDataDefinition(Definitions.AircraftData, "AMBIENT WIND VELOCITY", "knots",
             SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
         sc.AddToDataDefinition(Definitions.AircraftData, "AMBIENT WIND DIRECTION", "degrees",
@@ -278,9 +283,9 @@ public sealed class SimConnectTelemetrySource : ISimTelemetrySource
         // primary engine's combustion (running vs shut down). Both bool; 0 = not set / shut down (order matches
         // the struct fields above).
         sc.AddToDataDefinition(Definitions.AircraftData, "BRAKE PARKING POSITION", "bool",
-            SIMCONNECT_DATATYPE.INT32, 0f, unused);
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
         sc.AddToDataDefinition(Definitions.AircraftData, "ENG COMBUSTION:1", "bool",
-            SIMCONNECT_DATATYPE.INT32, 0f, unused);
+            SIMCONNECT_DATATYPE.FLOAT64, 0f, unused);
         sc.AddToDataDefinition(Definitions.AircraftData, "TITLE", null,
             SIMCONNECT_DATATYPE.STRING256, 0f, unused);
         sc.RegisterDataDefineStruct<AircraftData>(Definitions.AircraftData);

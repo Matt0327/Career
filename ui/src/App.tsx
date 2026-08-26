@@ -2610,18 +2610,20 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
               {tele && !tele.onGround && tele.distToDestNm != null && <> <b className="num">{Math.round(tele.distToDestNm)} nm</b> to {begun.dest}{tele.inSector ? ' — in the sector' : ''}.</>}
             </div>
             {tele?.onGround && (tele.phase === 'Landing' || tele.phase === 'Shutdown') && (() => {
-              // Honest completion criteria (bugs #8/#9): you must be DOWN inside the destination sector and come to
-              // a full STOP — that's what logs the leg. The old parking-brake / engine-off steps are gone: those
-              // SimVars read unreliably (the brake showed "set" when it wasn't), and completion no longer needs them.
+              // The finish sequence: land inside the destination sector, set the parking brake, shut the engine
+              // down — then the job settles. (The brake/engine SimVars read correctly now, after the telemetry
+              // alignment fix.)
               const inSector = tele.inSector !== false && (tele.distToDestNm == null || tele.inSector) // unknown dist → don't nag
-              const stopped = tele.gs < 3
+              const braked = !!tele.parkingBrake
+              const engOff = tele.engineRunning === false
               const Step = ({ ok, label }: { ok: boolean; label: string }) =>
                 <span className={`fin-step ${ok ? 'ok' : 'no'}`}><span className="r-dot" />{label}</span>
               return (
-                <div className="finish-checklist" title="Land inside the destination's arrival sector and come to a full stop — the job then logs automatically.">
+                <div className="finish-checklist" title="Land at the destination, set the parking brake, and shut the engine down — then the job settles.">
                   <span className="r-title">To finish</span>
                   <Step ok={!!inSector} label={inSector ? `Down in the ${begun.dest} sector` : `Land at ${begun.dest}${tele.distToDestNm != null ? ` — ${Math.round(tele.distToDestNm)} nm off` : ''}`} />
-                  <Step ok={stopped} label={stopped ? 'Stopped — logging the flight…' : 'Come to a full stop'} />
+                  <Step ok={braked} label="Parking brake set" />
+                  <Step ok={engOff} label="Engine shut down" />
                 </div>
               )
             })()}

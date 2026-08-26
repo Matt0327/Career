@@ -17,7 +17,6 @@ namespace Callsign.Core.Flight;
 public sealed class FlightTracker
 {
     private const double TaxiSpeedKts = 3;       // above this, on the ground = taxiing
-    private const double StoppedDwellSeconds = 4; // landed and stopped this long at the destination = the leg logs (brake/engine SimVars are unreliable, so a full stop is what completes it)
     private const double ClimbVsFpm = 200;
     private const double DescentVsFpm = -200;
     private const double LevelVsFpm = 100;       // |VS| below this is clearly level (Cruise); the band 100–200 fpm HOLDS the
@@ -66,8 +65,7 @@ public sealed class FlightTracker
     private readonly List<FlightEvent> _events = [];
 
     private bool _wasAirborne;
-    private DateTimeOffset? _stoppedSince; // when the aircraft first came to a full stop after landing (the dwell timer)
-    private bool _shutdownNudged;          // the one-time "logging the flight…" line has been shown
+    private string? _secureNeed; // the last "what's left to secure" nudge, so we re-coach only when the step changes
 
     // Phase 12 flight lifecycle: a takeoff only counts once we've actually seen the aircraft ON THE GROUND
     // (no air-spawn / mid-flight-start counts as a departure); a landing only completes once the aircraft is
@@ -279,6 +277,12 @@ public sealed class FlightTracker
     private bool IsSecured(TelemetrySnapshot t)
         => !_sawEngineRunning || (t.ParkingBrakeSet && !t.EngineRunning);
 
+    // What's still keeping the flight from logging, so the nudge names exactly the remaining step (brake, then engine).
+    private static string SecureRemaining(TelemetrySnapshot t)
+        => !t.ParkingBrakeSet && t.EngineRunning ? "set the parking brake and shut the engine down"
+        : !t.ParkingBrakeSet ? "set the parking brake"
+        : "shut the engine down";
+
     private void ObserveOnGround(TelemetrySnapshot t)
     {
         _sawGround = true; // Phase 12 — we've now seen the aircraft on the ground; a later liftoff is a real takeoff
@@ -339,24 +343,26 @@ public sealed class FlightTracker
         if (t.GroundSpeedKts >= TaxiSpeedKts)
         {
             Phase = _inFlight && _landed ? FlightPhase.Landing : FlightPhase.Taxi;
-            _stoppedSince = null; // moving again — the come-to-a-stop timer resets
         }
         else if (_inFlight && _landed)
         {
-            // Down and STOPPED at the destination — the flight logs here. The parking brake + engine-off SimVars
-            // read unreliably across MSFS aircraft (some spawn with the brake "set"; ENG COMBUSTION lags a manual
-            // shutdown), so we no longer REQUIRE them: coming to a full stop after landing completes the leg. A
-            // real shutdown (brake set AND engine off) still completes instantly as a fast path.
+            // Down and stopped at the destination. The flight LOGS only once the aircraft is properly secured —
+            // parking brake set AND engine shut down — the way a real leg ends (now that the brake/engine SimVars
+            // read correctly, after the telemetry-alignment fix). Until then we hold in Shutdown and nudge with
+            // exactly what's left. A leg whose telemetry never reported a running engine (synthetic source, tests)
+            // secures on the stop — unchanged (L10).
             Phase = FlightPhase.Shutdown;
-            _stoppedSince ??= t.CapturedAt;
-            bool dwellDone = (t.CapturedAt - _stoppedSince.Value).TotalSeconds >= StoppedDwellSeconds;
-            if (IsSecured(t) || dwellDone)
+            if (IsSecured(t))
                 Complete();
-            else if (!_shutdownNudged)
+            else
             {
-                _shutdownNudged = true;
-                _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Info,
-                    "Down and stopped at the destination — logging the flight…"));
+                string need = SecureRemaining(t);
+                if (need != _secureNeed)
+                {
+                    _secureNeed = need;
+                    _events.Add(new FlightEvent(t.CapturedAt, FlightEventSeverity.Coaching,
+                        $"Down at the destination — {need} to log the flight."));
+                }
             }
         }
         else
