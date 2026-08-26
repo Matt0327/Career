@@ -95,11 +95,26 @@ function DialogHost() {
 
 type Tab = 'dashboard' | 'airline' | 'jobs' | 'clients' | 'flight' | 'hangar' | 'ops' | 'bases' | 'trade' | 'finances' | 'campaigns' | 'awards' | 'logbook' | 'settings'
 
+// Phase 16b — "Two hats". Once you've founded an airline you wear one of two: 'line' (you fly the legs
+// yourself) or 'desk' (you run the operation and your crews fly). It's a client-side lens for now — a
+// persisted preference that reframes the app into two workspaces; a later slice promotes it to per-save
+// state when the autonomous side reads it. Before incorporation there's only one hat, so the switch hides.
+type OpMode = 'line' | 'desk'
+const OPMODE_KEY = 'bentofly.opMode'
+function loadOpMode(): OpMode { try { return localStorage.getItem(OPMODE_KEY) === 'desk' ? 'desk' : 'line' } catch { return 'line' } }
+function saveOpMode(m: OpMode) { try { localStorage.setItem(OPMODE_KEY, m) } catch { /* private mode */ } }
+
 export function App() {
   const [state, setState] = useState<State | null | undefined>(undefined) // undefined = still loading
   const [tab, setTab] = useState<Tab>('dashboard')
   const [error, setError] = useState<string | null>(null)
   const [airline, setAirline] = useState<AirlineData | null>(null)
+  const [opMode, setOpMode] = useState<OpMode>(loadOpMode)
+
+  const incorporated = !!airline?.incorporation.incorporated
+  // Switching hats is a workspace switch: it lands you in that hat's home (the desk = the airline command
+  // surfaces; the line = the pilot's deck) and remembers the choice.
+  const switchMode = useCallback((m: OpMode) => { setOpMode(m); saveOpMode(m); setTab(m === 'desk' ? 'airline' : 'dashboard') }, [])
 
   // Per-tab first-visit tutorials: show the guide the first time a tab is opened; remember it per device.
   const [seenTabs, setSeenTabs] = useState<Set<string>>(loadSeenTabs)
@@ -158,11 +173,12 @@ export function App() {
       <div className="app">
       <NavRail tab={tab} setTab={setTab} airline={airline} />
       <div className="work">
-        <ContextHeader state={state} tab={tab} onHelp={TAB_GUIDES[tab] ? () => setGuide(tab) : undefined} />
+        <ContextHeader state={state} tab={tab} onHelp={TAB_GUIDES[tab] ? () => setGuide(tab) : undefined}
+          hatMode={incorporated ? opMode : null} onSwitchHat={switchMode} />
         <main className="main">
         {error && <div className="banner error" onClick={() => setError(null)}>{error} — tap to dismiss</div>}
-        {tab === 'dashboard' && <Dashboard state={state} airline={airline} go={setTab} />}
-        {tab === 'airline' && <Airline onSaved={() => { void reload(); loadAirline() }} />}
+        {tab === 'dashboard' && <Dashboard state={state} airline={airline} go={setTab} hatMode={incorporated ? opMode : null} onSwitchHat={switchMode} />}
+        {tab === 'airline' && <Airline onSaved={() => { void reload(); loadAirline() }} hatMode={incorporated ? opMode : null} onSwitchHat={switchMode} />}
         {tab === 'jobs' && <Jobs state={state} onChanged={reload} />}
         {tab === 'clients' && <Clients />}
         {/* The Flight tab stays MOUNTED even when another tab is active (hidden via display), so a flight in
@@ -409,7 +425,33 @@ function NavRail({ tab, setTab, airline }: { tab: Tab; setTab: (t: Tab) => void;
 // Weather at the current field is rough enough to matter to a departure (Phase 8) — flag it.
 const roughWx = (c: string) => c === 'Storm' || c === 'Fog' || c === 'Snow'
 
-function ContextHeader({ state, tab, onHelp }: { state: State; tab: Tab; onHelp?: () => void }) {
+// Phase 16b — the "two hats" switch: On the line (you fly) ⇄ At the desk (you run the airline).
+function HatSwitch({ mode, onSwitch, size }: { mode: OpMode; onSwitch: (m: OpMode) => void; size?: 'sm' }) {
+  return (
+    <div className={`hat-switch${size === 'sm' ? ' sm' : ''}`} role="group" aria-label="Operating mode">
+      <button type="button" className={mode === 'line' ? 'on' : ''} onClick={() => onSwitch('line')} title="You fly the legs yourself, graded from the sim">On the line</button>
+      <button type="button" className={mode === 'desk' ? 'on' : ''} onClick={() => onSwitch('desk')} title="Run the operation — your crews fly the line">At the desk</button>
+    </div>
+  )
+}
+
+// Phase 16b — the stance banner atop each hat's home: names the hat, states what it means, offers the swap.
+function HatBanner({ mode, onSwitch }: { mode: OpMode; onSwitch: (m: OpMode) => void }) {
+  const desk = mode === 'desk'
+  return (
+    <section className={`hat-banner ${desk ? 'desk' : 'line'}`}>
+      <span className="hb-badge">{desk ? 'At the desk' : 'On the line'}</span>
+      <p className="hb-text">{desk
+        ? 'Your crews are flying the line — you run the operation: the network, the fares, the fleet.'
+        : "You're flying the legs yourself. Every approach and landing is graded from the sim."}</p>
+      <button type="button" className="hb-swap" onClick={() => onSwitch(desk ? 'line' : 'desk')}>
+        {desk ? 'Take the controls →' : 'Head to the desk →'}
+      </button>
+    </section>
+  )
+}
+
+function ContextHeader({ state, tab, onHelp, hatMode, onSwitchHat }: { state: State; tab: Tab; onHelp?: () => void; hatMode: OpMode | null; onSwitchHat: (m: OpMode) => void }) {
   const meta = TABS.find(t => t.id === tab)
   const [wx, setWx] = useState<Weather | null>(null)
   const [world, setWorld] = useState<WorldState | null>(null)
@@ -432,6 +474,7 @@ function ContextHeader({ state, tab, onHelp }: { state: State; tab: Tab; onHelp?
         </div>
         <div className="sub">{meta?.sub ?? ''}</div>
       </div>
+      {hatMode && <HatSwitch mode={hatMode} onSwitch={onSwitchHat} size="sm" />}
       <div className="ctx">
         <span className="chip"><span className="dot" /> <b className="loc">{state.currentIcao}</b></span>
         {world && <span className="chip" title={`${world.dayOfWeek}, ${world.dateIso} · ${world.season}${world.season === 'Winter' || world.season === 'Autumn' ? ' — busy season, jobs pay a little more' : world.season === 'Summer' ? ' — quiet season, jobs pay a little less' : ''}`}>{world.season} · <span className="muted">day</span> <span className="num">{world.careerDays.toLocaleString()}</span></span>}
@@ -828,7 +871,7 @@ const AVAIL_KEY: Record<string, string> = {
 
 interface DashAlert { level: 'bad' | 'warn' | 'info'; text: string; tab?: Tab; cta?: string }
 
-function Dashboard({ state, airline, go }: { state: State; airline: AirlineData | null; go: (t: Tab) => void }) {
+function Dashboard({ state, airline, go, hatMode, onSwitchHat }: { state: State; airline: AirlineData | null; go: (t: Tab) => void; hatMode: OpMode | null; onSwitchHat: (m: OpMode) => void }) {
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [ranks, setRanks] = useState<RankTier[]>([])
   const [rep, setRep] = useState<Reputation | null>(null)
@@ -933,6 +976,7 @@ function Dashboard({ state, airline, go }: { state: State; airline: AirlineData 
 
   return (
     <div className="grid" style={{ ['--livery']: livery } as CSSProperties}>
+      {hatMode && <HatBanner mode={hatMode} onSwitch={onSwitchHat} />}
       <AirlineHero state={state} airline={airline} wsOpen={wsOpen} link={link} tele={tele} live={live} />
 
       <DashCoach state={state} assignments={assignments} fleet={fleet} alerts={alerts} go={go} />
@@ -5434,7 +5478,7 @@ function ShareTicker({ market, color }: { market: AirlineData['hq']['market']; c
   )
 }
 
-function Airline({ onSaved }: { onSaved: () => void }) {
+function Airline({ onSaved, hatMode, onSwitchHat }: { onSaved: () => void; hatMode: OpMode | null; onSwitchHat: (m: OpMode) => void }) {
   const [data, setData] = useState<AirlineData | null>(null)
   const [name, setName] = useState('')
   const [code, setCode] = useState('')
@@ -5519,6 +5563,7 @@ function Airline({ onSaved }: { onSaved: () => void }) {
           )}
         </section>
       ) : (<>
+        {hatMode && <HatBanner mode={hatMode} onSwitch={onSwitchHat} />}
         <section className="card hq-hero" style={{ borderColor: `color-mix(in srgb, ${color} 40%, var(--line))` }}>
           <div className="hq-top">
             <Emblem emblem={emblem} color={color} size={72} />

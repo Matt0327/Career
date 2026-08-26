@@ -307,6 +307,22 @@ input { font: inherit; }
 .inc-count { font-size: 12.5px; font-weight: 600; color: var(--muted); white-space: nowrap; }
 .ig-meter { display: block; margin-top: 4px; font-variant-numeric: tabular-nums; font-weight: 700; font-size: 13px; color: var(--warn, #d08a2a); }
 .ig-meter.ok { color: var(--pos); }
+/* Phase 16b — the "two hats" switch (header) + the stance banner (each hat's home) */
+.hat-switch { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; background: var(--panel); flex: none; }
+.hat-switch button { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 600; padding: 7px 15px; cursor: pointer; white-space: nowrap; transition: background .15s, color .15s; }
+.hat-switch button.on { background: var(--accent); color: var(--accent-ink); }
+.hat-switch button:not(.on):hover { color: var(--ink); }
+.hat-switch.sm button { padding: 6px 12px; font-size: 12.5px; }
+.hat-banner { display: flex; align-items: center; gap: 14px; padding: 11px 16px; border: 1px solid var(--line); border-left-width: 3px; border-radius: 12px; background: var(--panel); }
+.hat-banner.line { border-left-color: var(--pos); }
+.hat-banner.desk { border-left-color: var(--accent); }
+.hat-banner .hb-badge { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; padding: 5px 11px; border-radius: 999px; flex: none; }
+.hat-banner.line .hb-badge { color: var(--pos); background: color-mix(in srgb, var(--pos) 16%, transparent); }
+.hat-banner.desk .hb-badge { color: var(--accent); background: var(--accent-dim); }
+.hat-banner .hb-text { margin: 0; font-size: 14px; color: var(--muted); flex: 1; }
+.hat-banner .hb-swap { border: 0; background: transparent; color: var(--accent); font: inherit; font-weight: 600; font-size: 13.5px; cursor: pointer; white-space: nowrap; flex: none; }
+.hat-banner .hb-swap:hover { text-decoration: underline; }
+@media (max-width: 720px) { .hat-banner { flex-wrap: wrap; gap: 8px; } .hat-banner .hb-text { flex-basis: 100%; order: 3; } }
 .hq-hero { border-width: 1px; }
 .hq-top { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
 .hq-id .airline-name { font-size: 22px; }
