@@ -2402,21 +2402,19 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
   )
   const badge = linkBadge(wsOpen, link)
 
-  // Narrate connection + phase transitions into the flight log (only on an actual change).
-  const prevOpen = useRef(wsOpen), prevLink = useRef(link), prevPhase = useRef<string | null>(null)
+  // The connection BADGE shows the live sim/app link state honestly, so the flight log does NOT narrate it —
+  // the reconnect loop flips Connecting↔Disconnected every few seconds while MSFS loads, which spammed
+  // "waiting for simulator". We retry silently in the background and note only the FIRST successful sim
+  // connection in the log (a genuinely useful beat), nothing else.
+  const prevLink = useRef(link), prevPhase = useRef<string | null>(null)
+  const simEverConnected = useRef(false)
   const loggedPhases = useRef<Set<string>>(new Set())
   useEffect(() => {
-    if (prevOpen.current !== wsOpen) { addLog(wsOpen ? 'ok' : 'warn', wsOpen ? 'Connected to BentoFly.' : 'Connection lost — reconnecting…'); prevOpen.current = wsOpen }
-  }, [wsOpen, addLog])
-  useEffect(() => {
     if (prevLink.current === link) return
-    // The sim reconnect loop flips Connecting↔Disconnected every few seconds while MSFS is closed.
-    // Retry silently — only narrate real edges: a live connection, losing a live link, or the sim exiting.
-    const wasConnected = prevLink.current === 'Connected'
-    if (link === 'Connected') addLog('ok', 'Simulator connected — telemetry is live.')
-    else if (link === 'SimExited') addLog('bad', 'Simulator closed.')
-    else if (wasConnected) addLog('warn', 'Lost the simulator — waiting to reconnect…')
-    // else: Connecting/Disconnected churn before ever connecting → say nothing.
+    if (link === 'Connected' && !simEverConnected.current) {
+      simEverConnected.current = true
+      addLog('ok', 'Simulator connected — telemetry is live.')
+    }
     prevLink.current = link
   }, [link, addLog])
   useEffect(() => {
