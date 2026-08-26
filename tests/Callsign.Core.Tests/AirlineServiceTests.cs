@@ -147,11 +147,60 @@ public class AirlineServiceTests
         var svc = Svc(db);
         var status = await svc.GetIncorporationStatusAsync(companyId, pilotId);
         Assert.False(status.Incorporated);
-        Assert.False(status.RegionalReached); // a fresh operator is Contract Operator (stage 0)
+        Assert.Equal(0, status.MetCount);          // Phase 16a — a fresh operator meets none of the founder marks
+        Assert.Equal(6, status.TotalCount);
         Assert.False(status.Eligible);
-        // Can't found an airline yet — the Regional gate refuses it.
+        // Can't found an airline yet — the Founder's Checklist refuses it.
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => svc.IncorporateAsync(companyId, pilotId, "Test Air", "TST", "#4f46e5", "delta"));
+    }
+
+    // Phase 16a — a company that clears every mark on the Founder's Checklist is eligible, and can found the airline.
+    [Fact]
+    public async Task Incorporation_FullyQualified_IsEligible_AndCanFound()
+    {
+        using var tdb = new TestDb();
+        var clock = new FakeClock();
+        var cfg = EconomyConfig.Default;
+        Guid companyId, pilotId;
+        using (var db = tdb.NewContext())
+        {
+            var (company, pilot) = Seed(db);
+            pilot.Rank = PilotRank.Captain;                        // command rank
+            company.OperatingReputationMilli = 65_000;             // proven operation (≥ 60)
+            var type = new AircraftType { Id = Guid.NewGuid(), Key = "C172", CanonicalName = "C172", Category = AircraftCategory.LightSingle, UsefulLoadLbs = 900 };
+            db.AircraftTypes.Add(type);
+            for (int i = 0; i < 3; i++)                            // a fleet of 3 owned tails
+                db.AircraftInstances.Add(new AircraftInstance { Id = Guid.NewGuid(), TypeId = type.Id, CompanyId = company.Id, Tail = $"CS-{i}", Ownership = OwnershipKind.Owned, Availability = AircraftAvailability.Available, LocationIcao = "EHAM" });
+            for (int i = 0; i < 100; i++)                          // hours in the book (100 logged flights)
+                db.Flights.Add(new Callsign.Core.Domain.Flight { Id = Guid.NewGuid(), FlownByPilotId = pilot.Id, AircraftTitle = "C172", PayoutBreakdownJson = "{}", DepartedAt = clock.UtcNow, ArrivedAt = clock.UtcNow, SettledAt = clock.UtcNow });
+            db.OperatingCertificates.Add(new OperatingCertificate  // a valid AOC
+            {
+                Id = Guid.NewGuid(), CompanyId = company.Id, Kind = CertificateKind.AirOperator,
+                IssuedAt = clock.UtcNow, ExpiresAt = clock.UtcNow.AddDays(120), UpdatedAt = clock.UtcNow,
+            });
+            await db.SaveChangesAsync();
+            await new LedgerService(db, clock).PostAsync(company.Id, LedgerCategory.StartingBalance, 2_500_000m, "seed"); // net worth over $2M
+            companyId = company.Id; pilotId = pilot.Id;
+        }
+
+        AirlineService IncSvc(CallsignDbContext db) => new(db,
+            new ProgressMetricsService(db, new FinanceService(db, clock, cfg)),
+            new LedgerService(db, clock), clock, cfg);
+
+        using (var db = tdb.NewContext())
+        {
+            var status = await IncSvc(db).GetIncorporationStatusAsync(companyId, pilotId);
+            Assert.Equal(status.TotalCount, status.MetCount); // every mark met
+            Assert.True(status.Eligible);
+        }
+        using (var db = tdb.NewContext())
+        {
+            var id = await IncSvc(db).IncorporateAsync(companyId, pilotId, "Summit Air", "SMT", "#4f46e5", "peak");
+            Assert.Equal("Summit Air", id.Name);
+        }
+        using (var db = tdb.NewContext())
+            Assert.NotNull((await db.Companies.FindAsync(companyId))!.AirlineIncorporatedAt); // stamped
     }
 
     [Fact]

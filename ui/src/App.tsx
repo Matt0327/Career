@@ -5477,18 +5477,23 @@ function Airline({ onSaved }: { onSaved: () => void }) {
             <span className="op-badge">Operator</span>
             <div>
               <h2 style={{ margin: 0 }}>Found your airline</h2>
-              <p className="muted" style={{ margin: '4px 0 0' }}>Right now you're an independent operator. Earn the airline — a name, a livery, a scheduled network — by growing into it.</p>
+              <p className="muted" style={{ margin: '4px 0 0' }}>Right now you're an independent operator. Founding an airline is the summit of the career — earn every mark on the Founder's Checklist, then take the name.</p>
             </div>
           </div>
+          <div className="inc-progress">
+            <div className="inc-bar"><span style={{ width: `${Math.round((inc.metCount / Math.max(1, inc.totalCount)) * 100)}%` }} /></div>
+            <span className="inc-count">{inc.metCount} of {inc.totalCount} founder requirements met</span>
+          </div>
           <div className="inc-gates">
-            <div className={`inc-gate ${inc.regionalReached ? 'met' : ''}`}>
-              <span className="ig-check">{inc.regionalReached ? '✓' : '○'}</span>
-              <div><b>Reach the Regional rung</b><span className="muted"> — build the fleet, bases and reputation of a real regional carrier (see the ladder below).</span></div>
-            </div>
-            <div className={`inc-gate ${inc.hasAoc ? 'met' : ''}`}>
-              <span className="ig-check">{inc.hasAoc ? '✓' : '○'}</span>
-              <div><b>Hold an Air Operator Certificate</b><span className="muted"> — earn the AOC in the Certificates panel below.</span></div>
-            </div>
+            {inc.requirements.map(r => (
+              <div key={r.key} className={`inc-gate ${r.met ? 'met' : ''}`}>
+                <span className="ig-check">{r.met ? '✓' : '○'}</span>
+                <div>
+                  <b>{r.label}</b><span className="muted"> — {r.detail}.</span>
+                  <span className={`ig-meter ${r.met ? 'ok' : ''}`}>{r.current} <span className="muted">/ {r.target}</span></span>
+                </div>
+              </div>
+            ))}
           </div>
           {inc.eligible ? (
             <>
@@ -5510,7 +5515,7 @@ function Airline({ onSaved }: { onSaved: () => void }) {
               <button className="primary" disabled={busy} onClick={incorporate}>Incorporate · {money(inc.foundingFeeCents)}</button>
             </>
           ) : (
-            <p className="hint muted">Meet both milestones above to found your airline. The founding fee will be {money(inc.foundingFeeCents)}.</p>
+            <p className="hint muted">Complete every mark on the Founder's Checklist to found your airline. The founding fee will be {money(inc.foundingFeeCents)}.</p>
           )}
         </section>
       ) : (<>

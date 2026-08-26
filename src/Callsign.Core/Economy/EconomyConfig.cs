@@ -739,6 +739,21 @@ public sealed record EconomyConfig
     /// is a real commitment, not a free rename. $500,000.</summary>
     public long AirlineFoundingFeeCents { get; init; } = 50_000_000;
 
+    // --- The Founder's Gate (Phase 16a) ---
+    // Incorporating an airline is the summit of the GA/charter career, not a rung-2 milestone. It's a hard,
+    // multi-requirement prestige grind: wealth, hours, command rank, a real fleet, a proven operation, and the
+    // AOC. Every threshold is a knob so the whole gate is retunable in the balance pass.
+    /// <summary>Net worth you must hold to found an airline — a serious operation, not a hobby. $2,000,000.</summary>
+    public long FounderMinNetWorthCents { get; init; } = 200_000_000;
+    /// <summary>Flights logged required — real hours in the book (the flight log is company-wide).</summary>
+    public int FounderMinFlights { get; init; } = 100;
+    /// <summary>Minimum pilot rank index (0 Trainee · 1 Copilot · 2 Captain · 3 Senior Captain · 4 Chief) — command time.</summary>
+    public int FounderMinRankIndex { get; init; } = 2;              // Captain
+    /// <summary>Owned aircraft you must hold — a fleet, not a single tail.</summary>
+    public int FounderMinFleet { get; init; } = 3;
+    /// <summary>Operating reputation (0–100000) required — a demonstrably proven operator.</summary>
+    public int FounderMinOperatingRepMilli { get; init; } = 60_000; // 60 / 100
+
     // Enterprise-valuation goodwill weights (informational; the airline's "worth" as a going concern). Retunable.
     /// <summary>Brand value per point of operating reputation — a fully-reputed airline (100) is worth $5M of brand.</summary>
     public long AirlineRepValuationCents { get; init; } = 5_000_000;

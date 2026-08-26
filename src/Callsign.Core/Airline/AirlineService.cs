@@ -26,13 +26,18 @@ public sealed record AirlineStanding(
     int Stage, string StageName, int Score, IReadOnlyList<StandingContribution> Contributions,
     IReadOnlyList<CareerStage> Stages, NextMove? NextMove);
 
-/// <summary>Where the company stands on FORMING an airline (Phase 13). Early game you're an Operator; the airline
-/// identity is earned. The two gates are already-meaningful milestones — reaching the Regional rung on the career
-/// ladder, and holding a valid Air Operator Certificate — so this deepens the ladder rather than adding a parallel
-/// one. <see cref="Eligible"/> is true when both gates are met and you haven't incorporated yet.</summary>
+/// <summary>One line on the Founder's Checklist (Phase 16a): a single prestige requirement, whether it's met, and
+/// the player's current standing against the target — so the UI can render an honest, tick-as-you-go checklist.</summary>
+public sealed record FounderRequirement(string Key, string Label, string Detail, bool Met, string Current, string Target);
+
+/// <summary>Where the company stands on FORMING an airline. Phase 16a turned this from a rung-2 milestone into a hard
+/// prestige grind: incorporating is the summit of the GA/charter career, gated behind a multi-requirement
+/// <see cref="Requirements"/> checklist (wealth, hours, command rank, a real fleet, a proven operation, the AOC).
+/// <see cref="Eligible"/> is true only when every requirement is met and you haven't incorporated yet.</summary>
 public sealed record AirlineIncorporation(
-    bool Incorporated, DateTimeOffset? IncorporatedAt, int Stage,
-    bool RegionalReached, bool HasAoc, bool Eligible, long FoundingFeeCents);
+    bool Incorporated, DateTimeOffset? IncorporatedAt,
+    IReadOnlyList<FounderRequirement> Requirements, int MetCount, int TotalCount,
+    bool Eligible, long FoundingFeeCents);
 
 /// <summary>
 /// Airline identity (Phase 5c): the company's name, operator tail code, accent colour and emblem — set by
@@ -44,8 +49,6 @@ public sealed class AirlineService
 {
     private static readonly string[] Palette =
         { "#4f46e5", "#0e938d", "#c0362c", "#b8860b", "#2f6f4f", "#7a3ea8", "#c05621", "#1565c0" };
-
-    private const int RegionalStage = 2; // the ladder rung at which an airline can incorporate
 
     private readonly CallsignDbContext _db;
     private readonly ProgressMetricsService _metrics;
@@ -116,22 +119,41 @@ public sealed class AirlineService
         return (trimmed, code, color);
     }
 
-    /// <summary>Where the company stands on incorporating (Phase 13): whether it already has, and the two earned
-    /// gates — reaching Regional on the ladder + holding a valid Air Operator Certificate.</summary>
+    /// <summary>Where the company stands on incorporating (Phase 16a): whether it already has, and the full
+    /// Founder's Checklist — a hard prestige grind of wealth, hours, command rank, fleet, a proven operation and the
+    /// AOC. Eligible only when every requirement is met.</summary>
     public async Task<AirlineIncorporation> GetIncorporationStatusAsync(Guid companyId, Guid pilotId, CancellationToken ct = default)
     {
+        var cfg = _cfg ?? Callsign.Core.Economy.EconomyConfig.Default;
         var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == companyId, ct)
                       ?? throw new InvalidOperationException($"Company {companyId} not found.");
         bool incorporated = company.AirlineIncorporatedAt is not null || !string.IsNullOrWhiteSpace(company.AirlineName); // legacy grandfather
         var m = await _metrics.SnapshotAsync(companyId, pilotId, ct);
-        var (stage, _, _) = CareerLadder.Evaluate(m);
-        bool regional = stage >= RegionalStage;
         var now = _clock?.UtcNow ?? DateTimeOffset.UtcNow;
         bool hasAoc = await _db.OperatingCertificates.AnyAsync(
             c => c.CompanyId == companyId && c.Kind == Callsign.Core.Domain.CertificateKind.AirOperator && c.ExpiresAt > now, ct);
-        long fee = _cfg?.AirlineFoundingFeeCents ?? 50_000_000;
-        return new AirlineIncorporation(incorporated, company.AirlineIncorporatedAt, stage, regional, hasAoc,
-            !incorporated && regional && hasAoc, fee);
+
+        static string Rank(int i) => i >= 0 && i < RankTiers.All.Count ? RankTiers.All[i].DisplayName : $"#{i}";
+        var reqs = new List<FounderRequirement>
+        {
+            new("net_worth", "Build the balance sheet", "the net worth of a real operator",
+                m.NetWorthCents >= cfg.FounderMinNetWorthCents,
+                (m.NetWorthCents / 100m).ToString("C0"), (cfg.FounderMinNetWorthCents / 100m).ToString("C0")),
+            new("flights", "Log the hours", "flights in the company book",
+                m.Flights >= cfg.FounderMinFlights, $"{m.Flights}", $"{cfg.FounderMinFlights}"),
+            new("rank", "Earn command", "a captain's rank or better",
+                m.RankIndex >= cfg.FounderMinRankIndex, Rank(m.RankIndex), Rank(cfg.FounderMinRankIndex)),
+            new("fleet", "Own a fleet", "aircraft on your certificate, not one tail",
+                m.Aircraft >= cfg.FounderMinFleet, $"{m.Aircraft}", $"{cfg.FounderMinFleet}"),
+            new("operating_rep", "Prove the operation", "operating reputation as a dependable carrier",
+                m.OperatingReputationMilli >= cfg.FounderMinOperatingRepMilli,
+                $"{m.OperatingReputationMilli / 1000}", $"{cfg.FounderMinOperatingRepMilli / 1000}"),
+            new("aoc", "Hold an Air Operator Certificate", "the regulator's sign-off — earn it in Certificates",
+                hasAoc, hasAoc ? "held" : "none", "valid AOC"),
+        };
+        int met = reqs.Count(r => r.Met);
+        return new AirlineIncorporation(incorporated, company.AirlineIncorporatedAt, reqs, met, reqs.Count,
+            !incorporated && met == reqs.Count, cfg.AirlineFoundingFeeCents);
     }
 
     /// <summary>Formally incorporate as an airline: validate the two gates + the identity, charge the founding fee,
@@ -141,8 +163,13 @@ public sealed class AirlineService
     {
         var status = await GetIncorporationStatusAsync(companyId, pilotId, ct);
         if (status.Incorporated) throw new InvalidOperationException("Your airline is already incorporated.");
-        if (!status.RegionalReached) throw new InvalidOperationException("Reach the Regional rung on the career ladder before incorporating.");
-        if (!status.HasAoc) throw new InvalidOperationException("You need a valid Air Operator Certificate to incorporate — apply in the Certificates panel.");
+        if (!status.Eligible)
+        {
+            var unmet = status.Requirements.First(r => !r.Met);
+            throw new InvalidOperationException(
+                $"You're not ready to incorporate — {unmet.Label.ToLowerInvariant()}: {unmet.Current} of {unmet.Target}. " +
+                $"({status.MetCount} of {status.TotalCount} founder requirements met.)");
+        }
         if (_ledger is null || _clock is null) throw new InvalidOperationException("Incorporation isn't available here.");
 
         var (trimmed, code, color) = ValidateIdentity(name, tailCode, accentColorHex, emblemKey);

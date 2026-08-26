@@ -1009,12 +1009,21 @@ export interface AirlineMarket {
   growthSinceFlotationPct: number
   history: { atUtc: string; sharePriceCents: number }[]
 }
+export interface FounderRequirement {
+  key: string
+  label: string
+  detail: string
+  met: boolean
+  current: string
+  target: string
+}
+
 export interface AirlineIncorporation {
   incorporated: boolean
   incorporatedAt: string | null
-  stage: number
-  regionalReached: boolean
-  hasAoc: boolean
+  requirements: FounderRequirement[] // Phase 16a — the Founder's Checklist
+  metCount: number
+  totalCount: number
   eligible: boolean
   foundingFeeCents: number
 }

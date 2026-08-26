@@ -303,6 +303,7 @@ public record ValuationLineDto(string Label, long Cents);
 public record AirlineMarketDto(long SharePriceCents, long MarketCapCents, long SharesOutstanding,
     long FlotationSharePriceCents, double GrowthSinceFlotationPct, IReadOnlyList<ValuePointDto> History);
 public record ValuePointDto(DateTimeOffset AtUtc, long SharePriceCents);
-public record AirlineIncorporationDto(bool Incorporated, DateTimeOffset? IncorporatedAt, int Stage, bool RegionalReached, bool HasAoc, bool Eligible, long FoundingFeeCents);
+public record FounderRequirementDto(string Key, string Label, string Detail, bool Met, string Current, string Target);
+public record AirlineIncorporationDto(bool Incorporated, DateTimeOffset? IncorporatedAt, IReadOnlyList<FounderRequirementDto> Requirements, int MetCount, int TotalCount, bool Eligible, long FoundingFeeCents);
 public record IncorporateRequest(string? Name, string? TailCode, string? AccentColorHex, string? EmblemKey);
 public record SetAirlineRequest(string? Name, string? TailCode, string? AccentColorHex, string? EmblemKey);

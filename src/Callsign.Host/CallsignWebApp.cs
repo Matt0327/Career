@@ -325,7 +325,9 @@ public static class CallsignWebApp
     private static async Task<AirlineIncorporationDto> MapIncorporationAsync(AirlineService airline, Guid companyId, Guid pilotId)
     {
         var inc = await airline.GetIncorporationStatusAsync(companyId, pilotId);
-        return new AirlineIncorporationDto(inc.Incorporated, inc.IncorporatedAt, inc.Stage, inc.RegionalReached, inc.HasAoc, inc.Eligible, inc.FoundingFeeCents);
+        return new AirlineIncorporationDto(inc.Incorporated, inc.IncorporatedAt,
+            inc.Requirements.Select(r => new FounderRequirementDto(r.Key, r.Label, r.Detail, r.Met, r.Current, r.Target)).ToList(),
+            inc.MetCount, inc.TotalCount, inc.Eligible, inc.FoundingFeeCents);
     }
 
     private static async Task<Dictionary<string, string>> AirportNamesAsync(CallsignDbContext db, IEnumerable<string> idents)
