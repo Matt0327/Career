@@ -2641,7 +2641,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
             <div className="readiness" title="The leg comes alive when your aircraft and you are at the field and the sim is flying the right plane.">
               <span className="r-title">Matching plane &amp; location</span>
               <Row ok={simOn} wait={!simOn} label={simOn ? 'Simulator connected' : 'Waiting for simulator'} />
-              <Row ok={acHere} label={acHere ? `${selAc?.tail} with you at ${state.currentIcao}` : selAc ? `${selAc.tail} is at ${selAc.locationIcao}, not ${state.currentIcao}` : 'No aircraft selected'} />
+              <Row ok={acHere} label={acHere ? `${selAc?.name} (${selAc?.tail}) with you at ${state.currentIcao}` : selAc ? `${selAc.name} (${selAc.tail}) is at ${selAc.locationIcao}, not ${state.currentIcao}` : 'No aircraft selected'} />
               <Row ok={acMatch} wait={!simOn} label={!simOn ? 'Sim aircraft — start MSFS' : acMatch ? 'Sim aircraft matches' : `Load your ${selAc?.name ?? 'aircraft'} in MSFS${tele?.title ? ` — the sim has “${tele.title}” loaded` : ''}`} />
             </div>
           )
@@ -2663,7 +2663,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
                   {fleet.map(f => {
                     const here = f.locationIcao === state.currentIcao
                     const note = !f.rated ? ' · not rated' : !here ? ` · at ${f.locationIcao}, not here` : ''
-                    return <option key={f.id} value={f.id} disabled={!f.rated || !here}>{f.tail} · {f.name} — {f.locationIcao}{note}</option>
+                    return <option key={f.id} value={f.id} disabled={!f.rated || !here}>{f.name} · {f.tail} — {f.locationIcao}{note}</option>
                   })}
                 </select>
               </label>
@@ -5303,7 +5303,7 @@ function NetworkOps({ color }: { color: string }) {
           <tbody>{net.routes.map(r => (
             <tr key={r.id}>
               <td><b>{r.origin}</b> → <b>{r.dest}</b> <span className="muted">· {r.name}</span>
-                <div className="route-crew">{r.aircraftTail} · {r.crewName} · {r.seats} seats · {r.blockHoursPerDay.toFixed(1)} h/day</div></td>
+                <div className="route-crew">{r.aircraftName} <span className="loc">{r.aircraftTail}</span> · {r.crewName} · {r.seats} seats · {r.blockHoursPerDay.toFixed(1)} h/day</div></td>
               <td className="r num">{r.loadPct}%</td>
               <td className="r num">{pctFare(r.fareMultiplierMilli)}</td>
               <td className="r num">{Math.round(r.marketShareMilli / 10)}%</td>

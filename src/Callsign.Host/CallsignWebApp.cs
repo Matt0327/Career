@@ -1528,6 +1528,7 @@ public static class CallsignWebApp
             var staffN = await db.Staff.Where(s => s.CompanyId == pilot.CompanyId).ToDictionaryAsync(s => s.Id);
             var acN = await db.AircraftInstances.Where(a => a.CompanyId == pilot.CompanyId).ToDictionaryAsync(a => a.Id);
             var catN = await db.AircraftTypes.ToDictionaryAsync(t => t.Id, t => t.Category);
+            var nameN = await db.AircraftTypes.ToDictionaryAsync(t => t.Id, t => t.CanonicalName);
 
             var rowsN = new List<NetworkRouteDto>();
             long totRevDay = 0, totCostDay = 0; int totPaxDay = 0;
@@ -1548,7 +1549,8 @@ public static class CallsignWebApp
                 long revDay = (long)Math.Round(revTrip * tripsDay);
                 long costDay = (long)Math.Round(fuelTrip * tripsDay) + wageDay;
                 long crewCostTrip = tripsDay > 0 ? (long)Math.Round(wageDay / tripsDay) : wageDay;
-                rowsN.Add(new NetworkRouteDto(r.Id, r.Name, r.OriginIcao, r.DestIcao, ac?.Tail ?? "?", crew?.Name ?? "?",
+                string acName = ac != null && nameN.TryGetValue(ac.TypeId, out var nm) ? nm : "Aircraft";
+                rowsN.Add(new NetworkRouteDto(r.Id, r.Name, r.OriginIcao, r.DestIcao, ac?.Tail ?? "?", acName, crew?.Name ?? "?",
                     seats, (int)Math.Round(load / 10.0), r.PriceMultiplierMilli, (int)Math.Round(comp.YourShareMilli), r.ReliabilityMilli, comp.Rivals.Count,
                     r.RoundTripHours, tripsDay, blockHrsDay,
                     revTrip, fuelTrip, crewCostTrip, revTrip - fuelTrip - crewCostTrip, revDay, revDay - costDay));

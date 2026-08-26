@@ -156,7 +156,7 @@ public record NetworkSummaryDto(
     int RouteCount, int SeatsPerDay, int AvgLoadPct, int AvgReliabilityMilli, int AvgMarketShareMilli,
     long RevenuePerDayCents, long CostPerDayCents, long MarginPerDayCents, double AvgUtilisationHoursPerDay);
 public record NetworkRouteDto(
-    Guid Id, string Name, string Origin, string Dest, string AircraftTail, string CrewName,
+    Guid Id, string Name, string Origin, string Dest, string AircraftTail, string AircraftName, string CrewName,
     int Seats, int LoadPct, int FareMultiplierMilli, int MarketShareMilli, int ReliabilityMilli, int RivalCount,
     double RoundTripHours, double TripsPerDay, double BlockHoursPerDay,
     long RevenuePerTripCents, long FuelPerTripCents, long CrewCostPerTripCents, long MarginPerTripCents,

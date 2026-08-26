@@ -625,7 +625,7 @@ export interface RouteData {
 
 // Phase 14e — the Network Operations dashboard: the scheduled network with a full per-route P&L + totals.
 export interface NetworkRoute {
-  id: string; name: string; origin: string; dest: string; aircraftTail: string; crewName: string
+  id: string; name: string; origin: string; dest: string; aircraftTail: string; aircraftName: string; crewName: string
   seats: number; loadPct: number; fareMultiplierMilli: number; marketShareMilli: number; reliabilityMilli: number; rivalCount: number
   roundTripHours: number; tripsPerDay: number; blockHoursPerDay: number
   revenuePerTripCents: number; fuelPerTripCents: number; crewCostPerTripCents: number; marginPerTripCents: number
