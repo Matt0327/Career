@@ -16,9 +16,9 @@
 #ifndef AppVersion
   #define AppVersion "0.4.0"
 #endif
-#define AppName "Callsign"
-#define AppPublisher "Callsign"
-#define AppExe "Callsign.exe"
+#define AppName "BentoFly"
+#define AppPublisher "BentoFly"
+#define AppExe "BentoFly.exe"
 
 [Setup]
 AppId={{B9E1B2B0-1C3D-4E5F-A6B7-C8D9E0F10203}
@@ -30,7 +30,7 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=out
-OutputBaseFilename=Callsign-Setup-{#AppVersion}
+OutputBaseFilename=BentoFly-Setup-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -49,7 +49,7 @@ Name: "{userdesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"
 
 [Run]
-Filename: "{app}\{#AppExe}"; Description: "Launch Callsign now"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#AppExe}"; Description: "Launch BentoFly now"; Flags: nowait postinstall skipifsilent
 
 [Code]
 { True if the Microsoft Edge WebView2 Evergreen runtime is installed (machine- or per-user). }
@@ -69,8 +69,8 @@ var ErrorCode: Integer;
 begin
   if (CurStep = ssPostInstall) and (not IsWebView2Installed()) then
   begin
-    if MsgBox('Callsign needs the Microsoft Edge WebView2 runtime, which is not installed on this PC.' + #13#10#13#10 +
-              'Open the free download page now? (Install it, then launch Callsign.)',
+    if MsgBox('BentoFly needs the Microsoft Edge WebView2 runtime, which is not installed on this PC.' + #13#10#13#10 +
+              'Open the free download page now? (Install it, then launch BentoFly.)',
               mbConfirmation, MB_YESNO) = IDYES then
       ShellExec('', 'https://developer.microsoft.com/microsoft-edge/webview2/', '', '', SW_SHOW, ewNoWait, ErrorCode);
   end;

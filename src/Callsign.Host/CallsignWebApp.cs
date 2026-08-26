@@ -43,7 +43,7 @@ public static class CallsignWebApp
 
         // --- Database: one SQLite file (path overridable via config "Db:Path" / env Db__Path) ---
         var dbPath = builder.Configuration["Db:Path"]
-                     ?? Path.Combine(builder.Environment.ContentRootPath, "callsign.db");
+                     ?? Path.Combine(builder.Environment.ContentRootPath, "bentofly.db");
         // Apply a restore staged in a previous session BEFORE anything opens the file (the live DB can't
         // be swapped while held open), moving the current save aside rather than destroying it.
         SaveService.ApplyPendingRestore(dbPath);

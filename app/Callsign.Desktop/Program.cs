@@ -38,13 +38,34 @@ internal static class Program
         // after the launcher applies an update, relaunches into the new version. A no-op in a normal launch.
         VelopackApp.Build().Run();
 
-        // Per-user data folder for the SQLite save and the WebView2 cache. Deliberately "CallsignData",
-        // NOT "Callsign": Velopack installs the app itself into %LocalAppData%\Callsign and manages that
+        // Per-user data folder for the SQLite save and the WebView2 cache. Deliberately "BentoFlyData",
+        // NOT "BentoFly": Velopack installs the app itself into %LocalAppData%\BentoFly and manages that
         // folder on update — putting our data there collides with the installer. This lives outside it and
         // genuinely survives updates.
-        var dataDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CallsignData");
+        var localApp = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var dataDir = Path.Combine(localApp, "BentoFlyData");
+        // One-time rename from the pre-rebrand "CallsignData" folder, so an existing save (its SQLite db and its
+        // WebView2 cache) moves across whole rather than being orphaned. Best-effort: if the move can't complete
+        // (e.g. a file is locked), fall back to the old folder so the player never loses their career.
+        var legacyDataDir = Path.Combine(localApp, "CallsignData");
+        if (!Directory.Exists(dataDir) && Directory.Exists(legacyDataDir))
+        {
+            try { Directory.Move(legacyDataDir, dataDir); }
+            catch { dataDir = legacyDataDir; }
+        }
         Directory.CreateDirectory(dataDir);
+
+        // The SQLite save file, renamed from the pre-rebrand "callsign.db". This runs BEFORE the host opens the
+        // DB (the host thread starts below), so it's a safe file move — and we carry any WAL/journal sidecars with
+        // it so no committed data is left behind. Best-effort: if it can't move, keep using the old file.
+        var dbPath = Path.Combine(dataDir, "bentofly.db");
+        var legacyDb = Path.Combine(dataDir, "callsign.db");
+        if (!File.Exists(dbPath) && File.Exists(legacyDb))
+        {
+            foreach (var suffix in new[] { "", "-wal", "-shm", "-journal" })
+                try { if (File.Exists(legacyDb + suffix)) File.Move(legacyDb + suffix, dbPath + suffix); } catch { }
+            if (!File.Exists(dbPath)) dbPath = legacyDb;
+        }
 
         // Build + start the web host OFF the UI thread, exposing its loopback URL through a Task the launcher
         // awaits to enable Play. The ASP.NET host builder must not run on an STA thread (WinForms requires
@@ -60,7 +81,7 @@ internal static class Program
                     // Pin the content root to the app's own folder — never the process working
                     // directory, which may be a slow/odd path (a UNC share) that stalls startup.
                     $"--contentRoot={AppContext.BaseDirectory}",
-                    $"--Db:Path={Path.Combine(dataDir, "callsign.db")}",
+                    $"--Db:Path={dbPath}",
                     $"--Ui:Path={Path.Combine(AppContext.BaseDirectory, "wwwroot")}",
                     // A STABLE loopback port, so the WebView2 origin (which includes the port) is the SAME every
                     // launch. With a dynamic port, browser storage — the theme choice and the "tutorial seen"
