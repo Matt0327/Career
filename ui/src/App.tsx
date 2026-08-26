@@ -165,7 +165,12 @@ export function App() {
         {tab === 'airline' && <Airline onSaved={() => { void reload(); loadAirline() }} />}
         {tab === 'jobs' && <Jobs state={state} onChanged={reload} />}
         {tab === 'clients' && <Clients />}
-        {tab === 'flight' && <Flight state={state} onSettled={reload} />}
+        {/* The Flight tab stays MOUNTED even when another tab is active (hidden via display), so a flight in
+            progress keeps playing — its live log, telemetry and map all persist instead of resetting on a tab
+            switch. `active` lets the map re-fit itself when the tab is shown again. */}
+        <div style={{ display: tab === 'flight' ? 'contents' : 'none' }}>
+          <Flight state={state} onSettled={reload} active={tab === 'flight'} />
+        </div>
         {tab === 'hangar' && <Hangar state={state} onChanged={reload} />}
         {tab === 'ops' && <Ops onChanged={reload} />}
         {tab === 'bases' && <Bases state={state} onChanged={reload} />}
@@ -2187,7 +2192,7 @@ function CabinCard({ leg }: { leg: Assignment }) {
 // ignores telemetry entirely — so an always-streaming synthetic source, or a real sim sitting at some
 // unrelated spot, never paints a phantom "flight" before you've actually started one (the rule:
 // your aircraft lives where it is; the moving map only comes alive once you fly the leg).
-function FlightMap({ tele, leg, home, live }: { tele: Telemetry | null; leg?: Assignment | null; home?: { lat: number; lon: number; label: string } | null; live?: boolean }) {
+function FlightMap({ tele, leg, home, live, active }: { tele: Telemetry | null; leg?: Assignment | null; home?: { lat: number; lon: number; label: string } | null; live?: boolean; active?: boolean }) {
   const host = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
   const marker = useRef<L.Marker | null>(null)
@@ -2200,6 +2205,14 @@ function FlightMap({ tele, leg, home, live }: { tele: Telemetry | null; leg?: As
   const centred = useRef(false)
   const online = typeof navigator === 'undefined' ? true : navigator.onLine
   const armed = !!leg || !!live
+
+  // When the Flight tab is shown again after being hidden (display:none on another tab), leaflet has a stale
+  // 0×0 size — re-measure so the map paints correctly instead of showing grey/misaligned tiles.
+  useEffect(() => {
+    if (!active || !mapRef.current) return
+    const t = setTimeout(() => mapRef.current?.invalidateSize(), 60)
+    return () => clearTimeout(t)
+  }, [active])
 
   useEffect(() => {
     if (!host.current || !online) return
@@ -2332,7 +2345,7 @@ function FlightLog({ log }: { log: LogEntry[] }) {
   )
 }
 
-function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
+function Flight({ state, onSettled, active }: { state: State; onSettled: () => void; active: boolean }) {
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [begun, setBegun] = useState<Assignment | null>(null)
   const [freeFlight, setFreeFlight] = useState(false) // Phase 12 — flying with no job, tracked + logged
@@ -2586,7 +2599,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
         </div>
         <div className="hud-live">
           <div className="flightmap-wrap">
-            <FlightMap tele={tele} leg={begun} home={home} live={freeFlight} />
+            <FlightMap tele={tele} leg={begun} home={home} live={freeFlight} active={active} />
             <div className="fm-overlay">
               <span className="fm-phase num">{(begun || freeFlight) ? (tele?.phase ?? 'STANDING BY') : (home ? 'PARKED' : 'STANDING BY')}</span>
               <span className="fm-reads">
