@@ -2567,6 +2567,47 @@ function Flight({ state, onSettled, active }: { state: State; onSettled: () => v
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tele, link, begun, freeFlight, who, assignments, aircraftId, selAc, state.currentIcao])
 
+  // "Begin job" reminder (new): if you have a job ready to fly — right plane at the field, loaded, sim matching —
+  // but haven't armed it, nudge once a minute so a flight isn't silently left untracked because the button wasn't
+  // pressed. A ref holds the latest ready-state so the 60s interval never resets on every telemetry frame.
+  const readyToBeginRef = useRef(false)
+  useEffect(() => {
+    readyToBeginRef.current = !begun && !freeFlight && !who && link === 'Connected' && assignments.some(a =>
+      state.currentIcao === a.origin && selAc?.locationIcao === a.origin && !!aircraftId
+      && !needsLoad(a) && payloadFit(selAc, a.pax, a.weightLbs).ok && matchesSimTitle(tele?.title, selAc))
+  })
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (readyToBeginRef.current) {
+        notify('You have a job ready — press “Fly this job” below to begin, or the flight won’t be tracked.', 'warn')
+        addLog('warn', 'Reminder — press “Fly this job” to start; the leg isn’t being tracked yet.')
+      }
+    }, 60_000)
+    return () => clearInterval(id)
+  }, [addLog])
+
+  // Switched aircraft in the sim mid-job (new): if you armed a job, then ended the flight in MSFS and loaded a
+  // DIFFERENT plane, the armed job must not settle in the wrong aircraft. When we're armed but sitting stopped on
+  // the ground in a clearly different plane for a sustained spell, abort the leg — the job reopens to fly again.
+  const wrongPlaneSince = useRef<number | null>(null)
+  useEffect(() => {
+    if (!begun || link !== 'Connected' || !tele || !tele.title || !tele.onGround || tele.gs >= 3) {
+      wrongPlaneSince.current = null
+      return
+    }
+    if (matchesSimTitle(tele.title, selAc)) { wrongPlaneSince.current = null; return }
+    const t = Date.now()
+    wrongPlaneSince.current ??= t
+    if (t - wrongPlaneSince.current > 12_000) { // 12s of stopped, on the ground, wrong plane → not a transient
+      wrongPlaneSince.current = null
+      void api.abortFlight().catch(() => {})
+      setBegun(null); setCombo(new Set()); autoArmed.current = false
+      addLog('warn', `Flight cancelled — the sim is no longer flying ${selAc?.name ?? 'that aircraft'}. Re-arm the job once you're back in the right plane.`)
+      notify('Flight cancelled — you switched aircraft in the sim. Re-arm the job in the right plane.', 'warn')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tele, begun, link, selAc])
+
   // Bug #10 — on mount, fetch what the server is tracking, then re-adopt it once the pieces are loaded. The
   // flight never resets on a tab switch: leaving the tab only unmounted the view, the server flew on.
   useEffect(() => { api.flightLive().then(setPendingRestore).catch(() => {}) }, [])

@@ -1147,6 +1147,7 @@ export const api = {
   beginFlight: (assignmentId: string, aircraftInstanceId?: string, alsoAssignmentIds?: string[]) =>
     POST('/api/flight/begin', { assignmentId, aircraftInstanceId, alsoAssignmentIds }).then(ok),
   flightLive: () => fetch('/api/flight/live').then(ok<FlightLive>),
+  abortFlight: () => POST('/api/flight/abort', {}).then(ok),
   ledger: (limit = 50) => fetch(`/api/ledger?limit=${limit}`).then(ok<LedgerEntry[]>),
   flights: (skip = 0, take = 50): Promise<FlightLog[]> => fetch(`/api/flights?skip=${skip}&take=${take}`).then(ok<FlightLog[]>),
   flight: (id: string) => fetch(`/api/flights/${id}`).then(ok<FlightDetail>),

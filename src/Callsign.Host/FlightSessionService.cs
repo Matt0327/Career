@@ -122,6 +122,20 @@ public sealed class FlightSessionService : IDisposable
         catch { /* the sector readout is best-effort; settlement's own CheckArrivalAsync is the source of truth */ }
     }
 
+    /// <summary>Abandon whatever leg is armed (job / check / free) WITHOUT settling — e.g. the player ended the
+    /// flight in the sim and switched to a different aircraft, so the armed job must not be flown in the wrong
+    /// plane. Resets the tracker and clears the arm; the job stays open to fly again.</summary>
+    public void AbortFlight()
+    {
+        lock (_gate)
+        {
+            _tracker = new FlightTracker(); _sentEventCount = 0;
+            _assignmentId = null; _aircraftInstanceId = null; _alsoAssignmentIds = Array.Empty<Guid>();
+            _checkClass = null; _freeFlight = false;
+            _destIcao = ""; _destHasCoords = false;
+        }
+    }
+
     /// <summary>Begin a check-flight for a licence class (Phase 3d): the next landing is graded, not settled.</summary>
     public void BeginCheckFlight(QualClass cls)
     {

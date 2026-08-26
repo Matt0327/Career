@@ -2017,6 +2017,13 @@ public static class CallsignWebApp
             return Results.Ok(new { freeFlight = true });
         });
 
+        // Abandon the armed leg without settling (the player switched aircraft in the sim, etc.) — the job reopens.
+        app.MapPost("/api/flight/abort", (FlightSessionService session) =>
+        {
+            session.AbortFlight();
+            return Results.Ok(new { aborted = true });
+        });
+
         // Licence classes (Phase 3c/3d): the full ladder, flagged with what the pilot holds + the
         // check-flight fee to earn each — self-documenting.
         app.MapGet("/api/quals", async (CallsignDbContext db, QualificationService quals, EconomyConfig cfg) =>
