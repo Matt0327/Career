@@ -2258,7 +2258,7 @@ public static class CallsignWebApp
             var asm = typeof(CallsignWebApp).Assembly;
             var info = asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
                        ?? asm.GetName().Version?.ToString() ?? "0.0.0";
-            return Results.Ok(new { version = info.Split('+')[0], product = "Callsign" }); // drop +buildmetadata
+            return Results.Ok(new { version = info.Split('+')[0], product = "BentoFly" }); // drop +buildmetadata
         });
 
         // --- Save management: back up on demand, list/export snapshots, stage a restore for next launch ---

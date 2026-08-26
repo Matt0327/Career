@@ -74,9 +74,9 @@ internal sealed class LauncherForm : Form
             LaunchUrl = await SafeHostUrlAsync();
             if (LaunchUrl is null)
                 MessageBox.Show(
-                    "Callsign couldn't start: the display component (WebView2) and the engine both failed to start.\n\n" +
-                    "Install or repair the Microsoft Edge WebView2 runtime, then relaunch Callsign.",
-                    "Callsign — startup error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    "BentoFly couldn't start: the display component (WebView2) and the engine both failed to start.\n\n" +
+                    "Install or repair the Microsoft Edge WebView2 runtime, then relaunch BentoFly.",
+                    "BentoFly — startup error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             Close();
         }
     }
@@ -113,7 +113,7 @@ internal sealed class LauncherForm : Form
         if (update is null) return;     // already current
 
         var ver = update.TargetFullRelease.Version.ToString();
-        PostJson(new { type = "notes", title = $"Update {ver} is ready", body = "Downloading the latest Callsign now — it installs and relaunches on its own." });
+        PostJson(new { type = "notes", title = $"Update {ver} is ready", body = "Downloading the latest BentoFly now — it installs and relaunches on its own." });
         PostStatus("downloading", $"Downloading update {ver}…", 0, "Updating…");
         try
         {
@@ -124,7 +124,7 @@ internal sealed class LauncherForm : Form
             PostStatus("error", "Couldn't download the update — starting the current version.", null, "Play");
             return;
         }
-        PostStatus("downloading", "Installing update — Callsign will relaunch…", -1, "Updating…");
+        PostStatus("downloading", "Installing update — BentoFly will relaunch…", -1, "Updating…");
         try
         {
             // Apply SILENTLY: ApplyUpdatesAndRestart pops Velopack's own native "Installing update…" progress
@@ -149,7 +149,7 @@ internal sealed class LauncherForm : Form
         catch
         {
             // The engine failed — the app can't run this session. Closing the launcher exits (LaunchUrl stays null).
-            PostStatus("error", "The engine didn't start cleanly — please relaunch Callsign.", null, "Close");
+            PostStatus("error", "The engine didn't start cleanly — please relaunch BentoFly.", null, "Close");
         }
     }
 

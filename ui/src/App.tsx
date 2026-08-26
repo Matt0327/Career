@@ -199,7 +199,7 @@ function TitleBar() {
     <div className="wtitlebar"
       onPointerDown={e => { if ((e.target as HTMLElement).closest('.wbtn')) return; if (e.button === 0) winCmd('win:drag') }}
       onDoubleClick={() => winCmd('win:maximize')}>
-      <span className="wbrand">CALL<span className="dot">·</span>SIGN</span>
+      <span className="wbrand">BENTO<span className="dot">·</span>FLY</span>
       <span className="wsp" />
       <button className="wbtn" title="Minimize" aria-label="Minimize" onClick={() => winCmd('win:minimize')}>&#x2013;</button>
       <button className="wbtn" title="Maximize" aria-label="Maximize" onClick={() => winCmd('win:maximize')}>&#x25A1;</button>
@@ -274,7 +274,7 @@ const TAB_GUIDES: Partial<Record<Tab, { title: string; lead: string; points: str
     title: 'Fly your objectives', lead: 'Where an accepted job becomes a real flight in the simulator.',
     points: [
       'Pick an accepted job, load up, and fly it in MSFS.',
-      'Callsign watches your takeoff, cruise and landing live — nothing to press.',
+      'BentoFly watches your takeoff, cruise and landing live — nothing to press.',
       'Land well and you’re scored; the score drives your pay and your reputation.',
     ],
   },
@@ -335,7 +335,7 @@ const TAB_GUIDES: Partial<Record<Tab, { title: string; lead: string; points: str
     ],
   },
   settings: {
-    title: 'Preferences & your save', lead: 'Make Callsign yours, and keep your career safe.',
+    title: 'Preferences & your save', lead: 'Make BentoFly yours, and keep your career safe.',
     points: ['Theme and motion settings.', 'Back your career up to the cloud, or manage local save files.'],
   },
 }
@@ -422,7 +422,7 @@ function ContextHeader({ state, tab, onHelp }: { state: State; tab: Tab; onHelp?
     <header className="ctxbar">
       <div className="ctx-title">
         <div className="ctx-titlerow">
-          <h1>{meta?.label ?? 'Callsign'}</h1>
+          <h1>{meta?.label ?? 'BentoFly'}</h1>
           {onHelp && <button className="ctx-help" onClick={onHelp} title="What is this tab?" aria-label="What is this tab?">?</button>}
         </div>
         <div className="sub">{meta?.sub ?? ''}</div>
@@ -464,7 +464,7 @@ function navIcon(id: Tab) {
 }
 
 function Splash() {
-  return <div className="splash"><div className="mark big">◄</div><div>Loading Callsign…</div></div>
+  return <div className="splash"><div className="mark big">◄</div><div>Loading BentoFly…</div></div>
 }
 
 // Shown when the very first load fails for a reason other than "no career yet" (a 500, a locked DB, the
@@ -474,9 +474,9 @@ function StartupError({ error, onRetry }: { error: string; onRetry: () => void }
     <div className="onboard">
       <div className="onboard-card">
         <div className="onboard-body">
-          <div className="brand"><span className="mark">◄</span> CALLSIGN</div>
+          <div className="brand"><span className="mark">◄</span> BENTOFLY</div>
           <h1>Couldn't load your career</h1>
-          <p className="lede">Callsign reached the app but something went wrong loading your save. It's still on disk — this is usually temporary.</p>
+          <p className="lede">BentoFly reached the app but something went wrong loading your save. It's still on disk — this is usually temporary.</p>
           <div className="banner error">{error}</div>
           <div className="onboard-foot"><span /><button className="primary" onClick={onRetry}>Try again</button></div>
         </div>
@@ -581,7 +581,7 @@ const STARTERS = [
 function Onboarding({ onStarted }: { onStarted: () => void }) {
   const [step, setStep] = useState(0) // 0 account · 1 edition · 2 aircraft · 3 pilot · 4 ready
 
-  // Step 0 — account (Callsign Cloud). Account-first, but "Continue offline" never locks anyone out.
+  // Step 0 — account (BentoFly Cloud). Account-first, but "Continue offline" never locks anyone out.
   const [cloud, setCloud] = useState<CloudStatus | null>(null)
   const [mode, setMode] = useState<'login' | 'register'>('register')
   const [email, setEmail] = useState('')
@@ -650,7 +650,7 @@ function Onboarding({ onStarted }: { onStarted: () => void }) {
     <div className="onboard">
       <div className="onboard-card">
         <div className="onboard-top">
-          <div className="brand"><span className="mark">◄</span> CALLSIGN</div>
+          <div className="brand"><span className="mark">◄</span> BENTOFLY</div>
           <div className="step-dots">
             {[0, 1, 2, 3, 4].map(i => <span key={i} className={`dot ${i === step ? 'on' : ''} ${i < step ? 'done' : ''}`} />)}
           </div>
@@ -658,7 +658,7 @@ function Onboarding({ onStarted }: { onStarted: () => void }) {
 
         {step === 0 && (
           <div className="onboard-body" key="s0">
-            <h1>Welcome to Callsign</h1>
+            <h1>Welcome to BentoFly</h1>
             <p className="lede">A living career for Microsoft Flight Simulator 2024 — fly for hire, build an airline, climb the ranks. An account backs your career up to the cloud and carries it to any PC.</p>
             {signedIn ? (
               <>
@@ -711,7 +711,7 @@ function Onboarding({ onStarted }: { onStarted: () => void }) {
         {step === 1 && (
           <div className="onboard-body" key="s1">
             <h1>Your simulator edition</h1>
-            <p className="lede">Which edition of MSFS 2024 do you fly? This is your profile badge — it never limits what you can do in Callsign.</p>
+            <p className="lede">Which edition of MSFS 2024 do you fly? This is your profile badge — it never limits what you can do in BentoFly.</p>
             <div className="presets">
               {EDITIONS.map(e => (
                 <button key={e.key} type="button" className={`preset ${edition === e.key ? 'on' : ''}`} onClick={() => setEdition(e.key)}>
@@ -1050,7 +1050,7 @@ function Dashboard({ state, airline, go }: { state: State; airline: AirlineData 
           <ol>
             <li>Pick a job on the <b>Jobs</b> board — the reward is quoted and locked when you accept.</li>
             <li>Open <b>Flight</b>, begin the leg, and fly it in the sim.</li>
-            <li>Land at the destination — Callsign settles the job automatically and pays you, itemized.</li>
+            <li>Land at the destination — BentoFly settles the job automatically and pays you, itemized.</li>
           </ol>
           <p className="hint">Every dollar moves through the ledger, so the <b>Logbook</b> always reconciles with your cash.</p>
         </section>
@@ -2406,7 +2406,7 @@ function Flight({ state, onSettled }: { state: State; onSettled: () => void }) {
   const prevOpen = useRef(wsOpen), prevLink = useRef(link), prevPhase = useRef<string | null>(null)
   const loggedPhases = useRef<Set<string>>(new Set())
   useEffect(() => {
-    if (prevOpen.current !== wsOpen) { addLog(wsOpen ? 'ok' : 'warn', wsOpen ? 'Connected to Callsign.' : 'Connection lost — reconnecting…'); prevOpen.current = wsOpen }
+    if (prevOpen.current !== wsOpen) { addLog(wsOpen ? 'ok' : 'warn', wsOpen ? 'Connected to BentoFly.' : 'Connection lost — reconnecting…'); prevOpen.current = wsOpen }
   }, [wsOpen, addLog])
   useEffect(() => {
     if (prevLink.current === link) return
@@ -4519,7 +4519,7 @@ function Finances({ state, onChanged }: { state: State; onChanged: () => void })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `callsign-statement-${days}d-${new Date().toISOString().slice(0, 10)}.csv`
+    a.download = `bentofly-statement-${days}d-${new Date().toISOString().slice(0, 10)}.csv`
     document.body.appendChild(a); a.click(); a.remove()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
@@ -5768,7 +5768,7 @@ function Community() {
       <div className="grid">
         <section className="card">
           <h2>Community</h2>
-          <p className="hint">Leaderboards rank every Callsign pilot by net worth, flights, reputation, and XP. <b>Sign in under Settings → Callsign Cloud</b> to join and see where you stand.</p>
+          <p className="hint">Leaderboards rank every BentoFly pilot by net worth, flights, reputation, and XP. <b>Sign in under Settings → BentoFly Cloud</b> to join and see where you stand.</p>
         </section>
       </div>
     )
@@ -5809,7 +5809,7 @@ function Community() {
   )
 }
 
-// ─── Callsign Cloud account (sign in · cloud save) ───────────────────────────
+// ─── BentoFly Cloud account (sign in · cloud save) ───────────────────────────
 
 function CloudAccount() {
   const [status, setStatus] = useState<CloudStatus | null>(null)
@@ -5858,7 +5858,7 @@ function CloudAccount() {
   }
 
   const pull = async () => {
-    if (!await confirmDialog({ title: 'Replace your local save with the cloud copy?', message: 'Your current save is set aside as a backup, and Callsign loads the cloud one the next time it starts.', confirmLabel: 'Replace from cloud', tone: 'danger' })) return
+    if (!await confirmDialog({ title: 'Replace your local save with the cloud copy?', message: 'Your current save is set aside as a backup, and BentoFly loads the cloud one the next time it starts.', confirmLabel: 'Replace from cloud', tone: 'danger' })) return
     setBusy(true); setMsg(null)
     try {
       const r = await api.cloud.pull()
@@ -5872,10 +5872,10 @@ function CloudAccount() {
   return (
     <section className="card">
       <div className="row-head">
-        <h2>Callsign Cloud</h2>
+        <h2>BentoFly Cloud</h2>
         {signedIn && <button disabled={busy} onClick={signOut}>Sign out</button>}
       </div>
-            {staged && <div className="banner ok">Cloud save staged — <b>restart Callsign</b> to load it.</div>}
+            {staged && <div className="banner ok">Cloud save staged — <b>restart BentoFly</b> to load it.</div>}
 
       {!signedIn ? (
         <>
@@ -5948,7 +5948,7 @@ function Settings() {
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
   }
   const restore = async (name: string) => {
-    if (!await confirmDialog({ title: `Restore ${name}?`, message: 'Your current save is set aside as a backup, and Callsign loads the restored one the next time it starts.', confirmLabel: 'Restore', tone: 'danger' })) return
+    if (!await confirmDialog({ title: `Restore ${name}?`, message: 'Your current save is set aside as a backup, and BentoFly loads the restored one the next time it starts.', confirmLabel: 'Restore', tone: 'danger' })) return
     setBusy(true); setMsg(null)
     try { await api.restore(name); setStaged(true); setMsg(`Restore staged from ${name}.`) }
     catch (e) { setMsg(cleanErr(e)) } finally { setBusy(false) }
@@ -5960,7 +5960,7 @@ function Settings() {
       <section className="card">
         <h2>Preferences</h2>
         <div className="pref-row">
-          <div className="pref-text"><div className="pref-label">Theme</div><div className="hint">How Callsign looks. System follows your OS.</div></div>
+          <div className="pref-text"><div className="pref-label">Theme</div><div className="hint">How BentoFly looks. System follows your OS.</div></div>
           <div className="seg">
             {(['system', 'light', 'dark'] as Theme[]).map(t => (
               <button key={t} className={`seg-btn ${prefs.theme === t ? 'on' : ''}`} onClick={() => setPref({ theme: t })}>{t[0].toUpperCase() + t.slice(1)}</button>
@@ -5975,7 +5975,7 @@ function Settings() {
 
       <section className="card">
         <div className="row-head"><h2>Your save</h2><button className="primary" disabled={busy} onClick={backup}>Back up now</button></div>
-                {staged && <div className="banner ok">Restore staged — <b>restart Callsign</b> to load it.</div>}
+                {staged && <div className="banner ok">Restore staged — <b>restart BentoFly</b> to load it.</div>}
         <p className="hint">A backup is a full, self-contained copy of your career. Take one before a big change; download it to keep it safe off your PC, or restore it any time.</p>
         {backups.length === 0
           ? <div className="empty">No backups yet. Take one with “Back up now”.</div>
@@ -5999,8 +5999,8 @@ function Settings() {
 
       <section className="card">
         <h2>About</h2>
-        <p className="about-line">Callsign{ver ? <> · <span className="num">v{ver.version}</span></> : ''} — a career &amp; economy companion for Microsoft Flight Simulator 2024.</p>
-        <p className="hint">Your save and its <b>backups</b> folder live in <span className="num">%LOCALAPPDATA%\Callsign</span>. Every dollar runs through the ledger, so the Logbook always reconciles with your cash.</p>
+        <p className="about-line">BentoFly{ver ? <> · <span className="num">v{ver.version}</span></> : ''} — a career &amp; economy companion for Microsoft Flight Simulator 2024.</p>
+        <p className="hint">Your save and its <b>backups</b> folder live under your Windows <span className="num">local app-data</span>. Every dollar runs through the ledger, so the Logbook always reconciles with your cash.</p>
       </section>
     </div>
   )

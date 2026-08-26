@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Callsign</title>
+<title>BentoFly</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <!-- Ships best bundled locally (offline-proof); the CDN link is the design-time source. -->
@@ -133,8 +133,8 @@
     <div class="bg" id="bg"></div>
     <div class="scrim"></div>
     <div class="fg">
-      <h1 class="wordmark">CALL<span class="dot">·</span>SIGN</h1>
-      <p class="tagline">Your career, your callsign — the flight-sim company you actually run.</p>
+      <h1 class="wordmark">BENTO<span class="dot">·</span>FLY</h1>
+      <p class="tagline">Your career in the sky — the flight-sim company you actually run.</p>
     </div>
     <div class="news" id="news"><!-- news cards injected here --></div>
   </div>
@@ -212,7 +212,7 @@
   function renderNews(items){
     const host = $('news');
     if (!items || !items.length){
-      host.innerHTML = cardHtml({tag:'Welcome', title:'Welcome, Captain', body:'Callsign turns your Microsoft Flight Simulator flights into a real career — contracts, a fleet, crew, bases and a living economy. Fly the leg; we run the company.'})
+      host.innerHTML = cardHtml({tag:'Welcome', title:'Welcome, Captain', body:'BentoFly turns your Microsoft Flight Simulator flights into a real career — contracts, a fleet, crew, bases and a living economy. Fly the leg; we run the company.'})
         + cardHtml({tag:'Tip', title:'Start on the Jobs board', body:'Accept a contract, fly it in the sim, and settle it — your first payout, reputation and XP land the moment you park.'});
       return;
     }
