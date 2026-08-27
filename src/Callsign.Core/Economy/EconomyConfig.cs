@@ -502,6 +502,17 @@ public sealed record EconomyConfig
     /// more seats, losing it bleeds them, but always bounded.</summary>
     public double CompetitionLoadSwing { get; init; } = 0.15;
 
+    // --- Phase 16e: rival agency. The route's rivals aren't a fixed backdrop — dominate a route and they mobilise
+    // (a persistent RivalPressureMilli ratchets up, strengthening them and bleeding your share); retreat and it
+    // eases. A Network Planner's competitive defence keeps the pressure lower. Bounded, income-only (only ever feeds
+    // the already-clamped competition load swing), off the commodity market — pump-safe. ---
+    /// <summary>How much FULL rival pressure (100000) strengthens the rivals' pull — the ceiling of a price war.</summary>
+    public double CompetitionPressureRivalBoost { get; init; } = 0.60;
+    /// <summary>EMA rate each reconcile toward the pressure target your dominance provokes — how fast rivals react.</summary>
+    public double CompetitionPressureEmaAlpha { get; init; } = 0.20;
+    /// <summary>A full-competence Network Planner scales the rival-pressure target DOWN by up to this — you defend share.</summary>
+    public double NetworkPlannerCompetitionDefenseFactor { get; init; } = 0.55;
+
     // --- Phase 14c: reliability & disruptions. A scheduled route earns a rolling on-time record from the share of
     // its trips flown clean; a poor record dampens future demand (passengers avoid an unreliable line). Bounded,
     // income-only, off the commodity market — same pump-safety. ---

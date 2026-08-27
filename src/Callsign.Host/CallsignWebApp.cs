@@ -1500,8 +1500,8 @@ public static class CallsignWebApp
                     IReadOnlyList<RivalDto>? rivals = null;
                     if (r.SeatCapacity is int seatsR && r.SeatYieldCents is long yieldR)
                     {
-                        // Phase 14b — your market share vs the route's rivals flexes the live cabin fill.
-                        var comp = Callsign.Core.Economy.RouteCompetition.Evaluate(cfg, r.Id, repMilliR, r.PriceMultiplierMilli);
+                        // Phase 14b — your market share vs the route's rivals flexes the live cabin fill (16e — pressure-aware).
+                        var comp = Callsign.Core.Economy.RouteCompetition.Evaluate(cfg, r.Id, repMilliR, r.PriceMultiplierMilli, r.RivalPressureMilli);
                         double marketMult = comp.LoadMultiplier * cfg.ReliabilityLoadMultiplier(r.ReliabilityMilli); // 14b competition × 14c reliability
                         int liveLoad = Callsign.Core.Economy.ScheduledDemand.LoadFactorMilli(cfg, repMilliR, seasonR, r.PriceMultiplierMilli, marketMult);
                         effReward = Callsign.Core.Economy.ScheduledDemand.RevenuePerTripCents(seatsR, liveLoad, yieldR, r.PriceMultiplierMilli);
@@ -1549,7 +1549,7 @@ public static class CallsignWebApp
             foreach (var r in sched)
             {
                 int seats = r.SeatCapacity!.Value;
-                var comp = Callsign.Core.Economy.RouteCompetition.Evaluate(cfg, r.Id, repMilliN, r.PriceMultiplierMilli);
+                var comp = Callsign.Core.Economy.RouteCompetition.Evaluate(cfg, r.Id, repMilliN, r.PriceMultiplierMilli, r.RivalPressureMilli);
                 double marketMult = comp.LoadMultiplier * cfg.ReliabilityLoadMultiplier(r.ReliabilityMilli);
                 int load = Callsign.Core.Economy.ScheduledDemand.LoadFactorMilli(cfg, repMilliN, seasonN, r.PriceMultiplierMilli, marketMult);
                 long revTrip = Callsign.Core.Economy.ScheduledDemand.RevenuePerTripCents(seats, load, r.SeatYieldCents!.Value, r.PriceMultiplierMilli);
@@ -1567,7 +1567,7 @@ public static class CallsignWebApp
                 rowsN.Add(new NetworkRouteDto(r.Id, r.Name, r.OriginIcao, r.DestIcao, ac?.Tail ?? "?", acName, crew?.Name ?? "?",
                     seats, (int)Math.Round(load / 10.0), r.PriceMultiplierMilli, (int)Math.Round(comp.YourShareMilli), r.ReliabilityMilli, comp.Rivals.Count,
                     r.RoundTripHours, tripsDay, blockHrsDay,
-                    revTrip, fuelTrip, crewCostTrip, revTrip - fuelTrip - crewCostTrip, revDay, revDay - costDay));
+                    revTrip, fuelTrip, crewCostTrip, revTrip - fuelTrip - crewCostTrip, revDay, revDay - costDay, r.RivalPressureMilli));
                 totRevDay += revDay; totCostDay += costDay;
                 totPaxDay += (int)Math.Round(seats * (load / 1000.0) * tripsDay);
             }

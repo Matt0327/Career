@@ -625,6 +625,9 @@ public sealed class OperationsService
         int DutyCap(int baseTrips) => (int)Math.Floor(baseTrips * cooDutyMult);
         long Fueled(long fuelCents) => (long)Math.Round(fuelCents * cfoFuelMult);
         int Worn(int wearMilli) => (int)Math.Round(wearMilli * maintWearMult);
+        // Phase 16e — the Network Planner defends your share: it scales DOWN the rival-pressure your dominance
+        // provokes on scheduled routes (below). 0 with no holder → rivals mobilise unchecked.
+        double npDefense = CompOf(Callsign.Core.Domain.ExecutiveRole.NetworkPlanner) * _cfg.NetworkPlannerCompetitionDefenseFactor;
         int FlySkill(Staff? crew)
         {
             int penalty = (int)Math.Round((crew?.FatigueMilli ?? 0) / 100_000.0 * _cfg.CrewFatigueSkillPenaltyMax);
@@ -984,8 +987,15 @@ public sealed class OperationsService
                 double season = ScheduledDemand.SeasonMultiplier(_cfg, now);
                 // Phase 14b — your share of the route's market (vs its rivals) flexes the cabin fill; Phase 14c — a
                 // poor on-time record dampens demand too (passengers avoid an unreliable line). Both bounded.
-                var comp = RouteCompetition.Evaluate(_cfg, route.Id, repStartMilli, route.PriceMultiplierMilli);
+                var comp = RouteCompetition.Evaluate(_cfg, route.Id, repStartMilli, route.PriceMultiplierMilli, route.RivalPressureMilli);
                 double marketMult = comp.LoadMultiplier * _cfg.ReliabilityLoadMultiplier(route.ReliabilityMilli);
+                // Phase 16e — the rivals react: pressure eases toward the target your underlying dominance provokes
+                // (a Network Planner scales that target down). Dominate a line and the war escalates over passes;
+                // retreat and it cools. Applies next pass, so this pass's fill used the pressure as it stood.
+                int pressureTarget = RouteCompetition.PressureTarget(_cfg, route.Id, comp.RawShareMilli, npDefense);
+                route.RivalPressureMilli = Math.Clamp(
+                    (int)Math.Round(route.RivalPressureMilli + _cfg.CompetitionPressureEmaAlpha * (pressureTarget - route.RivalPressureMilli)),
+                    0, 100_000);
                 int liveLoad = ScheduledDemand.LoadFactorMilli(_cfg, repStartMilli, season, route.PriceMultiplierMilli, marketMult);
                 perTripReward = ScheduledDemand.RevenuePerTripCents(rtSeats, liveLoad, rtYield, route.PriceMultiplierMilli);
                 rollMarkup = 1000;

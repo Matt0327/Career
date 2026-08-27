@@ -5425,7 +5425,9 @@ function NetworkOps({ color }: { color: string }) {
                 <div className="route-crew">{r.aircraftName} <span className="loc">{r.aircraftTail}</span> · {r.crewName} · {r.seats} seats · {r.blockHoursPerDay.toFixed(1)} h/day</div></td>
               <td className="r num">{r.loadPct}%</td>
               <td className="r num">{pctFare(r.fareMultiplierMilli)}</td>
-              <td className="r num">{Math.round(r.marketShareMilli / 10)}%</td>
+              <td className="r num">{Math.round(r.marketShareMilli / 10)}%
+                {r.rivalPressureMilli >= 12000 && <div className={`rival-heat ${r.rivalPressureMilli >= 55000 ? 'hot' : 'warm'}`} title={`The rivals are mobilising against your dominance here — ${Math.round(r.rivalPressureMilli / 1000)}% pressure, bleeding your share. Ease the fare or hire a Network Planner to hold them off.`}>⚔ {Math.round(r.rivalPressureMilli / 1000)}%</div>}
+              </td>
               <td className={`r num ${relClass(r.reliabilityMilli)}`}>{Math.round(r.reliabilityMilli / 10)}%</td>
               <td className="r num">{r.tripsPerDay.toFixed(1)}</td>
               <td className="r num pos">{money(r.revenuePerTripCents)}</td>

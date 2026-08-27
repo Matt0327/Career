@@ -634,6 +634,7 @@ export interface NetworkRoute {
   roundTripHours: number; tripsPerDay: number; blockHoursPerDay: number
   revenuePerTripCents: number; fuelPerTripCents: number; crewCostPerTripCents: number; marginPerTripCents: number
   revenuePerDayCents: number; marginPerDayCents: number
+  rivalPressureMilli: number // Phase 16e — how hard the rivals are pushing back on this route
 }
 export interface NetworkSummary {
   routeCount: number; seatsPerDay: number; avgLoadPct: number; avgReliabilityMilli: number; avgMarketShareMilli: number

@@ -36,6 +36,12 @@ public sealed class Route : ISyncable
     /// = trusted), so a pre-14c route and any plain route are unchanged (L10).</summary>
     public int ReliabilityMilli { get; set; } = 1000;
 
+    /// <summary>Phase 16e — how hard the route's rival carriers are pushing back (thousandths, 0..100000). It
+    /// ratchets UP when you dominate the route (rivals mobilise — a price war) and eases when you retreat; high
+    /// pressure strengthens the rivals and bleeds your cabin fill. A Network Planner (16c executive) keeps it
+    /// lower. Default 0 = an unchallenged route, so a pre-16e route is unchanged (L10).</summary>
+    public int RivalPressureMilli { get; set; }
+
     public bool Active { get; set; } = true;
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset LastReconciledAt { get; set; } // reconcile watermark

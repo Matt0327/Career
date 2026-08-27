@@ -160,7 +160,7 @@ public record NetworkRouteDto(
     int Seats, int LoadPct, int FareMultiplierMilli, int MarketShareMilli, int ReliabilityMilli, int RivalCount,
     double RoundTripHours, double TripsPerDay, double BlockHoursPerDay,
     long RevenuePerTripCents, long FuelPerTripCents, long CrewCostPerTripCents, long MarginPerTripCents,
-    long RevenuePerDayCents, long MarginPerDayCents);
+    long RevenuePerDayCents, long MarginPerDayCents, int RivalPressureMilli = 0); // Phase 16e — how hard rivals are pushing
 public record RouteBaseDto(string Icao, string Name);
 public record CreateRouteRequest(string? Name, string OriginIcao, string DestIcao, Guid AircraftInstanceId, Guid StaffId, string Mission, int? PriceMultiplierMilli);
 public record ScheduledRouteRequest(string? Name, string OriginIcao, string DestIcao, Guid AircraftInstanceId, Guid StaffId, int? FareMultiplierMilli = null); // Phase 11f + 14a fare
