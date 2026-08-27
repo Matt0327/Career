@@ -763,7 +763,7 @@ public sealed class OperationsService
                 continue; // hold the leg until the certificate is renewed
             }
             var legCrew = await _db.Staff.FirstOrDefaultAsync(s => s.Id == leg.StaffId, ct);
-            int legSkill = legCrew?.SkillMilli ?? 50_000;
+            int legSkill = FlySkill(legCrew); // 16d — a fatigued crew flies the dispatch worse too (accrual stays a repeating-line mechanic: a one-off has no rest window)
             // One leg at the fair rate (markup 1000 → pFill 1.0: an accepted job never flies empty). Crew skill
             // still decides clean / minor scuff / diversion (half pay) / lost trip, seeded off the leg id.
             // Phase 13 — a hired pilot earns less than you flying it yourself (you skipped the seat).
@@ -791,7 +791,7 @@ public sealed class OperationsService
             if (legAircraft is not null)
             {
                 legAircraft.AirframeHours += leg.OneWayHours;
-                int wear = (int)Math.Round(leg.OneWayHours * _cfg.ConditionWearMilliPerHour) + roll.ExtraWearMilli;
+                int wear = Worn((int)Math.Round(leg.OneWayHours * _cfg.ConditionWearMilliPerHour) + roll.ExtraWearMilli); // Worn = −Maintenance Director (16d)
                 legAircraft.HullConditionMilli = Math.Max(0, legAircraft.HullConditionMilli - wear);
                 legAircraft.EngineConditionMilli = Math.Max(0, legAircraft.EngineConditionMilli - wear);
                 legAircraft.LocationIcao = leg.DestIcao;                       // one-way: the tail is now at the destination
