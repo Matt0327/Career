@@ -605,20 +605,26 @@ public sealed class OperationsService
         // still step-capped, never overshoots its target, and is hard-bounded to 100 — so this only ever helps,
         // within those rails. Executives are also paid a daily salary in the wage loop further down.
         var execs = await _db.Executives.Where(e => e.CompanyId == companyId && e.IsActive && !e.IsDeleted).ToListAsync(ct);
-        int orgSkillBoostMilli = ExecutiveService.OrgSkillBoostMilli(_cfg, ExecutiveService.OrgStrengthMilli(execs, _cfg.ExecutiveRoleCount));
+        // Phase 16f ratchet-only rail: if you can't afford the C-suite (cash below the same floor loans forbear at),
+        // they're FURLOUGHED this pass — unpaid (skipped in the salary loop below) and their effects don't apply, so
+        // an over-large org STALLS the operation instead of bleeding you toward ruin. Warned; fully recoverable once
+        // cash recovers (L9 / Law 4 — never a silent wipe-out). `effExecs` is the org that's actually working.
+        bool execsFurloughed = execs.Count > 0 && company.CashCents < _cfg.LoanDelinquencyCashFloorCents;
+        var effExecs = execsFurloughed ? new List<Callsign.Core.Domain.Executive>() : execs;
+        int orgSkillBoostMilli = ExecutiveService.OrgSkillBoostMilli(_cfg, ExecutiveService.OrgStrengthMilli(effExecs, _cfg.ExecutiveRoleCount));
         int Managed(int crewSkillMilli) => Math.Min(100_000, crewSkillMilli + orgSkillBoostMilli);
 
         // Phase 16d — crew fatigue. A crew's EFFECTIVE flying skill drops with fatigue (worse trip rolls + a
         // slower-growing name); duty on a line accrues it, the window's rest sheds it. A Chief Pilot's rostering
         // (a 16c executive) eases both ends. relief 0 when there's no Chief Pilot → fatigue is unmitigated. All
         // start at 0 fatigue, so the FIRST pass of any line is byte-identical to pre-16d; it accrues afterward.
-        var chiefPilot = execs.FirstOrDefault(e => e.Role == Callsign.Core.Domain.ExecutiveRole.ChiefPilot);
+        var chiefPilot = effExecs.FirstOrDefault(e => e.Role == Callsign.Core.Domain.ExecutiveRole.ChiefPilot);
         double fatigueRelief = chiefPilot is null ? 0.0 : Math.Clamp(chiefPilot.CompetenceMilli / 100_000.0 * _cfg.ChiefPilotFatigueReliefFactor, 0.0, 0.95);
 
         // Phase 16d specialists — each executive's own bounded lever on the autonomous operation (0 with no holder,
         // so byte-identical to before when the seat's empty). They interact: the COO's extra throughput burns more
         // crew fatigue, fuel and airframe unless the Chief Pilot / CFO / Maintenance Director offset it.
-        double CompOf(Callsign.Core.Domain.ExecutiveRole role) => (execs.FirstOrDefault(e => e.Role == role)?.CompetenceMilli ?? 0) / 100_000.0;
+        double CompOf(Callsign.Core.Domain.ExecutiveRole role) => (effExecs.FirstOrDefault(e => e.Role == role)?.CompetenceMilli ?? 0) / 100_000.0;
         double cooDutyMult = 1.0 + CompOf(Callsign.Core.Domain.ExecutiveRole.ChiefOperating) * _cfg.CooDutyBonusFactor;
         double cfoFuelMult = 1.0 - CompOf(Callsign.Core.Domain.ExecutiveRole.ChiefFinancial) * _cfg.CfoFuelDiscountFactor;
         double maintWearMult = 1.0 - CompOf(Callsign.Core.Domain.ExecutiveRole.MaintenanceDirector) * _cfg.MaintWearReductionFactor;
@@ -853,7 +859,16 @@ public sealed class OperationsService
         }
 
         // Phase 16c — executive salaries accrue like wages, on the same ledger path (the real cost of the org).
-        foreach (var e in execs)
+        // Phase 16f — but a C-suite you can't afford is FURLOUGHED (unpaid, effects already off above), so the org
+        // stalls instead of bleeding you: their LastPaidAt still advances so the unpaid gap is never retro-billed
+        // when cash recovers (same as loan forbearance). Warned in the digest; fully recoverable.
+        if (execsFurloughed)
+        {
+            long unpaidPerDay = execs.Sum(e => e.SalaryPerDayCents);
+            foreach (var e in execs) { e.LastPaidAt = now; e.UpdatedAt = now; }
+            loanWarnings.Add($"C-suite furloughed — {unpaidPerDay / 100m:C0}/day unpaid, their effects paused until cash recovers");
+        }
+        else foreach (var e in execs)
         {
             double execDays = (now - e.LastPaidAt).TotalDays;
             long salary = (long)Math.Round(execDays * e.SalaryPerDayCents);
