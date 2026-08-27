@@ -1161,7 +1161,7 @@ public static class CallsignWebApp
             var flyingIds = new HashSet<Guid>(await db.StandingOrders.Where(o => o.CompanyId == pilot.CompanyId && o.IsActive && !o.IsDeleted).Select(o => o.StaffId).ToListAsync());
             flyingIds.UnionWith(await db.Routes.Where(r => r.CompanyId == pilot.CompanyId && r.Active && !r.IsDeleted).Select(r => r.StaffId).ToListAsync());
             flyingIds.UnionWith(await db.DispatchLegs.Where(d => d.CompanyId == pilot.CompanyId && d.Status == DispatchStatus.Flying && !d.IsDeleted).Select(d => d.StaffId).ToListAsync()); // Phase 12 — a dispatched crew is flying too
-            return Results.Ok(staff.Select(s => new StaffDto(s.Id, s.Name, s.WagePerDayCents, s.SkillMilli, s.CurrentIcao, flyingIds.Contains(s.Id), s.Role.ToString())));
+            return Results.Ok(staff.Select(s => new StaffDto(s.Id, s.Name, s.WagePerDayCents, s.SkillMilli, s.CurrentIcao, flyingIds.Contains(s.Id), s.Role.ToString(), s.FatigueMilli)));
         });
 
         app.MapPost("/api/staff/hire", async (HireRequest req, CallsignDbContext db, OperationsService ops) =>

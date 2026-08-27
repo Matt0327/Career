@@ -3933,6 +3933,7 @@ function Ops({ onChanged }: { onChanged: () => void }) {
                   {s.flying
                     ? <span className="cr-status flying">Flying a line</span>
                     : <span className="cr-status idle">Idle · <span className="loc">{s.currentIcao ?? '—'}</span></span>}
+                  {s.fatigueMilli >= 8000 && <span className={`fatigue-pill ${s.fatigueMilli >= 60000 ? 'high' : s.fatigueMilli >= 30000 ? 'mid' : 'low'}`} title="Crew fatigue — a tired crew flies worse until they rest. A Chief Pilot eases it.">Fatigue {Math.round(s.fatigueMilli / 1000)}%</span>}
                 </div>
                 <div className="cr-skill" title={`Skill ${Math.round(s.skillMilli / 1000)}%`}>
                   <div className="cr-skill-bar"><div className="cr-skill-fill" style={{ width: `${Math.round(s.skillMilli / 1000)}%` }} /></div>

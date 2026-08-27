@@ -608,6 +608,26 @@ public sealed class OperationsService
         int orgSkillBoostMilli = ExecutiveService.OrgSkillBoostMilli(_cfg, ExecutiveService.OrgStrengthMilli(execs, _cfg.ExecutiveRoleCount));
         int Managed(int crewSkillMilli) => Math.Min(100_000, crewSkillMilli + orgSkillBoostMilli);
 
+        // Phase 16d — crew fatigue. A crew's EFFECTIVE flying skill drops with fatigue (worse trip rolls + a
+        // slower-growing name); duty on a line accrues it, the window's rest sheds it. A Chief Pilot's rostering
+        // (a 16c executive) eases both ends. relief 0 when there's no Chief Pilot → fatigue is unmitigated. All
+        // start at 0 fatigue, so the FIRST pass of any line is byte-identical to pre-16d; it accrues afterward.
+        var chiefPilot = execs.FirstOrDefault(e => e.Role == Callsign.Core.Domain.ExecutiveRole.ChiefPilot);
+        double fatigueRelief = chiefPilot is null ? 0.0 : Math.Clamp(chiefPilot.CompetenceMilli / 100_000.0 * _cfg.ChiefPilotFatigueReliefFactor, 0.0, 0.95);
+        int FlySkill(Staff? crew)
+        {
+            int penalty = (int)Math.Round((crew?.FatigueMilli ?? 0) / 100_000.0 * _cfg.CrewFatigueSkillPenaltyMax);
+            return Math.Clamp((crew?.SkillMilli ?? 50_000) - penalty, 0, 100_000);
+        }
+        void AccrueFatigue(Staff? crew, double dutyHours, double restHours)
+        {
+            if (crew is null) return;
+            double gain = dutyHours * _cfg.CrewFatiguePerDutyHourMilli * (1 - fatigueRelief);
+            double recover = restHours * _cfg.CrewFatigueRecoveryPerRestHourMilli * (1 + fatigueRelief);
+            crew.FatigueMilli = (int)Math.Clamp(crew.FatigueMilli + gain - recover, 0, 100_000);
+            crew.UpdatedAt = now;
+        }
+
         foreach (var o in await _db.StandingOrders.Where(o => o.CompanyId == companyId && o.IsActive && !o.IsDeleted).ToListAsync(ct))
         {
             double elapsedH = (now - o.LastReconciledAt).TotalHours;
@@ -642,7 +662,7 @@ public sealed class OperationsService
                             + (dAir is not null && !baseIcaos.Contains(o.DestIcao) ? _cfg.LandingFeeCents(dAir.Kind) : 0);
             // The crew flies each trip: their skill sets how often a trip is botched (a diversion — half pay).
             var soCrew = await _db.Staff.FirstOrDefaultAsync(s => s.Id == o.StaffId, ct);
-            var soRoll = RollTrips(_cfg, o.Id, o.LastReconciledAt.UtcTicks, flown, soCrew?.SkillMilli ?? 50_000, o.RewardPerTripCents, o.PriceMultiplierMilli);
+            var soRoll = RollTrips(_cfg, o.Id, o.LastReconciledAt.UtcTicks, flown, FlySkill(soCrew), o.RewardPerTripCents, o.PriceMultiplierMilli); // FlySkill = fatigue-adjusted (16d)
             long income = soRoll.Income;
             long fees = flown * feePerTrip;
             var stamp = o.LastReconciledAt.UtcTicks;
@@ -688,8 +708,9 @@ public sealed class OperationsService
             totalEmpty += soRoll.Empty;
             totalWeatheredOut += scrubbed;
             if (dutyCapped) dutyMaxed.Add(soAircraft?.Tail ?? $"{o.OriginIcao}↔{o.DestIcao}");
-            int soCrewSkillFlown = soCrew?.SkillMilli ?? 50_000; // capture BEFORE SharpenCrew — L12 converges toward the competence that actually FLEW these trips, not the post-trip skill bump
+            int soCrewSkillFlown = FlySkill(soCrew); // fatigue-adjusted competence that FLEW (16d), captured BEFORE SharpenCrew/AccrueFatigue — the L12 target
             SharpenCrew(soCrew, flown, now);
+            AccrueFatigue(soCrew, flown * o.RoundTripHours, Math.Max(0, elapsedH - flown * o.RoundTripHours)); // 16d — duty tires, the window's rest recovers
             repPullRaw += _cfg.OperatingRepCrewPullMilli(repStartMilli, Managed(soCrewSkillFlown), flown); // Phase 11a; Managed = +org (16c)
             repFracSum += _cfg.OperatingRepConvergeFrac(flown);
         }
@@ -958,7 +979,7 @@ public sealed class OperationsService
                 perTripReward = ScheduledDemand.RevenuePerTripCents(rtSeats, liveLoad, rtYield, route.PriceMultiplierMilli);
                 rollMarkup = 1000;
             }
-            var rtRoll = RollTrips(_cfg, route.Id, route.LastReconciledAt.UtcTicks, flown, rtCrew?.SkillMilli ?? 50_000, perTripReward, rollMarkup);
+            var rtRoll = RollTrips(_cfg, route.Id, route.LastReconciledAt.UtcTicks, flown, FlySkill(rtCrew), perTripReward, rollMarkup); // FlySkill = fatigue-adjusted (16d)
             long income = rtRoll.Income;
             if (flown > 0)
             {
@@ -1005,8 +1026,9 @@ public sealed class OperationsService
             totalEmpty += rtRoll.Empty;
             totalWeatheredOut += scrubbed;
             if (dutyCapped) dutyMaxed.Add(rtAircraft?.Tail ?? route.Name);
-            int rtCrewSkillFlown = rtCrew?.SkillMilli ?? 50_000; // capture BEFORE SharpenCrew (see the standing-order loop) — L12 target is the competence that flew
+            int rtCrewSkillFlown = FlySkill(rtCrew); // fatigue-adjusted competence that flew (16d), before SharpenCrew/AccrueFatigue
             SharpenCrew(rtCrew, flown, now);
+            AccrueFatigue(rtCrew, flown * route.RoundTripHours, Math.Max(0, elapsedH - flown * route.RoundTripHours)); // 16d
             repPullRaw += _cfg.OperatingRepCrewPullMilli(repStartMilli, Managed(rtCrewSkillFlown), flown); // Phase 11a; Managed = +org (16c)
             repFracSum += _cfg.OperatingRepConvergeFrac(flown);
         }

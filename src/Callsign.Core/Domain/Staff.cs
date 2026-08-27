@@ -17,6 +17,12 @@ public sealed class Staff : ISyncable
     public long WagePerDayCents { get; set; }
     public int SkillMilli { get; set; } = 50_000;   // 0..100000
 
+    /// <summary>Persistent crew fatigue (Phase 16d), 0..100000. Accrues with duty hours flown on autonomous
+    /// lines and recovers over rest; high fatigue cuts the crew's EFFECTIVE flying skill (more diversions, a
+    /// slower-growing name), so one crew can't be run round the clock without a cost. A Chief Pilot's rostering
+    /// (16c executive) slows the accrual and speeds recovery. Additive; 0 = fully rested (legacy rows read 0).</summary>
+    public int FatigueMilli { get; set; }
+
     /// <summary>
     /// Where this pilot currently is (Phase 12 crew-location realism). A hired pilot lives at a field: they
     /// are based where you recruit them, must be co-located with an aircraft to crew its line, and you pay to

@@ -509,6 +509,7 @@ export interface Staff {
   currentIcao: string | null // Phase 12 — where this pilot is based; null = un-positioned
   flying: boolean            // Phase 12 — crewing a live line (can't be repositioned/let go until freed)
   role: 'Pilot' | 'Manager'  // Phase 12 — a Manager runs a base (auto-services the fleet there)
+  fatigueMilli: number       // Phase 16d — persistent crew fatigue (0..100000); high = flies worse until rested
 }
 
 export interface DispatchLeg {

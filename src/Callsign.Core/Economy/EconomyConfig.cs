@@ -263,6 +263,19 @@ public sealed record EconomyConfig
     public int CrewProficiencyGainMilliPerTrip { get; init; } = 40;  // a hired pilot sharpens ~0.04%/trip flown — hire green cheap, they improve
     public int CrewSkillCeilingMilli { get; init; } = 80_000;        // experience tops out at 80% (Wave-2: was 95% — a hired crew stays good-not-flawless, so your OWN flying still sets the ceiling)
 
+    // --- Crew fatigue (Phase 16d) — persistent, on top of the per-pass duty cap above. Run one crew hard and
+    // they tire; a tired crew flies worse until they rest. A Chief Pilot's rostering (16c) softens both ends. ---
+    /// <summary>Fatigue gained per duty HOUR flown on an autonomous line (milli). ~8h of duty adds ~10 pts.</summary>
+    public double CrewFatiguePerDutyHourMilli { get; init; } = 1_250;
+    /// <summary>Fatigue shed per REST hour (a window's non-flying time). Rest outpaces a single day's duty so a
+    /// lightly-run crew stays fresh, but a crew flown at the duty cap every day drifts up.</summary>
+    public double CrewFatigueRecoveryPerRestHourMilli { get; init; } = 520;
+    /// <summary>Effective-skill points a FULLY fatigued crew (100000) loses — the performance cost of exhaustion.</summary>
+    public int CrewFatigueSkillPenaltyMax { get; init; } = 30_000;   // up to −30 skill points when wrecked
+    /// <summary>How much a full-competence Chief Pilot's rostering eases fatigue: net accrual is scaled by
+    /// (1 − relief) and recovery by (1 + relief), where relief = competence × this. 0 = no C-suite relief.</summary>
+    public double ChiefPilotFatigueReliefFactor { get; init; } = 0.5;
+
     // --- Airline operating reputation (Phase 11a) — the operation's own name, distinct from pilot reputation.
     // Money-neutral in 11a: these tunables move Company.OperatingReputationMilli only; no cash path is touched.
     // L12: the name moves TOWARD the competence of the crew you chose (autonomous legs) and by your own
