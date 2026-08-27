@@ -861,13 +861,6 @@ function Onboarding({ onStarted }: { onStarted: () => void }) {
 // breakdown, active-campaign progress, recent flights, and a live activity feed. Built almost entirely
 // from endpoints the rest of the app already serves — the Dashboard is the one screen that sees it all.
 
-// Availability → marker colour (network map) and → status-dot class (fleet chips).
-const AVAIL_TONE: Record<string, string> = {
-  Available: '#3ecf8e', InFlight: '#6d84ff', Reserved: '#d99a1c', Grounded: '#f26a5c',
-}
-const AVAIL_KEY: Record<string, string> = {
-  Available: 'ok', InFlight: 'fly', Reserved: 'rsv', Grounded: 'gnd',
-}
 
 interface DashAlert { level: 'bad' | 'warn' | 'info'; text: string; tab?: Tab; cta?: string }
 
@@ -877,7 +870,6 @@ function Dashboard({ state, airline, go, hatMode, onSwitchHat }: { state: State;
   const [rep, setRep] = useState<Reputation | null>(null)
   const [fleet, setFleet] = useState<OwnedAircraft[]>([])
   const [fin, setFin] = useState<FinancesData | null>(null)
-  const [bases, setBases] = useState<BaseView[]>([])
   const [flights, setFlights] = useState<FlightLog[]>([])
   const [ledger, setLedger] = useState<LedgerEntry[]>([])
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
@@ -887,7 +879,6 @@ function Dashboard({ state, airline, go, hatMode, onSwitchHat }: { state: State;
   const [routes, setRoutes] = useState<RouteData | null>(null)
   const [ins, setIns] = useState<Insurance | null>(null)
   const [loans, setLoans] = useState<Loans | null>(null)
-  const [selTail, setSelTail] = useState<string | null>(null)
 
   // The ops-sensitive slices reload after a settlement lands over the socket; the rest are load-once.
   const reloadOps = useCallback(() => {
@@ -905,7 +896,6 @@ function Dashboard({ state, airline, go, hatMode, onSwitchHat }: { state: State;
     api.reputation().then(setRep).catch(() => {})
     api.hangar().then(setFleet).catch(() => {})
     api.finances().then(setFin).catch(() => {})
-    api.bases().then(setBases).catch(() => {})
     api.flights().then(setFlights).catch(() => {})
     api.ledger(40).then(setLedger).catch(() => {})
     api.campaigns().then(setCampaigns).catch(() => {})
@@ -927,8 +917,7 @@ function Dashboard({ state, airline, go, hatMode, onSwitchHat }: { state: State;
 
   // Live link to the sim — the same socket the Flight tab uses. Gives us the honest link badge AND the
   // aircraft's live position so it can move on the network map. Any settlement refreshes the ops slices.
-  const { tele, wsOpen, link } = useTelemetry(reloadOps, () => {}, () => {})
-  const live = link === 'Connected' && !!tele && (tele.lat !== 0 || tele.lon !== 0)
+  useTelemetry(reloadOps, () => {}, () => {}) // keep the socket live so a settlement refreshes Home; readouts moved off Home (16f)
 
   const livery = airline?.identity.accentColorHex || '#6d84ff'
 
@@ -971,13 +960,11 @@ function Dashboard({ state, airline, go, hatMode, onSwitchHat }: { state: State;
   const sevOrder = { bad: 0, warn: 1, info: 2 } as const
   alerts.sort((a, b) => sevOrder[a.level] - sevOrder[b.level])
 
-  const activeTail = selTail ?? fleet[0]?.tail ?? null
-  const selAc = fleet.find(f => f.tail === activeTail) ?? null
 
   return (
     <div className="grid" style={{ ['--livery']: livery } as CSSProperties}>
       {hatMode && <HatBanner mode={hatMode} onSwitch={onSwitchHat} />}
-      <AirlineHero state={state} airline={airline} wsOpen={wsOpen} link={link} tele={tele} live={live} />
+      <AirlineHero state={state} airline={airline} />
 
       <DashCoach state={state} assignments={assignments} fleet={fleet} alerts={alerts} go={go} />
 
@@ -996,47 +983,8 @@ function Dashboard({ state, airline, go, hatMode, onSwitchHat }: { state: State;
       <AlertsPanel alerts={alerts} go={go} />
 
       <div className="dash-cols">
-        {/* Left column — the visual, image-forward half */}
-        <div className="dash-col">
-          <section className="card">
-            <div className="row-head">
-              <h2>Network</h2>
-              <span className="hint">
-                {bases.length} base{bases.length === 1 ? '' : 's'} · {fleet.length} airframe{fleet.length === 1 ? '' : 's'}
-                {live && <> · <span className="pos">live</span></>}
-              </span>
-            </div>
-            <NetworkMap bases={bases} fleet={fleet} assignments={assignments} tele={tele} link={link} selectedTail={activeTail} onSelect={setSelTail} />
-          </section>
-
-          <section className="card">
-            <div className="row-head"><h2>Fleet</h2><button className="ghost small" onClick={() => go('hangar')}>Manage →</button></div>
-            {fleet.length === 0
-              ? <div className="empty"><p>No aircraft yet.</p><button className="primary" onClick={() => go('hangar')}>Visit the hangar</button></div>
-              : <>
-                  <FleetStrip fleet={fleet} selectedTail={activeTail} onSelect={setSelTail} />
-                  {selAc && <FleetDetail a={selAc} go={go} />}
-                </>}
-          </section>
-
-          {(balances.length > 1 || fpms.length > 1) && (
-            <section className="card">
-              <h2>Trends</h2>
-              <div className="trends">
-                <div className="trend-cell">
-                  <div className="trend-head"><span className="metalabel">Cash balance</span><span className="num">{money(state.cashCents)}</span></div>
-                  <Trendline values={balances} tone="accent" />
-                </div>
-                <div className="trend-cell">
-                  <div className="trend-head"><span className="metalabel">Landing quality</span><span className="num">{fpms.length ? `${fpms[fpms.length - 1]} fpm` : '—'}</span></div>
-                  <Trendline values={fpms} tone="pos" />
-                </div>
-              </div>
-            </section>
-          )}
-        </div>
-
-        {/* Right column — the operational readouts */}
+        {/* Left — what actually needs you now. (Your Fleet lives in the Hangar, your map in Bases — no need
+            to duplicate them here; Home stays a "what do I do now" screen.) */}
         <div className="dash-col">
           <section className="card">
             <div className="row-head"><h2>Active assignments</h2>{assignments.length > 0 && <span className="hint">{assignments.length} accepted</span>}</div>
@@ -1069,6 +1017,25 @@ function Dashboard({ state, airline, go, hatMode, onSwitchHat }: { state: State;
           </section>
 
           {challenges.some(c => c.done && !c.claimed) && <DashChallengesCard challenges={challenges} onClaim={claimChallenge} />}
+        </div>
+
+        {/* Right — trends + everything else, folded so Home stays calm */}
+        <div className="dash-col">
+          {(balances.length > 1 || fpms.length > 1) && (
+            <section className="card">
+              <h2>Trends</h2>
+              <div className="trends">
+                <div className="trend-cell">
+                  <div className="trend-head"><span className="metalabel">Cash balance</span><span className="num">{money(state.cashCents)}</span></div>
+                  <Trendline values={balances} tone="accent" />
+                </div>
+                <div className="trend-cell">
+                  <div className="trend-head"><span className="metalabel">Landing quality</span><span className="num">{fpms.length ? `${fpms[fpms.length - 1]} fpm` : '—'}</span></div>
+                  <Trendline values={fpms} tone="pos" />
+                </div>
+              </div>
+            </section>
+          )}
 
           {/* Everything else about your operation — folded away by default so Home stays calm; one click to open. */}
           <details className="dash-more">
@@ -1108,15 +1075,13 @@ function Dashboard({ state, airline, go, hatMode, onSwitchHat }: { state: State;
   )
 }
 
-// The airline hero — emblem + livery + standing over an ambient band, now with a live sim-link readout.
-function AirlineHero({ state, airline, wsOpen, link, tele, live }: {
-  state: State; airline: AirlineData | null; wsOpen: boolean; link: string; tele: Telemetry | null; live: boolean
-}) {
+// The airline hero — emblem + livery + standing over an ambient band. (The sim-link readout lives on the
+// Flight tab now; it used to overlap the standing badge here — 16f.)
+function AirlineHero({ state, airline }: { state: State; airline: AirlineData | null }) {
   const id = airline?.identity
   const st = airline?.standing
   const color = id?.accentColorHex || '#6d84ff'
   const pct = st?.nextMove ? st.nextMove.progressPct : 100
-  const badge = linkBadge(wsOpen, link)
   return (
     <section className="hero">
       <div className="hero-amb" aria-hidden="true">
@@ -1125,11 +1090,6 @@ function AirlineHero({ state, airline, wsOpen, link, tele, live }: {
           <path d="M0 120 C 160 92 320 150 500 108 S 730 78 800 116" />
           <path d="M0 172 C 140 148 340 196 520 158 S 740 132 800 166" />
         </svg>
-      </div>
-      <div className="hero-link" title="Live link to your simulator">
-        <span className={`hlink-dot ${badge.tone}`} />
-        <span className="hlink-text">{link === 'Connected' ? 'Sim linked' : badge.text}</span>
-        {live && tele && <span className="hlink-live num">{Math.round(tele.alt).toLocaleString()} ft · {Math.round(tele.gs)} kt</span>}
       </div>
       <div className="hero-main">
         <div className="hero-badge"><Emblem emblem={id?.emblemKey || 'roundel'} color={color} size={60} /></div>
@@ -1201,181 +1161,6 @@ function AlertsPanel({ alerts, go }: { alerts: DashAlert[]; go: (t: Tab) => void
   )
 }
 
-// The satellite network map: home + bases (accent), every owned airframe at its parking spot (coloured
-// by availability, fanned out when they share a field), active-assignment legs (dashed), and the live
-// aircraft (a plane marker that tracks in real time off telemetry). Click an airframe to drill into it.
-function NetworkMap({ bases, fleet, assignments, tele, link, selectedTail, onSelect }: {
-  bases: BaseView[]; fleet: OwnedAircraft[]; assignments: Assignment[]
-  tele: Telemetry | null; link: string; selectedTail: string | null; onSelect: (tail: string) => void
-}) {
-  const host = useRef<HTMLDivElement>(null)
-  const mapRef = useRef<L.Map | null>(null)
-  const dataLayer = useRef<L.LayerGroup | null>(null)
-  const planeRef = useRef<L.Marker | null>(null)
-  const acMarkers = useRef<Record<string, { mk: L.CircleMarker; color: string }>>({})
-  const onSelRef = useRef(onSelect); onSelRef.current = onSelect
-  const online = typeof navigator === 'undefined' ? true : navigator.onLine
-
-  const plottedBases = bases.filter(b => b.latitude !== 0 || b.longitude !== 0)
-  const plottedFleet = fleet.filter(f => f.lat !== 0 || f.lon !== 0)
-  // The map div only renders once there's something to plot; the init effect must re-run when that flips,
-  // or the map is created against a null ref and never initialises (the dashboard-map black-box bug).
-  const empty = plottedBases.length === 0 && plottedFleet.length === 0
-  const legs = assignments.filter(a => (a.destLat !== 0 || a.destLon !== 0) && (a.originLat !== 0 || a.originLon !== 0))
-  const sig = [
-    ...plottedBases.map(b => `b:${b.icao}:${b.isHome ? 'h' : ''}`),
-    ...plottedFleet.map(f => `a:${f.tail}@${f.locationIcao}:${f.availability}`),
-    ...legs.map(a => `l:${a.origin}-${a.dest}`),
-  ].join('|')
-
-  useEffect(() => {
-    if (!host.current || !online) return
-    const map = L.map(host.current, { attributionControl: true, zoomControl: true, worldCopyJump: true }).setView([25, 0], 2)
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-      attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics', maxZoom: 18,
-    }).addTo(map)
-    dataLayer.current = L.layerGroup().addTo(map)
-    mapRef.current = map
-    const t = setTimeout(() => map.invalidateSize(), 60) // WebView2 flex layout can settle a beat late
-    return () => { clearTimeout(t); map.remove(); mapRef.current = null; dataLayer.current = null; planeRef.current = null; acMarkers.current = {} }
-  }, [online, empty])
-
-  // (Re)draw bases, fleet, and active legs whenever the plotted data changes.
-  useEffect(() => {
-    const map = mapRef.current, layer = dataLayer.current
-    if (!map || !layer) return
-    layer.clearLayers(); acMarkers.current = {}
-
-    for (const a of legs) {
-      L.polyline([[a.originLat, a.originLon], [a.destLat, a.destLon]], { color: '#6d84ff', weight: 2, opacity: .55, dashArray: '6 8' }).addTo(layer)
-      L.circleMarker([a.destLat, a.destLon], { radius: 4, weight: 1.5, color: '#6d84ff', fillColor: '#6d84ff', fillOpacity: .5 })
-        .addTo(layer).bindTooltip(a.dest, { direction: 'top', className: 'sat-tip' })
-    }
-    for (const b of plottedBases) {
-      if (b.isHome) L.circleMarker([b.latitude, b.longitude], { radius: 13, weight: 0, fillColor: '#6d84ff', fillOpacity: .14 }).addTo(layer)
-      L.circleMarker([b.latitude, b.longitude], { radius: b.isHome ? 6 : 5, weight: 2, color: '#e9eef5', fillColor: '#6d84ff', fillOpacity: .9 })
-        .addTo(layer).bindTooltip(`${b.icao}${b.isHome ? ' · home' : ''}`, { permanent: b.isHome, direction: 'right', className: 'sat-tip', offset: [6, 0] })
-    }
-    // Fan out airframes that share a field so they don't stack on one pixel.
-    const seen: Record<string, number> = {}
-    for (const f of plottedFleet) {
-      const n = (seen[f.locationIcao] = (seen[f.locationIcao] ?? 0) + 1)
-      const off = (n - 1) * 0.06
-      const color = AVAIL_TONE[f.availability] ?? '#8a97a7'
-      const mk = L.circleMarker([f.lat + off, f.lon + off], { radius: 5, weight: 1.5, color, fillColor: color, fillOpacity: .85 }).addTo(layer)
-      mk.bindTooltip(`${f.tail} · ${f.name}`, { direction: 'top', className: 'sat-tip' })
-      mk.on('click', () => onSelRef.current(f.tail))
-      acMarkers.current[f.tail] = { mk, color }
-    }
-
-    const layers: L.Layer[] = []
-    layer.eachLayer(l => layers.push(l))
-    if (layers.length) {
-      const bounds = L.featureGroup(layers).getBounds()
-      if (bounds.isValid()) {
-        // When everything sits at one field (e.g. a single base + its parked aircraft), the bounds are a
-        // zero-area point — fitBounds then computes a broken zoom and the map renders black. Just centre it.
-        if (bounds.getNorthEast().equals(bounds.getSouthWest())) map.setView(bounds.getCenter(), 9)
-        else try { map.fitBounds(bounds.pad(0.3), { maxZoom: 8 }) } catch { map.setView(bounds.getCenter(), 8) }
-      }
-    }
-    const t = setTimeout(() => map.invalidateSize(), 60)
-    return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sig, online])
-
-  // The live aircraft — a plane marker driven straight off telemetry frames.
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map) return
-    // Only a genuinely AIRBORNE aircraft gets a live plane marker; a parked plane is already shown by its
-    // fleet dot at its field, and the synthetic source's idle frames are zeroed server-side. This keeps a
-    // phantom "flight" off the network map before a leg is actually flown.
-    const isLive = link === 'Connected' && tele && !tele.onGround && (tele.lat !== 0 || tele.lon !== 0)
-    if (!isLive) { if (planeRef.current) { planeRef.current.remove(); planeRef.current = null } return }
-    const pos: [number, number] = [tele!.lat, tele!.lon]
-    if (!planeRef.current) planeRef.current = L.marker(pos, { icon: planeIcon(0), interactive: false, zIndexOffset: 1000 }).addTo(map)
-    else planeRef.current.setLatLng(pos)
-  }, [tele, link])
-
-  // Selection highlight.
-  useEffect(() => {
-    for (const [tail, { mk, color }] of Object.entries(acMarkers.current)) {
-      const on = tail === selectedTail
-      mk.setRadius(on ? 8 : 5)
-      mk.setStyle({ weight: on ? 3 : 1.5, color: on ? '#ffffff' : color })
-      if (on) mk.bringToFront()
-    }
-  }, [selectedTail, sig])
-
-  if (!online) return <div className="empty" style={{ padding: 16 }}>The network map needs a connection for satellite imagery.</div>
-  if (empty) return <div className="empty" style={{ padding: 16 }}>No mapped bases or aircraft yet.</div>
-  return <div className="satmap dashmap" ref={host} role="img" aria-label="Network map" />
-}
-
-// The fleet carousel — a horizontally-scrolling strip of airframe chips (thumbnail, tail, location,
-// worst-condition %). Selecting one drives the map highlight + the detail panel below.
-function FleetStrip({ fleet, selectedTail, onSelect }: { fleet: OwnedAircraft[]; selectedTail: string | null; onSelect: (tail: string) => void }) {
-  return (
-    <div className="fleet-strip">
-      {fleet.map(a => {
-        const worst = Math.min(a.hullConditionMilli, a.engineConditionMilli)
-        const tone = worst < 40000 ? 'neg' : worst < 70000 ? 'warn' : 'pos'
-        return (
-          <button key={a.id} type="button" className={`fleet-chip ${selectedTail === a.tail ? 'on' : ''}`} onClick={() => onSelect(a.tail)}>
-            <AircraftImage typeId={a.typeId} category={a.category} mini />
-            <div className="fc-body">
-              <div className="fc-name">{a.name}</div>
-              <div className="fc-tail loc">{a.tail}</div>
-              <div className="fc-foot">
-                <span className={`fc-dot ${AVAIL_KEY[a.availability] ?? ''}`} />
-                <span className="muted loc">{a.locationIcao}</span>
-                {a.maintenanceDue && <span className="warn-text">● svc</span>}
-              </div>
-            </div>
-            <span className={`fc-cond num ${tone}`}>{Math.round(worst / 1000)}%</span>
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-// The drill-down for the selected airframe — full imagery, hull + engine rings, and the specs the
-// backend now surfaces (seats, useful load, cruise, min runway), plus rating + next-service status.
-function FleetDetail({ a, go }: { a: OwnedAircraft; go: (t: Tab) => void }) {
-  const avail = a.availability === 'Available'
-  return (
-    <div className="fleet-detail">
-      <AircraftImage typeId={a.typeId} category={a.category} />
-      <div className="fd-head">
-        <div>
-          <div className="fd-name">{a.name}</div>
-          <div className="fd-tail loc">{a.tail}<span className="muted"> · {spaced(a.category)}</span></div>
-        </div>
-        <span className={`avail-pill ${avail ? 'ok' : ''}`}>{spaced(a.availability)}</span>
-      </div>
-      <div className="fd-rings">
-        <ConditionRing label="Hull" milli={a.hullConditionMilli} />
-        <ConditionRing label="Engine" milli={a.engineConditionMilli} />
-        <div className="fd-specs">
-          <div><span className="metalabel">Based</span><span className="loc">{a.locationIcao}</span></div>
-          <div><span className="metalabel">Airframe</span><span className="num">{a.airframeHours.toFixed(1)} h</span></div>
-          <div><span className="metalabel">Seats</span><span className="num">{a.seats ?? '—'}</span></div>
-          <div><span className="metalabel">Useful load</span><span className="num">{a.usefulLoadLbs ? `${a.usefulLoadLbs.toLocaleString()} lb` : '—'}</span></div>
-          <div><span className="metalabel">Cruise</span><span className="num">{a.cruiseKtas ? `${a.cruiseKtas} kt` : '—'}</span></div>
-          <div><span className="metalabel">Min rwy</span><span className="num">{a.minRunwayFt ? `${a.minRunwayFt.toLocaleString()} ft` : '—'}</span></div>
-        </div>
-      </div>
-      <div className="fd-foot">
-        {a.rated ? <span className="pos">Rated to fly</span> : <span className="warn-text" title={`Needs ${a.requiredClass}`}>● Not rated · {a.requiredClass}</span>}
-        {a.maintenanceDue
-          ? <button className="primary small" onClick={() => go('hangar')}>Service · {money(a.maintenanceQuoteCents)}</button>
-          : <span className="muted num">Next service {money(a.maintenanceQuoteCents)}</span>}
-      </div>
-    </div>
-  )
-}
 
 // A short "resets in …" for a period boundary, so the player feels the clock.
 function resetsIn(iso: string): string {
