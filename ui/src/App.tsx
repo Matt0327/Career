@@ -5520,7 +5520,7 @@ function OrgPanel({ org, color, onChanged }: { org: Org; color: string; onChange
             <div className="oseat-role"><b>{s.title}</b><span className="muted">{s.mandate}</span></div>
             {s.holder ? (
               <div className="oseat-holder">
-                <span><span className="oh-name">{s.holder.name}</span><span className="muted"> · {Math.round(s.holder.competenceMilli / 1000)}% · {money(s.holder.salaryPerDayCents)}/day</span></span>
+                <span><span className="oh-name">{s.holder.name}</span><span className="muted"> · {Math.round(s.holder.competenceMilli / 1000)}% · {money(s.holder.salaryPerDayCents)}/day</span>{s.effect && <span className="oseat-effect" style={{ color }}>{s.effect}</span>}</span>
                 <button className="ghost small" disabled={busy} onClick={() => dismiss(s.holder!.id, s.holder!.name)}>Let go</button>
               </div>
             ) : marketRole === s.role ? (

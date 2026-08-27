@@ -339,6 +339,7 @@ input { font: inherit; }
 .oseat-role .muted { font-size: 13px; }
 .oseat-holder { display: flex; align-items: center; gap: 12px; }
 .oseat-holder .oh-name { font-weight: 600; }
+.oseat-effect { display: block; font-size: 12px; font-weight: 600; margin-top: 2px; }
 .oseat-market { display: flex; flex-direction: column; gap: 7px; align-items: flex-end; }
 .ocand { display: flex; align-items: center; gap: 10px; font-size: 13.5px; }
 .org-seat button { padding: 6px 12px; font-size: 13px; border-radius: 8px; cursor: pointer; white-space: nowrap; }

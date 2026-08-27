@@ -339,7 +339,7 @@ public static class CallsignWebApp
     {
         var org = await exec.GetOrgAsync(companyId);
         return new OrgDto(org.StrengthMilli, org.RolesFilled, org.RoleCount, org.DailySalaryCents, org.OpsSkillBoostMilli,
-            org.Seats.Select(s => new ExecutiveSeatDto(s.Role.ToString(), s.Title, s.Mandate, s.Holder is null ? null : MapExec(s.Holder))).ToList());
+            org.Seats.Select(s => new ExecutiveSeatDto(s.Role.ToString(), s.Title, s.Mandate, s.Holder is null ? null : MapExec(s.Holder), s.Effect)).ToList());
     }
 
     private static async Task<Dictionary<string, string>> AirportNamesAsync(CallsignDbContext db, IEnumerable<string> idents)

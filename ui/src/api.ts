@@ -1007,6 +1007,7 @@ export interface ExecutiveSeat {
   title: string
   mandate: string
   holder: Executive | null
+  effect: string | null // Phase 16f — the live effect this holder's competence is having
 }
 export interface Org {
   strengthMilli: number

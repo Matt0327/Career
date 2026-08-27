@@ -9,8 +9,9 @@ namespace Callsign.Core.Economy;
 /// player-set — regenerated server-side on hire so it can't be tampered with.</summary>
 public sealed record ExecutiveCandidate(int Seed, ExecutiveRole Role, string Name, long SalaryPerDayCents, int CompetenceMilli);
 
-/// <summary>One seat on the org chart — its role, what it runs, and whoever holds it (null = vacant).</summary>
-public sealed record ExecutiveSeat(ExecutiveRole Role, string Title, string Mandate, Executive? Holder);
+/// <summary>One seat on the org chart — its role, what it runs, whoever holds it (null = vacant), and (when
+/// filled) a short readout of the LIVE effect that holder's competence is having on the operation (Phase 16f).</summary>
+public sealed record ExecutiveSeat(ExecutiveRole Role, string Title, string Mandate, Executive? Holder, string? Effect);
 
 /// <summary>The whole org at a glance: every seat (filled or vacant), the management strength the filled seats
 /// add up to (0–100000), the total daily salary, and how much that strength lifts autonomous ops.</summary>
@@ -55,6 +56,23 @@ public sealed class ExecutiveService
 
     private static string TitleOf(ExecutiveRole r) => Catalog.First(c => c.Role == r).Title;
 
+    /// <summary>A short, live readout of what a seated executive's competence is doing to the operation right now —
+    /// so the org's depth is legible (Phase 16f). Derived from the same config factors the reconcile applies.</summary>
+    public static string SeatEffect(EconomyConfig cfg, ExecutiveRole role, int competenceMilli)
+    {
+        double c = Math.Clamp(competenceMilli, 0, 100_000) / 100_000.0;
+        int Pct(double factor) => (int)Math.Round(c * factor * 100);
+        return role switch
+        {
+            ExecutiveRole.ChiefOperating      => $"+{Pct(cfg.CooDutyBonusFactor)}% autonomous throughput",
+            ExecutiveRole.ChiefFinancial      => $"-{Pct(cfg.CfoFuelDiscountFactor)}% fuel cost",
+            ExecutiveRole.ChiefPilot          => $"crews tire ~{Pct(cfg.ChiefPilotFatigueReliefFactor)}% slower",
+            ExecutiveRole.NetworkPlanner      => $"-{Pct(cfg.NetworkPlannerCompetitionDefenseFactor)}% rival pressure",
+            ExecutiveRole.MaintenanceDirector => $"-{Pct(cfg.MaintWearReductionFactor)}% airframe wear",
+            _ => "",
+        };
+    }
+
     // --- Pure org math (also used by ReconcileAsync via the static helpers) ---
 
     /// <summary>The org's management strength (0–100000): the average competence of the filled seats, scaled by
@@ -88,7 +106,11 @@ public sealed class ExecutiveService
     {
         var active = await _db.Executives.Where(e => e.CompanyId == companyId && e.IsActive && !e.IsDeleted).ToListAsync(ct);
         var byRole = active.GroupBy(e => e.Role).ToDictionary(g => g.Key, g => g.OrderByDescending(e => e.CompetenceMilli).First());
-        var seats = Catalog.Select(c => new ExecutiveSeat(c.Role, c.Title, c.Mandate, byRole.GetValueOrDefault(c.Role))).ToList();
+        var seats = Catalog.Select(c =>
+        {
+            var holder = byRole.GetValueOrDefault(c.Role);
+            return new ExecutiveSeat(c.Role, c.Title, c.Mandate, holder, holder is null ? null : SeatEffect(_cfg, c.Role, holder.CompetenceMilli));
+        }).ToList();
         int strength = OrgStrengthMilli(active, _cfg.ExecutiveRoleCount);
         long salary = active.Sum(e => e.SalaryPerDayCents);
         return new OrgReadout(strength, byRole.Count, _cfg.ExecutiveRoleCount, salary, OrgSkillBoostMilli(_cfg, strength), seats);
