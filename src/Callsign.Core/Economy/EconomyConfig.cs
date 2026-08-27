@@ -782,6 +782,16 @@ public sealed record EconomyConfig
     /// <summary>Extra daily salary per competence point (0–100) — an ace C-suite hire is dear.</summary>
     public long ExecutiveSalaryCentsPerCompetencePoint { get; init; } = 1_400; // +$14/day per point → ~$1,800/day at 100
 
+    // Each executive's SPECIALTY (Phase 16d specialists) — a bounded lever on the autonomous operation, scaled by
+    // competence, ON TOP of the shared org-strength reputation lift. They interact: a COO makes you fly more, which
+    // burns more crew/fuel/airframe unless a Chief Pilot / CFO / Maintenance Director offsets it. 0 = no holder.
+    /// <summary>COO at 100% raises the autonomous duty cap (trips/pass) by up to this fraction — more throughput.</summary>
+    public double CooDutyBonusFactor { get; init; } = 0.30;
+    /// <summary>CFO at 100% cuts autonomous fuel cost by up to this fraction — procurement + hedging.</summary>
+    public double CfoFuelDiscountFactor { get; init; } = 0.20;
+    /// <summary>Maintenance Director at 100% slows airframe wear on autonomous legs by up to this fraction.</summary>
+    public double MaintWearReductionFactor { get; init; } = 0.35;
+
     // Enterprise-valuation goodwill weights (informational; the airline's "worth" as a going concern). Retunable.
     /// <summary>Brand value per point of operating reputation — a fully-reputed airline (100) is worth $5M of brand.</summary>
     public long AirlineRepValuationCents { get; init; } = 5_000_000;

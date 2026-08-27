@@ -614,6 +614,17 @@ public sealed class OperationsService
         // start at 0 fatigue, so the FIRST pass of any line is byte-identical to pre-16d; it accrues afterward.
         var chiefPilot = execs.FirstOrDefault(e => e.Role == Callsign.Core.Domain.ExecutiveRole.ChiefPilot);
         double fatigueRelief = chiefPilot is null ? 0.0 : Math.Clamp(chiefPilot.CompetenceMilli / 100_000.0 * _cfg.ChiefPilotFatigueReliefFactor, 0.0, 0.95);
+
+        // Phase 16d specialists — each executive's own bounded lever on the autonomous operation (0 with no holder,
+        // so byte-identical to before when the seat's empty). They interact: the COO's extra throughput burns more
+        // crew fatigue, fuel and airframe unless the Chief Pilot / CFO / Maintenance Director offset it.
+        double CompOf(Callsign.Core.Domain.ExecutiveRole role) => (execs.FirstOrDefault(e => e.Role == role)?.CompetenceMilli ?? 0) / 100_000.0;
+        double cooDutyMult = 1.0 + CompOf(Callsign.Core.Domain.ExecutiveRole.ChiefOperating) * _cfg.CooDutyBonusFactor;
+        double cfoFuelMult = 1.0 - CompOf(Callsign.Core.Domain.ExecutiveRole.ChiefFinancial) * _cfg.CfoFuelDiscountFactor;
+        double maintWearMult = 1.0 - CompOf(Callsign.Core.Domain.ExecutiveRole.MaintenanceDirector) * _cfg.MaintWearReductionFactor;
+        int DutyCap(int baseTrips) => (int)Math.Floor(baseTrips * cooDutyMult);
+        long Fueled(long fuelCents) => (long)Math.Round(fuelCents * cfoFuelMult);
+        int Worn(int wearMilli) => (int)Math.Round(wearMilli * maintWearMult);
         int FlySkill(Staff? crew)
         {
             int penalty = (int)Math.Round((crew?.FatigueMilli ?? 0) / 100_000.0 * _cfg.CrewFatigueSkillPenaltyMax);
@@ -646,7 +657,7 @@ public sealed class OperationsService
 
             // FTL: the lone crew can only fly so many duty hours per day. Cap the trips to that — the rest of
             // the window is rest, not deferred flying — so one pilot can't run a tail round the clock.
-            int soMaxTrips = _cfg.AutonomousTripsFlown(elapsedH, o.RoundTripHours); // duty cap — same formula the UI shows as "trips ready"
+            int soMaxTrips = DutyCap(_cfg.AutonomousTripsFlown(elapsedH, o.RoundTripHours)); // duty cap (+COO throughput, 16d)
             int trips = Math.Min(rawTrips, soMaxTrips);
             bool dutyCapped = trips < rawTrips;
             if (trips <= 0)
@@ -672,7 +683,7 @@ public sealed class OperationsService
                 double hours = flown * o.RoundTripHours;
                 var aircraft = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == o.AircraftInstanceId, ct);
                 var soType = aircraft is not null ? await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == aircraft.TypeId, ct) : null;
-                long fuel = aircraft is not null ? _cfg.EstimatedFuelCents(soType?.Category ?? AircraftCategory.Unknown, hours) : 0; // Wave-2: autonomous legs pay fuel too
+                long fuel = Fueled(aircraft is not null ? _cfg.EstimatedFuelCents(soType?.Category ?? AircraftCategory.Unknown, hours) : 0); // Wave-2: autonomous legs pay fuel; Fueled = −CFO (16d)
 
                 var postings = new List<LedgerPosting>
                 {
@@ -690,7 +701,7 @@ public sealed class OperationsService
                 if (aircraft is not null)
                 {
                     aircraft.AirframeHours += hours;
-                    int wear = (int)Math.Round(hours * _cfg.ConditionWearMilliPerHour) + soRoll.ExtraWearMilli;
+                    int wear = Worn((int)Math.Round(hours * _cfg.ConditionWearMilliPerHour) + soRoll.ExtraWearMilli); // Worn = −Maintenance Director (16d)
                     aircraft.HullConditionMilli = Math.Max(0, aircraft.HullConditionMilli - wear);
                     aircraft.EngineConditionMilli = Math.Max(0, aircraft.EngineConditionMilli - wear);
                     aircraft.UpdatedAt = now;
@@ -754,7 +765,7 @@ public sealed class OperationsService
             long fees = (oAir is not null && !baseIcaos.Contains(leg.OriginIcao) ? _cfg.LandingFeeCents(oAir.Kind) : 0)
                       + (dAir is not null && !baseIcaos.Contains(leg.DestIcao) ? _cfg.LandingFeeCents(dAir.Kind) : 0);
             var legType = legAircraft is not null ? await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == legAircraft.TypeId, ct) : null;
-            long fuel = legAircraft is not null ? _cfg.EstimatedFuelCents(legType?.Category ?? AircraftCategory.Unknown, leg.OneWayHours) : 0; // Wave-2: dispatched legs pay fuel too
+            long fuel = Fueled(legAircraft is not null ? _cfg.EstimatedFuelCents(legType?.Category ?? AircraftCategory.Unknown, leg.OneWayHours) : 0); // Wave-2: dispatched legs pay fuel; Fueled = −CFO (16d)
             var postings = new List<LedgerPosting>
             {
                 new(LedgerCategory.JobPayout, roll.Income / 100m, $"Dispatch {leg.OriginIcao}→{leg.DestIcao} ({leg.ClientName ?? leg.Commodity})",
@@ -950,7 +961,7 @@ public sealed class OperationsService
                 continue; // held until serviced (Law 4)
             }
 
-            int rtMaxTrips = _cfg.AutonomousTripsFlown(elapsedH, route.RoundTripHours); // duty cap — same formula the UI shows as "trips ready"
+            int rtMaxTrips = DutyCap(_cfg.AutonomousTripsFlown(elapsedH, route.RoundTripHours)); // duty cap (+COO throughput, 16d)
             int trips = Math.Min(rawTrips, rtMaxTrips);
             bool dutyCapped = trips < rawTrips;
             if (trips <= 0)
@@ -986,7 +997,7 @@ public sealed class OperationsService
                 double hours = flown * route.RoundTripHours;
                 var aircraft = await _db.AircraftInstances.FirstOrDefaultAsync(a => a.Id == route.AircraftInstanceId, ct);
                 var rtType = aircraft is not null ? await _db.AircraftTypes.FirstOrDefaultAsync(t => t.Id == aircraft.TypeId, ct) : null;
-                long fuel = aircraft is not null ? _cfg.EstimatedFuelCents(rtType?.Category ?? AircraftCategory.Unknown, hours) : 0; // Wave-2: routes pay fuel too
+                long fuel = Fueled(aircraft is not null ? _cfg.EstimatedFuelCents(rtType?.Category ?? AircraftCategory.Unknown, hours) : 0); // Wave-2: routes pay fuel; Fueled = −CFO (16d)
 
                 var postings = new List<LedgerPosting>
                 {
@@ -1001,7 +1012,7 @@ public sealed class OperationsService
                 if (aircraft is not null)
                 {
                     aircraft.AirframeHours += hours;
-                    int wear = (int)Math.Round(hours * _cfg.ConditionWearMilliPerHour) + rtRoll.ExtraWearMilli;
+                    int wear = Worn((int)Math.Round(hours * _cfg.ConditionWearMilliPerHour) + rtRoll.ExtraWearMilli); // Worn = −Maintenance Director (16d)
                     aircraft.HullConditionMilli = Math.Max(0, aircraft.HullConditionMilli - wear);
                     aircraft.EngineConditionMilli = Math.Max(0, aircraft.EngineConditionMilli - wear);
                     aircraft.UpdatedAt = now;
